@@ -48,10 +48,3 @@ def require_org_member(org_id: str, db: Session, user: User) -> OrgUser:
     if not membership:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not an org member")
     return membership
-
-
-def require_org_role(org_id: str, roles: list[str], db: Session, user: User) -> OrgUser:
-    membership = require_org_member(org_id, db, user)
-    if membership.role not in roles:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
-    return membership

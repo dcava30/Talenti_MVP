@@ -16,15 +16,17 @@ Talenti's backend is powered by FastAPI. All endpoints require authentication un
 2. [Rate Limiting](#rate-limiting)
 3. [Core Routes](#core-routes)
 4. [AI & Platform Routes](#ai--platform-routes)
-   - [ACS Token](#acs-token)
-   - [ACS Webhook](#acs-webhook)
-   - [AI Interviewer Chat](#ai-interviewer-chat)
-   - [Interview Scoring](#interview-scoring)
-   - [Resume Parsing](#resume-parsing)
-   - [Extract Requirements](#extract-requirements)
-   - [Shortlist Generation](#shortlist-generation)
-   - [Azure Speech Token](#azure-speech-token)
-   - [Data Retention Cleanup](#data-retention-cleanup)
+   - [acs-token-generator](#acs-token-generator)
+   - [acs-webhook-handler](#acs-webhook-handler)
+   - [ai-interviewer](#ai-interviewer)
+   - [azure-speech-token](#azure-speech-token)
+   - [create-organisation](#create-organisation)
+   - [data-retention-cleanup](#data-retention-cleanup)
+   - [extract-requirements](#extract-requirements)
+   - [generate-shortlist](#generate-shortlist)
+   - [parse-resume](#parse-resume)
+   - [score-interview](#score-interview)
+   - [send-invitation](#send-invitation)
 5. [Error Codes](#error-codes)
 6. [Webhook Events](#webhook-events)
 
@@ -184,6 +186,101 @@ Request a SAS upload URL for Azure Blob Storage.
 
 ## AI & Platform Routes
 
+### POST /api/auth/register
+
+Create a new user.
+
+**Endpoint:** `POST /api/v1/acs/token`
+
+**Response:**
+```json
+{
+  "id": "user-uuid",
+  "email": "user@example.com",
+  "full_name": "Ada Lovelace",
+  "created_at": "2026-01-13T12:00:00Z"
+}
+```
+
+### POST /api/auth/login
+
+Authenticate and receive an access token. Refresh token is set as httpOnly cookie.
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com",
+  "password": "strong-password"
+}
+```
+
+**Response:**
+```json
+{
+  "access_token": "eyJ...",
+  "token_type": "bearer"
+}
+```
+
+### GET /api/auth/me
+
+| Status | Description |
+|--------|-------------|
+| 401 | Unauthorized - invalid or missing token |
+| 429 | Rate limit exceeded |
+| 500 | AZURE_ACS_CONNECTION_STRING not configured |
+
+**Required Secrets:**
+- `AZURE_ACS_CONNECTION_STRING`
+
+Create an organisation and assign the current user as admin.
+
+**Request Body:**
+```json
+{
+  "name": "Talenti",
+  "description": "AI interview platform",
+  "industry": "HR Tech",
+  "website": "https://talenti.app"
+}
+```
+
+### POST /api/roles
+
+Create a job role for an organisation.
+
+**Endpoint:** `POST /api/v1/acs/webhook`
+
+### POST /api/invitations
+
+Create an interview invitation.
+
+**Request Body:**
+```json
+{
+  "application_id": "app-uuid",
+  "candidate_email": "candidate@example.com",
+  "expires_at": "2026-01-13T12:00:00Z"
+}
+```
+
+### POST /api/storage/upload-url
+
+Request a SAS upload URL for Azure Blob Storage.
+
+**Request Body:**
+```json
+{
+  "organisation_id": "org-uuid",
+  "file_name": "resume.pdf",
+  "content_type": "application/pdf"
+}
+```
+
+---
+
+## AI & Platform Routes
+
 ### ACS Token
 
 **Endpoint:** `POST /api/v1/acs/token`  
@@ -206,42 +303,9 @@ Request a SAS upload URL for Azure Blob Storage.
 }
 ```
 
----
-
-### ACS Webhook
-
-**Endpoint:** `POST /api/v1/acs/webhook`  
-**Authentication:** Event Grid validation (no JWT)
-
-**Response (validation event):**
-```json
-{ "validationResponse": "abc123" }
-```
-
----
-
-### AI Interviewer Chat
-
-**Endpoint:** `POST /api/v1/interview/chat`  
-**Authentication:** Required
-
-**Request Body:**
-```json
-{
-  "interview_id": "int-123",
-  "messages": [{ "role": "user", "content": "Hello" }],
-  "job_title": "Senior Software Engineer",
-  "job_description": "We're looking for..."
-}
-```
-
-**Response:**
-```json
-{
-  "reply": "Thanks for sharing. Could you expand on ...",
-  "usage_tokens": 123
-}
-```
+**Required Secrets:**
+- `ACS_WEBHOOK_SECRET`
+- `JWT_SECRET`
 
 ---
 
@@ -250,14 +314,7 @@ Request a SAS upload URL for Azure Blob Storage.
 **Endpoint:** `POST /api/v1/scoring/analyze`  
 **Authentication:** Required
 
-**Request Body:**
-```json
-{
-  "interview_id": "int-123",
-  "transcript": [{ "speaker": "candidate", "content": "..." }],
-  "rubric": { "communication": 0.4, "technical": 0.6 }
-}
-```
+**Endpoint:** `POST /api/v1/interview/chat`
 
 **Response:**
 ```json
@@ -300,22 +357,8 @@ Request a SAS upload URL for Azure Blob Storage.
 **Endpoint:** `POST /api/v1/roles/extract-requirements`  
 **Authentication:** Required
 
-**Request Body:**
-```json
-{
-  "job_role_id": "role-123",
-  "job_description": "..."
-}
-```
-
-**Response:**
-```json
-{
-  "skills": ["5+ years experience"],
-  "responsibilities": ["..."],
-  "qualifications": ["..."]
-}
-```
+**Required Secrets:**
+- `AZURE_OPENAI_API_KEY`
 
 ---
 
@@ -324,13 +367,7 @@ Request a SAS upload URL for Azure Blob Storage.
 **Endpoint:** `POST /api/v1/shortlist/generate`  
 **Authentication:** Required
 
-**Request Body:**
-```json
-{
-  "job_role_id": "role-123",
-  "candidates": [{ "application_id": "app-1", "score": 0.9 }]
-}
-```
+**Endpoint:** `POST /api/v1/speech/token`
 
 **Response:**
 ```json

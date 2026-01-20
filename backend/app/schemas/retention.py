@@ -2,7 +2,6 @@ from pydantic import BaseModel
 
 
 class RetentionCleanupRequest(BaseModel):
-    organisation_id: str
     retention_days: int
 
 

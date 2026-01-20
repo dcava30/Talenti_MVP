@@ -3,7 +3,6 @@ from pydantic import BaseModel
 
 
 class AcsTokenRequest(BaseModel):
-    interview_id: str
     scopes: list[str] = ["voip"]
 
 
