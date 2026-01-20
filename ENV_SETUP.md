@@ -69,36 +69,43 @@ npm run dev
 # Navigate to http://localhost:5173
 ```
 
-The app will start with Lovable Cloud already configured - no additional setup needed for basic development.
+The app will start with local defaults for basic development, but Azure credentials are required for full functionality.
 
 ---
 
 ## Environment Variables
 
-### Automatic Configuration (Lovable Cloud)
+### Frontend Configuration
 
-When using Lovable Cloud, these variables are automatically provided:
+These variables configure the React frontend:
 
 | Variable | Description | Auto-configured |
 |----------|-------------|-----------------|
-| `VITE_SUPABASE_URL` | Supabase project URL | ✅ Yes |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase anon key | ✅ Yes |
-| `VITE_SUPABASE_PROJECT_ID` | Project identifier | ✅ Yes |
+| `VITE_API_BASE_URL` | FastAPI base URL | ✅ Yes |
+| `VITE_AZURE_SPEECH_REGION` | Azure region for Speech (if needed client-side) | ⚠️ |
+| `VITE_AZURE_ACS_RESOURCE` | ACS resource name (if needed client-side) | ⚠️ |
 
-### Backend Secrets (Edge Functions)
+### Backend Secrets (FastAPI)
 
-These secrets are configured in Lovable Cloud dashboard and available to edge functions:
+These secrets are configured in your environment or Azure Key Vault:
 
 | Secret | Required | Description |
 |--------|----------|-------------|
-| `SUPABASE_URL` | ✅ | Supabase URL (auto) |
-| `SUPABASE_ANON_KEY` | ✅ | Anon key (auto) |
-| `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Service role key (auto) |
-| `LOVABLE_API_KEY` | ✅ | AI gateway key (auto) |
-| `ACS_CONNECTION_STRING` | ⚠️ | Azure Communication Services |
-| `ACS_WEBHOOK_SECRET` | ⚠️ | Webhook signature secret |
+| `DATABASE_URL` | ✅ | SQLite path (e.g., `sqlite:///./data/app.db`) |
+| `JWT_SECRET` | ✅ | JWT signing secret |
+| `JWT_ISSUER` | ✅ | JWT issuer |
+| `JWT_AUDIENCE` | ✅ | JWT audience |
+| `AZURE_STORAGE_ACCOUNT` | ✅ | Azure Storage account name |
+| `AZURE_STORAGE_ACCOUNT_KEY` | ✅ | Azure Storage account key for SAS |
+| `AZURE_STORAGE_CONTAINER` | ✅ | Blob container name |
+| `AZURE_STORAGE_SAS_TTL_MINUTES` | ✅ | SAS token TTL in minutes |
+| `AZURE_ACS_CONNECTION_STRING` | ⚠️ | ACS connection string |
 | `AZURE_SPEECH_KEY` | ⚠️ | Azure Speech Services key |
 | `AZURE_SPEECH_REGION` | ⚠️ | Azure region (e.g., australiaeast) |
+| `AZURE_OPENAI_ENDPOINT` | ✅ | Azure OpenAI endpoint |
+| `AZURE_OPENAI_API_KEY` | ✅ | Azure OpenAI API key |
+| `AZURE_OPENAI_DEPLOYMENT` | ✅ | Azure OpenAI deployment name |
+| `ACS_WEBHOOK_SECRET` | ⚠️ | Webhook signature secret |
 | `RESEND_API_KEY` | ⚠️ | Email service API key |
 | `SITE_URL` | ⚠️ | Production URL |
 
@@ -106,13 +113,12 @@ These secrets are configured in Lovable Cloud dashboard and available to edge fu
 
 ---
 
-## Backend Setup (Lovable Cloud)
+## Backend Setup
 
 ### Accessing the Backend
 
-1. Open Lovable project dashboard
-2. Navigate to "Connectors" → "Lovable Cloud"
-3. Click "View Backend" to access database and settings
+1. Ensure `DATABASE_URL` points to a local SQLite file path
+2. Run the FastAPI app (see `backend/app/main.py`)
 
 ### Database Schema
 
@@ -128,24 +134,9 @@ The database schema is managed through migrations. Current tables:
 - `interview_scores` - AI scoring results
 - `invitations` - Interview invites
 
-### Edge Functions
+### FastAPI Routes
 
-Edge functions are deployed automatically when you push code. Located in `supabase/functions/`:
-
-```
-supabase/functions/
-├── acs-token-generator/
-├── acs-webhook-handler/
-├── ai-interviewer/
-├── azure-speech-token/
-├── create-organisation/
-├── data-retention-cleanup/
-├── extract-requirements/
-├── generate-shortlist/
-├── parse-resume/
-├── score-interview/
-└── send-invitation/
-```
+API routes are implemented in `backend/app/api/` and mounted in `backend/app/main.py`.
 
 ---
 
@@ -172,17 +163,16 @@ Required for video calling functionality.
 
 1. Go to "Events" in your ACS resource
 2. Click "Event Subscription"
-3. Set endpoint: `https://<project-id>.supabase.co/functions/v1/acs-webhook-handler`
+3. Set endpoint: `https://<your-api-host>/api/v1/acs/webhook`
 4. Select events:
    - Microsoft.Communication.CallStarted
    - Microsoft.Communication.CallEnded
    - Microsoft.Communication.RecordingFileStatusUpdated
 
-#### 4. Add to Lovable Secrets
+#### 4. Add to Backend Secrets
 
-1. Open Lovable project settings
-2. Add secret: `ACS_CONNECTION_STRING` = your connection string
-3. Add secret: `ACS_WEBHOOK_SECRET` = generated secret for webhook validation
+1. Add secret: `AZURE_ACS_CONNECTION_STRING` = your connection string
+2. Add secret: `ACS_WEBHOOK_SECRET` = generated secret for webhook validation
 
 ### Azure Speech Services
 
@@ -206,6 +196,7 @@ Required for speech-to-text and text-to-speech.
 
 1. Add secret: `AZURE_SPEECH_KEY` = your key
 2. Add secret: `AZURE_SPEECH_REGION` = region (e.g., `australiaeast`)
+3. Add secret: `AZURE_STORAGE_ACCOUNT_KEY` = storage account key
 
 ---
 
@@ -298,6 +289,7 @@ npm run lint
 
 **Solution:**
 1. Verify `AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION` are set
+2. Verify `AZURE_STORAGE_ACCOUNT_KEY` is set for SAS generation
 2. Check browser has microphone permissions
 3. Test in Chrome (best WebRTC support)
 

@@ -104,12 +104,10 @@ src/
 │   ├── useSpeechRecognition.ts
 │   └── useSpeechSynthesis.ts
 │
-├── integrations/        # External integrations
-│   └── supabase/
-│       ├── client.ts    # Supabase client
-│       └── types.ts     # Generated types
-│
 ├── lib/                 # Utility functions
+│   ├── apiClient.ts     # FastAPI client wrapper
+│   ├── authClient.ts    # JWT session helpers
+│
 │   ├── auditLog.ts
 │   ├── generateInterviewReport.ts
 │   ├── scoring.ts
@@ -155,7 +153,7 @@ src/
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
-import { supabase } from '@/integrations/supabase/client';
+import { apiClient } from '@/lib/apiClient';
 
 // 2. Types/Interfaces
 interface ComponentNameProps {
@@ -261,12 +259,7 @@ const buttonVariants = cva(
 const { data, isLoading, error, refetch } = useQuery({
   queryKey: ['interviews', roleId],
   queryFn: async () => {
-    const { data, error } = await supabase
-      .from('interviews')
-      .select('*')
-      .eq('job_role_id', roleId);
-    if (error) throw error;
-    return data;
+    return apiClient.get(`/api/interviews?job_role_id=${roleId}`);
   },
   staleTime: 5 * 60 * 1000, // 5 minutes
 });
@@ -274,13 +267,7 @@ const { data, isLoading, error, refetch } = useQuery({
 // Mutation - modifying data
 const { mutate, isPending } = useMutation({
   mutationFn: async (newInterview: InterviewInsert) => {
-    const { data, error } = await supabase
-      .from('interviews')
-      .insert(newInterview)
-      .select()
-      .single();
-    if (error) throw error;
-    return data;
+    return apiClient.post('/api/interviews', newInterview);
   },
   onSuccess: () => {
     // Invalidate and refetch
@@ -485,12 +472,19 @@ const { register, handleSubmit } = useForm();
 
 const onSubmit = async (data: FormData) => {
   const file = data.cv[0];
-  
-  const { error } = await supabase.storage
-    .from('candidate-cvs')
-    .upload(`${userId}/${file.name}`, file);
-    
-  if (error) throw error;
+
+  const { upload_url } = await apiClient.post('/api/storage/upload-url', {
+    file_name: file.name,
+    content_type: file.type,
+  });
+
+  const uploadResponse = await fetch(upload_url, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type },
+    body: file,
+  });
+
+  if (!uploadResponse.ok) throw new Error('Upload failed');
 };
 
 <input type="file" {...register('cv')} accept=".pdf,.doc,.docx" />
@@ -637,85 +631,43 @@ const {
 
 ## API Integration
 
-### Supabase Client Usage
+### FastAPI Client Usage
 
 ```typescript
-import { supabase } from '@/integrations/supabase/client';
+import { apiClient } from '@/lib/apiClient';
 
 // Select with types
-const { data, error } = await supabase
-  .from('job_roles')
-  .select('id, title, status')
-  .eq('organisation_id', orgId)
-  .order('created_at', { ascending: false });
+const roles = await apiClient.get(`/api/job-roles?organisation_id=${orgId}`);
 
 // Insert
-const { data, error } = await supabase
-  .from('applications')
-  .insert({ candidate_id: userId, job_role_id: roleId })
-  .select()
-  .single();
-
-// Update
-const { error } = await supabase
-  .from('candidate_profiles')
-  .update({ first_name: 'John' })
-  .eq('user_id', userId);
-
-// Delete
-const { error } = await supabase
-  .from('candidate_skills')
-  .delete()
-  .eq('id', skillId);
-```
-
-### Edge Function Calls
-
-```typescript
-// Call edge function
-const { data, error } = await supabase.functions.invoke('ai-interviewer', {
-  body: {
-    messages,
-    jobTitle,
-    currentQuestionIndex,
-  },
+const application = await apiClient.post('/api/applications', {
+  candidate_id: userId,
+  job_role_id: roleId,
 });
 
-// Handle specific errors
-if (error) {
-  if (error.message.includes('429')) {
-    toast.error('Too many requests. Please wait.');
-  } else if (error.message.includes('402')) {
-    toast.error('AI credits depleted.');
-  }
-}
+// Update
+await apiClient.post('/api/candidate-profiles/update', {
+  user_id: userId,
+  first_name: 'John',
+});
+
+// Delete
+await apiClient.post('/api/candidate-skills/delete', { id: skillId });
 ```
 
-### Realtime Subscriptions
+### AI Route Calls
 
 ```typescript
-useEffect(() => {
-  const channel = supabase
-    .channel('interview-updates')
-    .on(
-      'postgres_changes',
-      {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'interviews',
-        filter: `id=eq.${interviewId}`,
-      },
-      (payload) => {
-        setInterview(payload.new);
-      }
-    )
-    .subscribe();
-    
-  return () => {
-    supabase.removeChannel(channel);
-  };
-}, [interviewId]);
+const response = await apiClient.post('/api/v1/interview/chat', {
+  interview_id: interviewId,
+  messages,
+  job_title: jobTitle,
+});
 ```
+
+### Realtime Updates
+
+Realtime updates are handled via polling or WebSocket services (planned) instead of Supabase Realtime.
 
 ---
 

@@ -32,15 +32,15 @@ This document outlines security measures, authentication flows, data protection 
 sequenceDiagram
     participant User
     participant Frontend
-    participant Supabase Auth
+    participant FastAPI Auth
     participant Database
     
     User->>Frontend: Enter credentials
-    Frontend->>Supabase Auth: signInWithPassword()
-    Supabase Auth->>Database: Validate credentials
-    Database-->>Supabase Auth: User record
-    Supabase Auth-->>Frontend: JWT + Refresh Token
-    Frontend->>Frontend: Store in localStorage
+    Frontend->>FastAPI Auth: POST /api/auth/login
+    FastAPI Auth->>Database: Validate credentials
+    Database-->>FastAPI Auth: User record
+    FastAPI Auth-->>Frontend: JWT + Refresh Token
+    Frontend->>Frontend: Store access token in memory
     Frontend-->>User: Redirect to dashboard
 ```
 
@@ -63,30 +63,31 @@ sequenceDiagram
 }
 ```
 
-### Token Validation in Edge Functions
+### Token Validation in FastAPI
 
-```typescript
-// All authenticated endpoints use getClaims()
-const token = authHeader.replace('Bearer ', '');
-const { data: claimsData, error } = await supabase.auth.getClaims(token);
+```python
+from jose import jwt
 
-if (error || !claimsData?.claims) {
-  return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
-}
-
-const userId = claimsData.claims.sub as string;
+payload = jwt.decode(
+    token,
+    settings.jwt_secret,
+    algorithms=["HS256"],
+    audience=settings.jwt_audience,
+    issuer=settings.jwt_issuer,
+)
+user_id = payload["sub"]
 ```
 
 ### Session Management
 
 - **Token Expiry**: 1 hour (access token)
-- **Refresh Token**: 7 days
-- **Auto-refresh**: Enabled via Supabase client
-- **Storage**: localStorage (not recommended for high-security apps)
+- **Refresh Token**: 30 days
+- **Auto-refresh**: handled by frontend auth client
+- **Storage**: refresh token in httpOnly cookie, access token in memory
 
 ---
 
-## Authorization & RLS Policies
+## Authorization & App-Layer Policies
 
 ### Role-Based Access Control (RBAC)
 
@@ -111,98 +112,25 @@ graph TD
     E --> N[Own interviews only]
 ```
 
-### Key RLS Policies
+### Key Authorization Checks
 
-#### Organisations Table
-```sql
--- Users can view their organisation
-CREATE POLICY "org_members_select" ON organisations
-  FOR SELECT USING (
-    id IN (
-      SELECT organisation_id FROM org_users WHERE user_id = auth.uid()
+#### Organisations
+```python
+def require_org_member(org_id: str, db: Session, user: User) -> OrgUser:
+    membership = (
+        db.query(OrgUser)
+        .filter(OrgUser.organisation_id == org_id, OrgUser.user_id == user.id)
+        .first()
     )
-  );
-
--- Only admins can update
-CREATE POLICY "org_admin_update" ON organisations
-  FOR UPDATE USING (
-    EXISTS (
-      SELECT 1 FROM org_users 
-      WHERE user_id = auth.uid() 
-        AND organisation_id = id 
-        AND role IN ('admin', 'org_admin')
-    )
-  );
+    if not membership:
+        raise HTTPException(status_code=403, detail="Not an org member")
+    return membership
 ```
 
-#### Job Roles Table
-```sql
--- Org members can view roles
-CREATE POLICY "org_members_view_roles" ON job_roles
-  FOR SELECT USING (
-    organisation_id IN (
-      SELECT organisation_id FROM org_users WHERE user_id = auth.uid()
-    )
-    OR 
-    status = 'active' -- Public active roles
-  );
-```
-
-#### Applications Table
-```sql
--- Candidates see own applications
-CREATE POLICY "candidates_own_applications" ON applications
-  FOR SELECT USING (candidate_id = auth.uid());
-
--- Org members see their org's applications
-CREATE POLICY "org_applications" ON applications
-  FOR SELECT USING (
-    job_role_id IN (
-      SELECT id FROM job_roles WHERE organisation_id IN (
-        SELECT organisation_id FROM org_users WHERE user_id = auth.uid()
-      )
-    )
-  );
-```
-
-#### Candidate Profiles Table
-```sql
--- Candidates can CRUD their own profile
-CREATE POLICY "candidates_own_profile" ON candidate_profiles
-  FOR ALL USING (user_id = auth.uid());
-
--- Recruiters can view profiles for their org's applicants
-CREATE POLICY "recruiters_view_profiles" ON candidate_profiles
-  FOR SELECT USING (
-    user_id IN (
-      SELECT candidate_id FROM applications 
-      WHERE job_role_id IN (
-        SELECT id FROM job_roles WHERE organisation_id IN (
-          SELECT organisation_id FROM org_users WHERE user_id = auth.uid()
-        )
-      )
-    )
-  );
-```
-
-### Helper Functions
-
-```sql
--- Check if user belongs to organization
-CREATE FUNCTION user_belongs_to_org(_org_id uuid, _user_id uuid)
-RETURNS boolean AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM org_users 
-    WHERE organisation_id = _org_id AND user_id = _user_id
-  );
-$$ LANGUAGE sql SECURITY DEFINER;
-
--- Get user's organization role
-CREATE FUNCTION user_org_role(_org_id uuid, _user_id uuid)
-RETURNS text AS $$
-  SELECT role FROM org_users 
-  WHERE organisation_id = _org_id AND user_id = _user_id;
-$$ LANGUAGE sql SECURITY DEFINER;
+#### Roles / Applications / Interviews
+```python
+# Guard access by org membership before querying role/app/interview data
+require_org_member(role.organisation_id, db, user)
 ```
 
 ---
@@ -213,8 +141,8 @@ $$ LANGUAGE sql SECURITY DEFINER;
 
 | Data Type | At Rest | In Transit |
 |-----------|---------|------------|
-| Database | AES-256 (Supabase) | TLS 1.3 |
-| File Storage | AES-256 (Supabase) | TLS 1.3 |
+| Database | AES-256 (Azure Disk + SQLite file) | TLS 1.3 |
+| File Storage | AES-256 (Azure Blob Storage) | TLS 1.3 |
 | Passwords | bcrypt (cost 10) | TLS 1.3 |
 | API Keys | Encrypted secrets | TLS 1.3 |
 
@@ -356,28 +284,26 @@ function checkRateLimit(identifier: string): { isLimited: boolean; resetAt: numb
 
 | Secret | Sensitivity | Rotation |
 |--------|-------------|----------|
-| `SUPABASE_SERVICE_ROLE_KEY` | Critical | Manual |
-| `LOVABLE_API_KEY` | High | Automatic |
-| `ACS_CONNECTION_STRING` | High | Manual |
+| `JWT_SECRET` | Critical | Manual |
+| `AZURE_OPENAI_API_KEY` | High | Manual |
+| `AZURE_ACS_CONNECTION_STRING` | High | Manual |
 | `AZURE_SPEECH_KEY` | High | Manual |
-| `RESEND_API_KEY` | Medium | Manual |
+| `AZURE_STORAGE_ACCOUNT_KEY` | High | Manual |
 | `ACS_WEBHOOK_SECRET` | High | On compromise |
 
 ### Secret Storage
 
-- **Production**: Supabase/Lovable Cloud secrets (encrypted)
+- **Production**: Azure Key Vault secrets (encrypted)
 - **Development**: `.env` file (gitignored)
 - **Never**: Committed to repository
 
 ### Adding Secrets
 
-```typescript
-// Secrets are added via Lovable Cloud dashboard
-// Available as Deno.env.get('SECRET_NAME') in edge functions
-const apiKey = Deno.env.get('API_KEY');
-if (!apiKey) {
-  throw new Error('Required secret not configured');
-}
+```python
+# Secrets are loaded from environment variables in FastAPI
+api_key = settings.azure_openai_api_key
+if not api_key:
+    raise RuntimeError("Required secret not configured")
 ```
 
 ---
@@ -411,37 +337,37 @@ flowchart TD
 
 ### Deletion Types
 
-```typescript
-// Full deletion - removes everything
-async function performFullDeletion(supabase, userId) {
-  // Delete in FK order:
-  // 1. transcript_segments
-  // 2. score_dimensions  
-  // 3. interview_scores
-  // 4. interviews (+ recordings from storage)
-  // 5. invitations
-  // 6. applications
-  // 7. practice_interviews
-  // 8. candidate_skills
-  // 9. education
-  // 10. employment_history
-  // 11. candidate_dei
-  // 12. CV from storage
-  // 13. candidate_profiles
-  // 14. user_roles
-}
+```python
+# Full deletion - removes everything (SQLAlchemy session)
+def perform_full_deletion(db: Session, user_id: str) -> None:
+    # Delete in FK order:
+    # 1. transcript_segments
+    # 2. score_dimensions
+    # 3. interview_scores
+    # 4. interviews (+ recordings from blob storage)
+    # 5. invitations
+    # 6. applications
+    # 7. practice_interviews
+    # 8. candidate_skills
+    # 9. education
+    # 10. employment_history
+    # 11. candidate_dei
+    # 12. CV from blob storage
+    # 13. candidate_profiles
+    # 14. user_roles
+    pass
 
-// Anonymization - keeps aggregate data
-async function anonymizeUserData(supabase, userId) {
-  await supabase.from('candidate_profiles').update({
-    first_name: 'Anonymized',
-    last_name: 'User',
-    email: `anonymized-${userId.slice(0,8)}@deleted.local`,
-    phone: null,
-    linkedin_url: null,
-    // ... other PII
-  }).eq('user_id', userId);
-}
+# Anonymization - keeps aggregate data
+def anonymize_user_data(db: Session, user_id: str) -> None:
+    db.query(CandidateProfile).filter(CandidateProfile.user_id == user_id).update(
+        {
+            "first_name": "Anonymized",
+            "last_name": "User",
+            "email": f"anonymized-{user_id[:8]}@deleted.local",
+            "phone": None,
+            "linkedin_url": None,
+        }
+    )
 ```
 
 ### Consent Tracking
@@ -484,7 +410,7 @@ async function anonymizeUserData(supabase, userId) {
 ### Development
 
 - [ ] All endpoints use JWT validation
-- [ ] RLS policies cover all tables
+- [ ] App-layer org membership checks cover all tables
 - [ ] Input validation on client and server
 - [ ] Rate limiting on all public endpoints
 - [ ] Secrets never in code repository
@@ -493,7 +419,7 @@ async function anonymizeUserData(supabase, userId) {
 ### Deployment
 
 - [ ] Auto-confirm disabled in production
-- [ ] Service role key restricted
+- [ ] JWT secret rotated and stored in Key Vault
 - [ ] CORS configured correctly
 - [ ] TLS enforced
 - [ ] Logging enabled
