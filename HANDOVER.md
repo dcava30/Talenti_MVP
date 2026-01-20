@@ -2,7 +2,7 @@
 
 ## 1. Executive Summary
 
-This document provides a complete handover for the **Talenti** application - an AI-powered recruitment platform built with React, TypeScript, Vite, and Tailwind CSS on the frontend, with a Supabase backend (via Lovable Cloud) providing database, authentication, storage, and edge functions.
+This document provides a complete handover for the **Talenti** application - an AI-powered recruitment platform built with React, TypeScript, Vite, and Tailwind CSS on the frontend, with a FastAPI backend using SQLite locally and Azure services for storage, AI, and communications.
 
 The platform enables:
 - **Organisations** to create job roles, manage candidates, send interview invitations, and review AI-scored interviews
@@ -25,16 +25,16 @@ The platform enables:
 | Zod | ^3.25.76 | Schema validation |
 | React Hook Form | ^7.61.1 | Form management |
 
-### Backend (Lovable Cloud / Supabase)
-- **PostgreSQL Database** with Row-Level Security (RLS)
-- **Supabase Auth** for user authentication
-- **Supabase Storage** for CV uploads
-- **Edge Functions** (Deno runtime) for serverless backend logic
+### Backend (FastAPI + SQLite + Azure)
+- **SQLite Database** with Alembic migrations (local dev)
+- **JWT Auth** for user authentication
+- **Azure Blob Storage** for CV uploads
+- **FastAPI Routes** for backend logic and webhooks
 
 ### AI/Communication Services
 | Service | Purpose |
 |---------|---------|
-| Lovable AI Gateway | AI features (Gemini 2.5 Flash) |
+| Azure OpenAI | AI features |
 | Azure Communication Services (ACS) | Video calling |
 | Azure Speech SDK | Speech-to-text and text-to-speech |
 | Azure AI Avatar | Animated interviewer avatar |
@@ -109,7 +109,7 @@ The platform enables:
 - User type selector (Candidate/Organisation toggle)
 - Sign In and Sign Up tabs with form switching
 - Zod schema validation for email/password
-- Supabase Auth integration with `signInWithPassword` and `signUp`
+- FastAPI JWT auth via `authClient.login()` and `authClient.register()`
 - Auto-redirect based on user type:
   - Candidates → `/candidate/portal`
   - Org users → `/org` (or `/org/onboarding` if no org)
@@ -336,10 +336,10 @@ Returns structured data:
 
 **CV Upload:**
 ```typescript
-handleCVUpload(file) // Uploads to candidate-cvs bucket
-parseCV() // Calls parse-resume edge function
+handleCVUpload(file) // Requests SAS URL and uploads to Azure Blob Storage
+parseCV() // Calls POST /api/v1/candidates/parse-resume
 ```
-- Uploads PDF to Supabase Storage
+- Uploads PDF to Azure Blob Storage via SAS
 - AI parses CV and auto-fills profile sections
 
 **Profile Visibility:**
@@ -1064,7 +1064,7 @@ logAction(params: AuditLogParams): Promise<void>
 ### scoring.ts
 ```typescript
 triggerInterviewScoring(interviewId: string): Promise<void>
-// Calls score-interview edge function
+// Calls POST /api/v1/scoring/analyze
 
 getInterviewScore(interviewId: string): Promise<InterviewScore | null>
 // Fetches score from interview_scores table
@@ -1081,26 +1081,28 @@ generateInterviewReport(interview: Interview, scores: InterviewScore): Promise<B
 
 ---
 
-## 8. Edge Functions (supabase/functions/)
+## 8. FastAPI Routes
 
 ### 8.1 AI Functions
 
-#### ai-interviewer/index.ts
+#### POST /api/v1/interview/chat
 **Purpose:** Generates AI interviewer responses using Context-Augmented Generation.
 
 **Request:**
 ```typescript
 {
   messages: { role: 'user' | 'assistant', content: string }[];
-  context: CAGContext;
+  interview_id: string;
+  job_title?: string;
+  job_description?: string;
 }
 ```
 
 **Response:**
 ```typescript
 {
-  response: string;
-  detectedCompetencies: string[];
+  reply: string;
+  usage_tokens?: number;
 }
 ```
 
@@ -1109,35 +1111,28 @@ generateInterviewReport(interview: Interview, scores: InterviewScore): Promise<B
 - JWT authentication required
 - System prompt with job context, company values, interview guidelines
 - Competency detection from conversation
-- Uses Lovable AI Gateway (Gemini 2.5 Flash)
+- Uses Azure OpenAI deployment
 
 ---
 
-#### score-interview/index.ts
+#### POST /api/v1/scoring/analyze
 **Purpose:** Scores completed interview transcripts.
 
 **Request:**
 ```typescript
 {
   transcript: TranscriptSegment[];
-  rubric?: ScoringDimension[];
-  jobContext?: string;
+  rubric?: Record<string, number>;
 }
 ```
 
 **Response:**
 ```typescript
 {
-  overallScore: number;
-  dimensions: {
-    dimension: string;
-    score: number;
-    evidence: string;
-    citedQuotes: string[];
-  }[];
-  narrativeSummary: string;
-  candidateFeedback: string;
-  antiCheatRiskLevel: 'low' | 'medium' | 'high';
+  interview_id: string;
+  overall_score: number;
+  dimensions: { name: string; score: number; rationale?: string }[];
+  summary: string;
 }
 ```
 
@@ -1149,49 +1144,45 @@ generateInterviewReport(interview: Interview, scores: InterviewScore): Promise<B
 
 ---
 
-#### extract-requirements/index.ts
+#### POST /api/v1/roles/extract-requirements
 **Purpose:** Extracts structured requirements from job descriptions.
 
 **Request:**
 ```typescript
 {
-  jobDescription: string;
-  jobTitle: string;
+  job_role_id: string;
+  job_description: string;
 }
 ```
 
 **Response:**
 ```typescript
 {
-  skills: { name: string; type: 'hard' | 'soft'; importance: 'required' | 'preferred' }[];
-  experience: { years: number; description: string }[];
-  qualifications: string[];
+  skills: string[];
   responsibilities: string[];
-  interviewQuestions: string[];
+  qualifications: string[];
 }
 ```
 
 ---
 
-#### parse-resume/index.ts
+#### POST /api/v1/candidates/parse-resume
 **Purpose:** AI parsing of uploaded CV/resume PDFs.
 
 **Request:**
 ```typescript
 {
-  filePath: string;
-  userId: string;
+  candidate_id: string;
+  job_role_id?: string;
+  resume_text: string;
 }
 ```
 
 **Response:**
 ```typescript
 {
-  personalInfo: { name, email, phone, location };
-  employment: { company, title, dates, description }[];
-  education: { institution, degree, field, dates }[];
-  skills: string[];
-  summary: string;
+  candidate_id: string;
+  parsed: { full_name?: string; email?: string; skills: string[] };
 }
 ```
 
@@ -1202,7 +1193,7 @@ generateInterviewReport(interview: Interview, scores: InterviewScore): Promise<B
 
 ---
 
-#### generate-shortlist/index.ts
+#### POST /api/v1/shortlist/generate
 **Purpose:** AI-powered candidate ranking for a job role.
 
 **Request:**
@@ -1216,26 +1207,21 @@ generateInterviewReport(interview: Interview, scores: InterviewScore): Promise<B
 ```typescript
 {
   candidates: {
-    applicationId: string;
-    matchScore: number;
-    matchReasons: string[];
-    anonymizedProfile: object;
+    application_id: string;
+    score: number;
   }[];
 }
 ```
 
 **Features:**
-- Fetches all applications for role
-- Creates anonymized candidate summaries
-- Semantic matching with AI
-- Updates `applications.match_score`
+- Ranks provided candidates by score
 - Authorization check for org membership
 
 ---
 
 ### 8.2 Business Logic Functions
 
-#### create-organisation/index.ts
+#### POST /api/orgs
 **Purpose:** Creates new organisation and adds user as admin.
 
 **Request:**
@@ -1245,7 +1231,7 @@ generateInterviewReport(interview: Interview, scores: InterviewScore): Promise<B
   industry?: string;
   website?: string;
   description?: string;
-  billingEmail?: string;
+  billing_email?: string;
 }
 ```
 
@@ -1256,48 +1242,43 @@ generateInterviewReport(interview: Interview, scores: InterviewScore): Promise<B
 
 ---
 
-#### send-invitation/index.ts
+#### POST /api/invitations
 **Purpose:** Sends interview invitation emails.
 
 **Request:**
 ```typescript
 {
-  applicationId: string;
-  candidateEmail: string;
-  roleTitle: string;
-  companyName: string;
+  application_id: string;
+  candidate_email: string;
+  expires_at: string;
 }
 ```
 
 **Operations:**
 1. Generate unique invitation token
 2. Create invitation record
-3. Send email via Resend
-4. Update invitation status to 'sent'
 
 **Email Content:**
 - Interview link with token
-- Role and company info
-- Expiration date (7 days)
+- Expiration date (configured by client)
 
 ---
 
-#### data-retention-cleanup/index.ts
+#### POST /api/v1/data-retention/cleanup
 **Purpose:** Scheduled cleanup of expired recordings.
 
-**Trigger:** Scheduled (cron)
+**Trigger:** Scheduled (cron) or manual admin call
 
 **Operations:**
 1. Query interviews older than org's retention days
 2. Delete recordings from storage
-3. Update interview.recording_deleted_at
-4. Log cleanup to audit_log
+3. Update interview metadata
 
 ---
 
 ### 8.3 Integration Functions
 
-#### azure-speech-token/index.ts
+#### POST /api/v1/speech/token
 **Purpose:** Generates Azure Speech SDK authentication tokens.
 
 **Response:**
@@ -1305,31 +1286,31 @@ generateInterviewReport(interview: Interview, scores: InterviewScore): Promise<B
 {
   token: string;
   region: string;
-  expiresAt: number;
+  region: string;
 }
 ```
 
-**Uses:** `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` secrets
+**Uses:** `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`
 
 ---
 
-#### acs-token-generator/index.ts
+#### POST /api/v1/acs/token
 **Purpose:** Generates Azure Communication Services access tokens.
 
 **Response:**
 ```typescript
 {
   token: string;
-  userId: string;
-  expiresOn: string;
+  user_id: string;
+  expires_on: string;
 }
 ```
 
-**Uses:** `ACS_CONNECTION_STRING` secret
+**Uses:** `AZURE_ACS_CONNECTION_STRING`
 
 ---
 
-#### acs-webhook-handler/index.ts
+#### POST /api/v1/acs/webhook
 **Purpose:** Handles ACS call event webhooks.
 
 **Events Handled:**
@@ -1348,35 +1329,34 @@ generateInterviewReport(interview: Interview, scores: InterviewScore): Promise<B
 #### organisations
 | Column | Type | Description |
 |--------|------|-------------|
-| id | uuid | Primary key |
+| id | text | Primary key |
 | name | text | Organisation name |
 | industry | text | Industry category |
 | website | text | Company website |
 | logo_url | text | Logo image URL |
 | description | text | About the company |
-| values_framework | jsonb | Company values for AI context |
+| values_framework | text | Company values for AI context |
 | recording_retention_days | integer | Days to keep recordings (default 60) |
 | billing_email | text | Billing contact |
 | billing_address | text | Billing address |
-| created_at | timestamptz | Creation timestamp |
-| updated_at | timestamptz | Last update timestamp |
+| created_at | datetime | Creation timestamp |
+| updated_at | datetime | Last update timestamp |
 
-**RLS Policies:**
+**Authorization Checks:**
 - Org members can view their organisation
 - Org admins can update their organisation
 - Authenticated users can create organisations
-- Candidates can view orgs they've applied to
 
 ---
 
 #### org_users
 | Column | Type | Description |
 |--------|------|-------------|
-| id | uuid | Primary key |
-| user_id | uuid | Auth user ID |
-| organisation_id | uuid | FK to organisations |
+| id | text | Primary key |
+| user_id | text | Auth user ID |
+| organisation_id | text | FK to organisations |
 | role | text | 'admin', 'recruiter', 'hiring_manager' |
-| created_at | timestamptz | Join date |
+| created_at | datetime | Join date |
 
 **RLS Policies:**
 - Org members can view org users
@@ -1749,40 +1729,37 @@ update_updated_at_column() RETURNS trigger
 
 ## 11. Environment Configuration
 
-### Required Secrets (Supabase Edge Functions)
+### Required Secrets (FastAPI + Azure)
 
 | Secret | Purpose | Required For |
 |--------|---------|--------------|
-| `LOVABLE_API_KEY` | Lovable AI Gateway access | All AI functions |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI access | AI interview/scoring |
 | `RESEND_API_KEY` | Email delivery via Resend | send-invitation |
 | `AZURE_SPEECH_KEY` | Azure Speech SDK | azure-speech-token |
 | `AZURE_SPEECH_REGION` | Azure region (e.g., 'australiaeast') | azure-speech-token |
-| `ACS_CONNECTION_STRING` | Azure Communication Services | acs-token-generator |
+| `AZURE_ACS_CONNECTION_STRING` | Azure Communication Services | acs token |
 | `ACS_WEBHOOK_SECRET` | Webhook validation | acs-webhook-handler |
-| `SUPABASE_URL` | Auto-configured | All functions |
-| `SUPABASE_ANON_KEY` | Auto-configured | All functions |
-| `SUPABASE_SERVICE_ROLE_KEY` | Auto-configured | Admin operations |
+| `DATABASE_URL` | SQLite connection string | API + migrations |
+| `JWT_SECRET` | JWT signing secret | Auth |
 
 ### Frontend Environment Variables
 
 | Variable | Purpose |
 |----------|---------|
-| `VITE_SUPABASE_URL` | Supabase project URL |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase anon key |
-| `VITE_SUPABASE_PROJECT_ID` | Project ID for references |
+| `VITE_API_BASE_URL` | FastAPI base URL |
+| `VITE_AZURE_SPEECH_REGION` | Speech region |
+| `VITE_AZURE_ACS_RESOURCE` | ACS resource name |
 
 ---
 
 ## 12. Security Features
 
-### Row-Level Security (RLS)
-- **All tables have RLS enabled**
-- Candidates can only access their own data
-- Org members can access their organisation's data
+### App-Layer Authorization
+- Org membership enforced in FastAPI dependencies
 - Role-based access control (admin > recruiter > viewer)
 
 ### API Security
-- JWT authentication on all edge functions
+- JWT authentication on all API routes
 - Rate limiting:
   - Per IP: 10 requests/minute
   - Per user: 100 requests/minute
@@ -1820,8 +1797,7 @@ python-acs-service/
 │   │   └── health.py        # Health check
 │   ├── services/
 │   │   ├── call_automation.py    # ACS Call Automation SDK
-│   │   ├── recording.py          # Recording service
-│   │   └── supabase_client.py    # Supabase integration
+│   │   └── recording.py          # Recording service
 │   └── models/
 │       ├── call.py          # Call data models
 │       └── recording.py     # Recording models
@@ -1834,7 +1810,7 @@ python-acs-service/
 - Call recording start/stop
 - Recording download and management
 - Call automation (future)
-- Supabase sync for recording metadata
+- Storage metadata persisted via SQLite/Azure
 
 **Note:** This service is for future expansion and not currently integrated with the main app.
 
@@ -1850,7 +1826,7 @@ python-acs-service/
 
 2. Onboarding (OrgOnboarding.tsx)
    └── Enter org details
-   └── create-organisation edge function
+   └── POST /api/orgs
    └── Added as admin
 
 3. Create Role (NewRole.tsx)
@@ -1910,14 +1886,12 @@ python-acs-service/
 ## 15. Deployment
 
 ### Frontend Deployment
-- Deploy via Lovable's "Publish" button
-- Automatic builds on code changes
-- Preview available during development
+- Build with `npm run build`
+- Deploy static assets to Azure Static Web Apps or App Service
 
-### Edge Functions
-- Deploy automatically on code changes
-- No manual deployment required
-- Logs available in Lovable Cloud
+### FastAPI Backend
+- Containerize and deploy to Azure App Service or Container Apps
+- Logs available in Azure App Insights
 
 ### Database Migrations
 - Run automatically via migration tool
@@ -1925,9 +1899,8 @@ python-acs-service/
 - Rollback not supported (design carefully)
 
 ### Environment
-- Secrets configured in Lovable Cloud
-- No Supabase dashboard access needed
-- All management via Lovable interface
+- Secrets configured via Azure Key Vault or environment variables
+- Manage infra through Azure portal or IaC
 
 ---
 
@@ -1936,16 +1909,16 @@ python-acs-service/
 ### Common Tasks
 
 **Adding a new AI feature:**
-1. Create edge function in `supabase/functions/`
-2. Add rate limiting and auth
-3. Use Lovable AI Gateway
+1. Add FastAPI route under `backend/app/api/`
+2. Add role checks and request validation
+3. Call Azure OpenAI via `openai_client`
 4. Handle errors gracefully
 
 **Adding a new database table:**
-1. Use migration tool
-2. Enable RLS
-3. Create appropriate policies
-4. Update types (auto-generated)
+1. Add SQLAlchemy model
+2. Create Alembic migration
+3. Add app-layer authorization checks
+4. Update API responses
 
 **Adding a new page:**
 1. Create component in `src/pages/`
@@ -1954,7 +1927,7 @@ python-acs-service/
 4. Add navigation links
 
 ### Monitoring
-- Check edge function logs for errors
+- Check API logs in App Insights
 - Monitor rate limit hits
 - Review audit logs for security
 - Track interview completion rates
@@ -2025,10 +1998,10 @@ python-acs-service/
 
 ## 18. Contact & Support
 
-This application was built using Lovable. For technical support:
-- Lovable Documentation: https://docs.lovable.dev
-- Edge Function Logs: Available in Lovable Cloud interface
-- Database Management: Via Lovable Cloud backend panel
+This application is deployed on Azure. For technical support:
+- Azure documentation: https://learn.microsoft.com/azure/
+- API logs: Application Insights
+- Database management: SQLite file in storage or managed DB
 
 ---
 

@@ -1,6 +1,6 @@
 # Python Rebuild Guide
 
-> **Complete migration guide from Supabase Edge Functions to Python FastAPI**
+> **Complete migration guide from Edge Functions to Python FastAPI**
 
 This guide provides comprehensive mappings for rebuilding the Talenti AI Interview Platform backend using Python, FastAPI, and Azure services.
 
@@ -44,8 +44,8 @@ This guide provides comprehensive mappings for rebuilding the Talenti AI Intervi
         ┌─────────────────────┼─────────────────────┐
         ▼                     ▼                     ▼
 ┌───────────────┐    ┌───────────────┐    ┌───────────────┐
-│   PostgreSQL  │    │ Azure Blob    │    │  Azure ACS    │
-│   (Supabase)  │    │   Storage     │    │  + Speech     │
+│    SQLite     │    │ Azure Blob    │    │  Azure ACS    │
+│   (Local)     │    │   Storage     │    │  + Speech     │
 └───────────────┘    └───────────────┘    └───────────────┘
 ```
 
@@ -58,9 +58,9 @@ This guide provides comprehensive mappings for rebuilding the Talenti AI Intervi
 | Runtime | Deno | Python 3.11+ |
 | Framework | Deno HTTP | FastAPI |
 | Type Safety | TypeScript | Pydantic |
-| Auth | Supabase JWT | python-jose |
-| Database | Supabase Client | supabase-py / SQLAlchemy |
-| AI Gateway | Lovable AI | OpenAI SDK / httpx |
+| Auth | JWT | python-jose |
+| Database | SQLite | SQLAlchemy + Alembic |
+| AI | Lovable AI Gateway | Azure OpenAI SDK |
 | Email | Resend (fetch) | resend-python |
 | Azure SDK | REST API | azure-* packages |
 | Rate Limiting | Custom | slowapi |
@@ -98,14 +98,9 @@ cryptography==41.0.7
 # -----------------------------------------------------------------------------
 # Database
 # -----------------------------------------------------------------------------
-# Option A: Supabase Python Client (recommended for migration)
-supabase==2.3.0
-postgrest-py==0.13.0
-
-# Option B: SQLAlchemy (for full control)
-# sqlalchemy[asyncio]==2.0.25
-# asyncpg==0.29.0
-# alembic==1.13.1
+# SQLAlchemy + Alembic (SQLite)
+sqlalchemy==2.0.30
+alembic==1.13.1
 
 # -----------------------------------------------------------------------------
 # Azure Communication Services
@@ -133,7 +128,7 @@ azure-servicebus==7.11.4
 # -----------------------------------------------------------------------------
 # AI Integration
 # -----------------------------------------------------------------------------
-# OpenAI SDK (for Lovable AI Gateway or direct OpenAI)
+# OpenAI SDK (Azure OpenAI)
 openai==1.12.0
 
 # Alternative: Direct HTTP requests
@@ -231,8 +226,8 @@ python-backend/
 │   │
 │   ├── services/
 │   │   ├── __init__.py
-│   │   ├── supabase_client.py     # Database client
-│   │   ├── ai_gateway.py          # Lovable AI / OpenAI client
+│   │   ├── db.py                  # SQLAlchemy session helpers
+│   │   ├── ai_client.py           # Azure OpenAI client
 │   │   ├── acs_service.py         # Azure Communication Services
 │   │   ├── speech_service.py      # Azure Speech
 │   │   ├── storage_service.py     # Azure Blob Storage
@@ -292,13 +287,14 @@ class Settings(BaseSettings):
     # CORS
     ALLOWED_ORIGINS: List[str] = ["*"]
     
-    # Supabase
-    SUPABASE_URL: str
-    SUPABASE_SERVICE_KEY: str
-    SUPABASE_JWT_SECRET: str
+    # Database/Auth
+    DATABASE_URL: str
+    JWT_SECRET: str
+    JWT_ISSUER: str = "talenti"
+    JWT_AUDIENCE: str = "talenti-users"
     
     # Azure Communication Services
-    ACS_CONNECTION_STRING: str
+    AZURE_ACS_CONNECTION_STRING: str
     ACS_ENDPOINT: str
     ACS_CALLBACK_URL: str = ""
     
@@ -307,14 +303,14 @@ class Settings(BaseSettings):
     AZURE_SPEECH_REGION: str = "australiaeast"
     
     # Azure Storage
-    AZURE_STORAGE_CONNECTION_STRING: str
-    RECORDING_CONTAINER: str = "interview-recordings"
+    AZURE_STORAGE_ACCOUNT: str
+    AZURE_STORAGE_ACCOUNT_KEY: str
+    AZURE_STORAGE_CONTAINER: str = "interview-recordings"
     
-    # AI Gateway (Lovable AI or OpenAI)
-    LOVABLE_API_KEY: str = ""
-    OPENAI_API_KEY: str = ""
-    AI_GATEWAY_URL: str = "https://ai.gateway.lovable.dev/v1/chat/completions"
-    DEFAULT_AI_MODEL: str = "google/gemini-3-flash-preview"
+    # Azure OpenAI
+    AZURE_OPENAI_ENDPOINT: str
+    AZURE_OPENAI_API_KEY: str
+    AZURE_OPENAI_DEPLOYMENT: str
     
     # Email (Resend)
     RESEND_API_KEY: str
@@ -570,265 +566,23 @@ def standard_rate_limit():
     return limiter.limit(f"{settings.RATE_LIMIT_PER_MINUTE}/minute")
 ```
 
-### Supabase Client Service (`app/services/supabase_client.py`)
+### SQLAlchemy Session (`app/db.py`)
 
 ```python
-"""
-Supabase client service for database operations
-"""
-from typing import Any, Dict, List, Optional
-from supabase import create_client, Client
-import structlog
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from app.config import settings
 
-logger = structlog.get_logger()
-
-
-class SupabaseService:
-    """Service for Supabase database operations"""
-    
-    def __init__(self):
-        self._client: Optional[Client] = None
-    
-    @property
-    def client(self) -> Client:
-        """Get or create Supabase client"""
-        if self._client is None:
-            self._client = create_client(
-                settings.SUPABASE_URL,
-                settings.SUPABASE_SERVICE_KEY
-            )
-        return self._client
-    
-    # -------------------------------------------------------------------------
-    # Interviews
-    # -------------------------------------------------------------------------
-    
-    async def get_interview(self, interview_id: str) -> Optional[Dict]:
-        """Get interview by ID with related data"""
-        response = self.client.table("interviews").select(
-            "*, applications(*, job_roles(*, organisations(*)))"
-        ).eq("id", interview_id).single().execute()
-        return response.data
-    
-    async def update_interview_status(
-        self, 
-        interview_id: str, 
-        status: str,
-        **kwargs
-    ) -> Dict:
-        """Update interview status and optional fields"""
-        data = {"status": status, **kwargs}
-        response = self.client.table("interviews").update(data).eq(
-            "id", interview_id
-        ).execute()
-        return response.data
-    
-    async def save_transcript_segment(
-        self,
-        interview_id: str,
-        speaker: str,
-        content: str,
-        start_time_ms: int,
-        end_time_ms: Optional[int] = None,
-        confidence: Optional[float] = None
-    ) -> Dict:
-        """Save a transcript segment"""
-        response = self.client.table("transcript_segments").insert({
-            "interview_id": interview_id,
-            "speaker": speaker,
-            "content": content,
-            "start_time_ms": start_time_ms,
-            "end_time_ms": end_time_ms,
-            "confidence": confidence
-        }).execute()
-        return response.data
-    
-    async def get_transcript(self, interview_id: str) -> List[Dict]:
-        """Get full transcript for an interview"""
-        response = self.client.table("transcript_segments").select("*").eq(
-            "interview_id", interview_id
-        ).order("start_time_ms").execute()
-        return response.data
-    
-    # -------------------------------------------------------------------------
-    # Scoring
-    # -------------------------------------------------------------------------
-    
-    async def save_interview_score(
-        self,
-        interview_id: str,
-        overall_score: float,
-        narrative_summary: str,
-        candidate_feedback: str,
-        model_version: str,
-        prompt_version: str,
-        rubric_version: Optional[str] = None
-    ) -> Dict:
-        """Save interview score"""
-        response = self.client.table("interview_scores").upsert({
-            "interview_id": interview_id,
-            "overall_score": overall_score,
-            "narrative_summary": narrative_summary,
-            "candidate_feedback": candidate_feedback,
-            "model_version": model_version,
-            "prompt_version": prompt_version,
-            "rubric_version": rubric_version,
-            "scored_by": "ai"
-        }).execute()
-        return response.data
-    
-    async def save_score_dimensions(
-        self,
-        interview_id: str,
-        dimensions: List[Dict]
-    ) -> List[Dict]:
-        """Save score dimensions for an interview"""
-        records = [
-            {
-                "interview_id": interview_id,
-                "dimension": d["dimension"],
-                "score": d["score"],
-                "weight": d.get("weight", 1.0),
-                "evidence": d.get("evidence"),
-                "cited_quotes": d.get("cited_quotes", [])
-            }
-            for d in dimensions
-        ]
-        response = self.client.table("score_dimensions").insert(records).execute()
-        return response.data
-    
-    # -------------------------------------------------------------------------
-    # Job Roles
-    # -------------------------------------------------------------------------
-    
-    async def get_job_role(self, role_id: str) -> Optional[Dict]:
-        """Get job role with scoring rubric"""
-        response = self.client.table("job_roles").select("*").eq(
-            "id", role_id
-        ).single().execute()
-        return response.data
-    
-    # -------------------------------------------------------------------------
-    # Invitations
-    # -------------------------------------------------------------------------
-    
-    async def create_invitation(
-        self,
-        application_id: str,
-        token: str,
-        expires_at: str,
-        email_template: Optional[str] = None
-    ) -> Dict:
-        """Create a new invitation"""
-        response = self.client.table("invitations").insert({
-            "application_id": application_id,
-            "token": token,
-            "expires_at": expires_at,
-            "email_template": email_template,
-            "status": "pending"
-        }).execute()
-        return response.data
-    
-    async def update_invitation_status(
-        self,
-        invitation_id: str,
-        status: str,
-        **kwargs
-    ) -> Dict:
-        """Update invitation status"""
-        data = {"status": status, **kwargs}
-        response = self.client.table("invitations").update(data).eq(
-            "id", invitation_id
-        ).execute()
-        return response.data
-    
-    # -------------------------------------------------------------------------
-    # Organisations
-    # -------------------------------------------------------------------------
-    
-    async def create_organisation(self, name: str, **kwargs) -> Dict:
-        """Create a new organisation"""
-        response = self.client.table("organisations").insert({
-            "name": name,
-            **kwargs
-        }).execute()
-        return response.data[0]
-    
-    async def add_org_user(
-        self,
-        organisation_id: str,
-        user_id: str,
-        role: str = "org_admin"
-    ) -> Dict:
-        """Add user to organisation"""
-        response = self.client.table("org_users").insert({
-            "organisation_id": organisation_id,
-            "user_id": user_id,
-            "role": role
-        }).execute()
-        return response.data
-    
-    # -------------------------------------------------------------------------
-    # Candidate Profiles
-    # -------------------------------------------------------------------------
-    
-    async def get_candidate_profile(self, user_id: str) -> Optional[Dict]:
-        """Get candidate profile by user ID"""
-        response = self.client.table("candidate_profiles").select("*").eq(
-            "user_id", user_id
-        ).single().execute()
-        return response.data
-    
-    async def upsert_candidate_profile(
-        self,
-        user_id: str,
-        data: Dict
-    ) -> Dict:
-        """Create or update candidate profile"""
-        response = self.client.table("candidate_profiles").upsert({
-            "user_id": user_id,
-            **data
-        }).execute()
-        return response.data
-    
-    # -------------------------------------------------------------------------
-    # Data Retention
-    # -------------------------------------------------------------------------
-    
-    async def get_expired_recordings(self, retention_days: int) -> List[Dict]:
-        """Get interviews with recordings past retention period"""
-        from datetime import datetime, timedelta
-        cutoff = (datetime.utcnow() - timedelta(days=retention_days)).isoformat()
-        
-        response = self.client.table("interviews").select(
-            "id, recording_url, applications(job_roles(organisations(recording_retention_days)))"
-        ).not_.is_("recording_url", "null").is_(
-            "recording_deleted_at", "null"
-        ).lt("ended_at", cutoff).execute()
-        
-        return response.data
-    
-    async def mark_recording_deleted(self, interview_id: str) -> Dict:
-        """Mark interview recording as deleted"""
-        from datetime import datetime
-        response = self.client.table("interviews").update({
-            "recording_url": None,
-            "recording_deleted_at": datetime.utcnow().isoformat()
-        }).eq("id", interview_id).execute()
-        return response.data
-
-
-# Singleton instance
-supabase_service = SupabaseService()
+engine = create_engine(settings.DATABASE_URL)
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 ```
 
 ### AI Gateway Service (`app/services/ai_gateway.py`)
 
 ```python
 """
-AI Gateway service for Lovable AI / OpenAI integration
+AI client service for Azure OpenAI integration
 """
 from typing import Any, AsyncIterator, Dict, List, Optional
 import httpx
@@ -842,16 +596,16 @@ logger = structlog.get_logger()
 
 
 class AIGatewayService:
-    """Service for AI model interactions via Lovable AI Gateway"""
+    """Service for AI model interactions via Azure OpenAI"""
     
     def __init__(self):
         self._client: Optional[AsyncOpenAI] = None
     
     @property
     def client(self) -> AsyncOpenAI:
-        """Get or create OpenAI-compatible client for Lovable AI Gateway"""
+        """Get Azure OpenAI client"""
         if self._client is None:
-            # Use Lovable AI Gateway
+            # Use Azure OpenAI
             if settings.LOVABLE_API_KEY:
                 self._client = AsyncOpenAI(
                     api_key=settings.LOVABLE_API_KEY,
@@ -990,7 +744,7 @@ import structlog
 from app.middleware.auth import get_current_user, CurrentUser
 from app.middleware.rate_limit import ai_rate_limit, limiter
 from app.services.ai_gateway import ai_service
-from app.services.supabase_client import supabase_service
+from app.db import SessionLocal
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -1111,7 +865,7 @@ async def ai_interviewer(
                 None
             )
             if last_user_message:
-                await supabase_service.save_transcript_segment(
+                await db_session.save_transcript_segment(
                     interview_id=request.interview_id,
                     speaker="candidate",
                     content=last_user_message.content,
@@ -1119,7 +873,7 @@ async def ai_interviewer(
                 )
         
         # Save AI response as transcript
-        await supabase_service.save_transcript_segment(
+        await db_session.save_transcript_segment(
             interview_id=request.interview_id,
             speaker="interviewer",
             content=ai_message,
@@ -1174,7 +928,7 @@ async def ai_interviewer_stream(
             yield f"data: {orjson.dumps({'content': chunk}).decode()}\n\n"
         
         # Save complete response to transcript
-        await supabase_service.save_transcript_segment(
+        await db_session.save_transcript_segment(
             interview_id=request.interview_id,
             speaker="interviewer",
             content=full_response,
@@ -1295,18 +1049,18 @@ async def score_interview(
     
     try:
         # Get interview and transcript
-        interview = await supabase_service.get_interview(request.interview_id)
+        interview = await db_session.get_interview(request.interview_id)
         if not interview:
             raise HTTPException(status_code=404, detail="Interview not found")
         
-        transcript = await supabase_service.get_transcript(request.interview_id)
+        transcript = await db_session.get_transcript(request.interview_id)
         if not transcript:
             raise HTTPException(status_code=400, detail="No transcript available")
         
         # Get custom rubric or use defaults
         dimensions = DEFAULT_DIMENSIONS
         if request.rubric_id:
-            job_role = await supabase_service.get_job_role(
+            job_role = await db_session.get_job_role(
                 interview["applications"]["job_role_id"]
             )
             if job_role and job_role.get("scoring_rubric"):
@@ -1354,7 +1108,7 @@ Guidelines:
         ) / total_weight
         
         # Save scores to database
-        await supabase_service.save_interview_score(
+        await db_session.save_interview_score(
             interview_id=request.interview_id,
             overall_score=overall_score,
             narrative_summary=result.get("narrative_summary", ""),
@@ -1364,7 +1118,7 @@ Guidelines:
         )
         
         # Save dimension scores
-        await supabase_service.save_score_dimensions(
+        await db_session.save_score_dimensions(
             interview_id=request.interview_id,
             dimensions=[
                 {
@@ -1720,12 +1474,12 @@ async def generate_shortlist(
     
     try:
         # Get job role details
-        job_role = await supabase_service.get_job_role(request.job_role_id)
+        job_role = await db_session.get_job_role(request.job_role_id)
         if not job_role:
             raise HTTPException(status_code=404, detail="Job role not found")
         
         # Get applications with completed interviews
-        applications = await supabase_service.client.table("applications").select(
+        applications = await db_session.client.table("applications").select(
             "*, candidate_profiles(*), interviews(*, interview_scores(*))"
         ).eq("job_role_id", request.job_role_id).execute()
         
@@ -1796,7 +1550,7 @@ import resend
 from app.config import settings
 from app.middleware.auth import get_current_user, CurrentUser
 from app.middleware.rate_limit import limiter
-from app.services.supabase_client import supabase_service
+from app.db import SessionLocal
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -1917,7 +1671,7 @@ async def send_invitation(
         expires_at = datetime.utcnow() + timedelta(days=request.expires_in_days)
         
         # Create invitation record
-        invitation = await supabase_service.create_invitation(
+        invitation = await db_session.create_invitation(
             application_id=request.application_id,
             token=token,
             expires_at=expires_at.isoformat()
@@ -1949,7 +1703,7 @@ async def send_invitation(
             email_sent = True
             
             # Update invitation status
-            await supabase_service.update_invitation_status(
+            await db_session.update_invitation_status(
                 invitation_id=invitation_id,
                 status="sent",
                 sent_at=datetime.utcnow().isoformat()
@@ -1958,7 +1712,7 @@ async def send_invitation(
         except Exception as email_error:
             logger.error("email_send_error", error=str(email_error))
             # Invitation created but email failed
-            await supabase_service.update_invitation_status(
+            await db_session.update_invitation_status(
                 invitation_id=invitation_id,
                 status="pending"
             )
@@ -2110,7 +1864,7 @@ async def process_call_started(event_data: dict):
     # Update interview status if applicable
     interview_id = event_data.get("correlationId")
     if interview_id:
-        await supabase_service.update_interview_status(
+        await db_session.update_interview_status(
             interview_id=interview_id,
             status="in_progress",
             started_at=datetime.utcnow().isoformat()
@@ -2124,7 +1878,7 @@ async def process_call_ended(event_data: dict):
     
     interview_id = event_data.get("correlationId")
     if interview_id:
-        await supabase_service.update_interview_status(
+        await db_session.update_interview_status(
             interview_id=interview_id,
             status="completed",
             ended_at=datetime.utcnow().isoformat()
@@ -2138,7 +1892,7 @@ async def process_recording_available(event_data: dict):
     
     interview_id = event_data.get("correlationId")
     if interview_id and recording_url:
-        await supabase_service.update_interview_status(
+        await db_session.update_interview_status(
             interview_id=interview_id,
             recording_url=recording_url
         )
@@ -2282,7 +2036,7 @@ import structlog
 
 from app.middleware.auth import get_current_user, CurrentUser
 from app.middleware.rate_limit import limiter
-from app.services.supabase_client import supabase_service
+from app.db import SessionLocal
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -2322,7 +2076,7 @@ async def create_organisation(
     
     try:
         # Create organisation
-        org = await supabase_service.create_organisation(
+        org = await db_session.create_organisation(
             name=request.name,
             industry=request.industry,
             website=request.website,
@@ -2331,14 +2085,14 @@ async def create_organisation(
         )
         
         # Add user as org admin
-        await supabase_service.add_org_user(
+        await db_session.add_org_user(
             organisation_id=org["id"],
             user_id=user.id,
             role="org_admin"
         )
         
         # Also add to user_roles table
-        await supabase_service.client.table("user_roles").insert({
+        await db_session.client.table("user_roles").insert({
             "user_id": user.id,
             "role": "org_admin"
         }).execute()
@@ -2385,7 +2139,7 @@ from azure.storage.blob import BlobServiceClient
 from app.config import settings
 from app.middleware.auth import require_role, CurrentUser
 from app.middleware.rate_limit import limiter
-from app.services.supabase_client import supabase_service
+from app.db import SessionLocal
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -2444,7 +2198,7 @@ async def run_cleanup(default_retention_days: int = 90) -> CleanupResult:
     
     try:
         # Get expired recordings
-        expired = await supabase_service.get_expired_recordings(default_retention_days)
+        expired = await db_session.get_expired_recordings(default_retention_days)
         
         for interview in expired:
             recording_url = interview.get("recording_url")
@@ -2474,7 +2228,7 @@ async def run_cleanup(default_retention_days: int = 90) -> CleanupResult:
                     recordings_deleted += 1
                     
                     # Mark as deleted in database
-                    await supabase_service.mark_recording_deleted(interview_id)
+                    await db_session.mark_recording_deleted(interview_id)
                     interviews_updated += 1
                 else:
                     errors.append(f"Failed to delete recording for interview {interview_id}")
@@ -2533,7 +2287,7 @@ async def cleanup_status(
     """Get the status of data retention settings and pending cleanup."""
     
     # Get count of recordings pending cleanup
-    expired = await supabase_service.get_expired_recordings(90)
+    expired = await db_session.get_expired_recordings(90)
     
     return {
         "pending_cleanup_count": len(expired),
@@ -2546,49 +2300,17 @@ async def cleanup_status(
 
 ## Database Integration
 
-### Option A: Supabase Python Client (Recommended for Migration)
-
-The examples above use the Supabase Python client, which provides:
-- Direct compatibility with existing Supabase database
-- Row Level Security (RLS) support
-- Real-time subscriptions (if needed)
-
-### Option B: SQLAlchemy (For Full Control)
-
-If you need more control or want to migrate away from Supabase:
+Use SQLAlchemy + Alembic with SQLite for local development and migrations.
 
 ```python
-# app/services/database.py
-
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+# app/db.py
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from app.config import settings
 
-# Create async engine
-engine = create_async_engine(
-    settings.DATABASE_URL,  # postgresql+asyncpg://...
-    echo=settings.DEBUG,
-    pool_pre_ping=True
-)
-
-# Create session factory
-async_session = sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False
-)
-
-Base = declarative_base()
-
-
-async def get_db() -> AsyncSession:
-    """Dependency for database sessions"""
-    async with async_session() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+engine = create_engine(settings.DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 ```
 
 ---
@@ -2680,11 +2402,11 @@ az containerapp create \
   --min-replicas 1 \
   --max-replicas 10 \
   --secrets \
-    supabase-url=secretref:supabase-url \
-    supabase-key=secretref:supabase-service-key \
+    database-url=secretref:database-url \
+    jwt-secret=secretref:jwt-secret \
   --env-vars \
-    SUPABASE_URL=secretref:supabase-url \
-    SUPABASE_SERVICE_KEY=secretref:supabase-key
+    DATABASE_URL=secretref:database-url \
+    JWT_SECRET=secretref:jwt-secret
 ```
 
 ---
@@ -2728,8 +2450,8 @@ def auth_headers():
 
 
 @pytest.fixture
-def mock_supabase():
-    with patch("app.services.supabase_client.supabase_service") as mock:
+def mock_db_session():
+    with patch("app.db.SessionLocal") as mock:
         mock.get_interview = AsyncMock(return_value={
             "id": "int-123",
             "status": "in_progress"
@@ -2743,7 +2465,7 @@ def mock_supabase():
 
 @pytest.fixture
 def mock_ai_service():
-    with patch("app.services.ai_gateway.ai_service") as mock:
+    with patch("app.services.openai_client.get_openai_client") as mock:
         mock.chat_completion = AsyncMock(return_value={
             "choices": [{"message": {"content": "Great answer!"}}]
         })
@@ -2761,7 +2483,7 @@ from httpx import AsyncClient
 async def test_ai_interviewer(
     client: AsyncClient,
     auth_headers: dict,
-    mock_supabase,
+    mock_db_session,
     mock_ai_service
 ):
     response = await client.post(
@@ -2784,7 +2506,7 @@ async def test_ai_interviewer(
 async def test_score_interview(
     client: AsyncClient,
     auth_headers: dict,
-    mock_supabase,
+    mock_db_session,
     mock_ai_service
 ):
     mock_ai_service.extract_structured_output = AsyncMock(return_value={
@@ -2827,13 +2549,14 @@ ENVIRONMENT=production
 # CORS
 ALLOWED_ORIGINS=https://talenti.app,http://localhost:3000
 
-# Supabase
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_KEY=your-service-key
-SUPABASE_JWT_SECRET=your-jwt-secret
+# Database/Auth
+DATABASE_URL=sqlite:///./data/app.db
+JWT_SECRET=your-jwt-secret
+JWT_ISSUER=talenti
+JWT_AUDIENCE=talenti-users
 
 # Azure Communication Services
-ACS_CONNECTION_STRING=endpoint=https://your-acs.communication.azure.com/;accesskey=...
+AZURE_ACS_CONNECTION_STRING=endpoint=https://your-acs.communication.azure.com/;accesskey=...
 ACS_ENDPOINT=https://your-acs.communication.azure.com
 ACS_CALLBACK_URL=https://your-api.azurecontainerapps.io/api/acs/webhook
 
@@ -2842,10 +2565,14 @@ AZURE_SPEECH_KEY=your-speech-key
 AZURE_SPEECH_REGION=australiaeast
 
 # Azure Storage
-AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=...
-RECORDING_CONTAINER=interview-recordings
+AZURE_STORAGE_ACCOUNT=your-storage-account
+AZURE_STORAGE_ACCOUNT_KEY=your-storage-key
+AZURE_STORAGE_CONTAINER=interview-recordings
 
-# AI Gateway
+# Azure OpenAI
+AZURE_OPENAI_ENDPOINT=https://your-openai.openai.azure.com/
+AZURE_OPENAI_API_KEY=your-openai-key
+AZURE_OPENAI_DEPLOYMENT=your-deployment-name
 LOVABLE_API_KEY=your-lovable-api-key
 # OR
 OPENAI_API_KEY=your-openai-key
@@ -2876,7 +2603,7 @@ Use this checklist to track progress:
   - [ ] Configuration module
   - [ ] Authentication middleware
   - [ ] Rate limiting
-  - [ ] Supabase client service
+  - [ ] SQLAlchemy session wiring
   - [ ] AI gateway service
   
 - [ ] **Edge Functions Migration**

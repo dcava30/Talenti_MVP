@@ -9,10 +9,10 @@ This document captures the key architectural decisions made during the developme
 
 ## Table of Contents
 
-1. [ADR-001: Use Lovable Cloud (Supabase) as Backend](#adr-001-use-lovable-cloud-supabase-as-backend)
-2. [ADR-002: Edge Functions for Business Logic](#adr-002-edge-functions-for-business-logic)
+1. [ADR-001: Use FastAPI + SQLite + Azure as Backend](#adr-001-use-fastapi--sqlite--azure-as-backend)
+2. [ADR-002: FastAPI Routes for Business Logic](#adr-002-fastapi-routes-for-business-logic)
 3. [ADR-003: Azure Communication Services for Video](#adr-003-azure-communication-services-for-video)
-4. [ADR-004: Lovable AI Gateway for AI Features](#adr-004-lovable-ai-gateway-for-ai-features)
+4. [ADR-004: Azure OpenAI for AI Features](#adr-004-azure-openai-for-ai-features)
 5. [ADR-005: React Query for State Management](#adr-005-react-query-for-state-management)
 6. [ADR-006: shadcn/ui for UI Components](#adr-006-shadcnui-for-ui-components)
 7. [ADR-007: Row Level Security for Authorization](#adr-007-row-level-security-for-authorization)
@@ -22,7 +22,7 @@ This document captures the key architectural decisions made during the developme
 
 ---
 
-## ADR-001: Use Lovable Cloud (Supabase) as Backend
+## ADR-001: Use FastAPI + SQLite + Azure as Backend
 
 ### Status
 Accepted
@@ -36,16 +36,16 @@ We needed a backend solution that provides:
 - Minimal DevOps overhead
 
 ### Decision
-Use Lovable Cloud (powered by Supabase) as the complete backend solution.
+Use a FastAPI backend with SQLite for local persistence and Azure services (Blob Storage, ACS, OpenAI, Speech) for cloud integrations.
 
 ### Rationale
-1. **Integrated Experience**: Lovable Cloud provides seamless integration with the Lovable editor
-2. **PostgreSQL**: Full-featured SQL database with JSON support
-3. **Built-in Auth**: Supabase Auth handles user management
-4. **Edge Functions**: Deno-based serverless functions for custom logic
-5. **Storage**: Built-in file storage for CVs and recordings
-6. **Real-time**: Native WebSocket support for live updates
-7. **RLS**: Row Level Security for fine-grained access control
+1. **FastAPI**: Python API surface with clear routing and dependency injection
+2. **SQLite**: Lightweight local persistence with Alembic migrations
+3. **JWT Auth**: Custom JWT access/refresh tokens for auth
+4. **Azure Blob Storage**: CV and recording storage with SAS uploads
+5. **Azure OpenAI**: Direct model access without gateway indirection
+6. **ACS + Speech**: Azure-native communications and speech services
+7. **App-layer AuthZ**: Org role checks in the API (replacing RLS)
 
 ### Consequences
 **Positive:**
@@ -55,9 +55,9 @@ Use Lovable Cloud (powered by Supabase) as the complete backend solution.
 - Built-in security features
 
 **Negative:**
-- Vendor lock-in to Supabase/Lovable ecosystem
-- Some PostgreSQL features not exposed
-- Edge function cold starts can add latency
+- More backend surface area to maintain
+- Requires explicit migrations and infrastructure configuration
+- SQLite limits concurrency at scale (use managed DB for production if needed)
 
 ### Alternatives Considered
 - Firebase: Less SQL-friendly, Firestore has different data model
@@ -66,7 +66,7 @@ Use Lovable Cloud (powered by Supabase) as the complete backend solution.
 
 ---
 
-## ADR-002: Edge Functions for Business Logic
+## ADR-002: FastAPI Routes for Business Logic
 
 ### Status
 Accepted
@@ -79,14 +79,13 @@ The application requires server-side logic for:
 - Scheduled jobs
 
 ### Decision
-Implement all backend business logic as Supabase Edge Functions using Deno.
+Implement backend business logic as FastAPI routes with Python services.
 
 ### Rationale
 1. **Security**: Secrets stay server-side
-2. **Scalability**: Automatic scaling with serverless
-3. **TypeScript**: Native TypeScript support in Deno
-4. **Deployment**: Automatic deployment on code push
-5. **Proximity**: Edge functions run close to Supabase database
+2. **Observability**: Structured logging and request tracing
+3. **Portability**: Run locally or in Azure App Service/Container Apps
+4. **Python Ecosystem**: Leverage mature data/AI tooling
 
 ### Consequences
 **Positive:**
@@ -96,23 +95,22 @@ Implement all backend business logic as Supabase Edge Functions using Deno.
 - Fast iteration with auto-deploy
 
 **Negative:**
-- Cold start latency for infrequent functions
-- Memory/time limits on function execution
-- Deno ecosystem smaller than Node.js
+- Need to manage runtime and deployments
+- Requires explicit scaling policies
 
 ### Implementation
-Created 11 edge functions:
-- `acs-token-generator` - Azure Communication Services tokens
-- `acs-webhook-handler` - Call event webhooks
-- `ai-interviewer` - Interview conversation AI
-- `azure-speech-token` - Speech service tokens
-- `create-organisation` - Org creation with admin setup
-- `data-retention-cleanup` - GDPR compliance jobs
-- `extract-requirements` - AI job requirement extraction
-- `generate-shortlist` - AI candidate matching
-- `parse-resume` - AI CV parsing
-- `score-interview` - AI interview scoring
-- `send-invitation` - Email invitations
+Created FastAPI routes:
+- `/api/v1/acs/token` - Azure Communication Services tokens
+- `/api/v1/acs/webhook` - Call event webhooks
+- `/api/v1/interview/chat` - Interview conversation AI
+- `/api/v1/speech/token` - Speech service tokens
+- `/api/orgs` - Org creation with admin setup
+- `/api/v1/data-retention/cleanup` - GDPR compliance jobs
+- `/api/v1/roles/extract-requirements` - AI job requirement extraction
+- `/api/v1/shortlist/generate` - AI candidate matching
+- `/api/v1/candidates/parse-resume` - AI CV parsing
+- `/api/v1/scoring/analyze` - AI interview scoring
+- `/api/invitations` - Email invitations
 
 ---
 
@@ -158,7 +156,7 @@ Use Azure Communication Services (ACS) for video/voice calling.
 
 ---
 
-## ADR-004: Lovable AI Gateway for AI Features
+## ADR-004: Azure OpenAI for AI Features
 
 ### Status
 Accepted
@@ -172,11 +170,11 @@ The platform requires AI capabilities for:
 - Candidate matching
 
 ### Decision
-Use Lovable AI Gateway with Gemini models for all AI features.
+Use Azure OpenAI deployments for all AI features.
 
 ### Rationale
-1. **No API Key Required**: Lovable provides AI access built-in
-2. **Cost Efficiency**: Bundled with Lovable subscription
+1. **Enterprise Controls**: Azure resource governance and network policy
+2. **Model Choice**: Deploy GPT models via Azure OpenAI
 3. **Gemini Quality**: Google's Gemini models are high quality
 4. **Simplicity**: Single integration point for all AI
 5. **Tool Calling**: Native function calling support
@@ -191,7 +189,7 @@ Use Lovable AI Gateway with Gemini models for all AI features.
 **Negative:**
 - Limited to available models
 - Can't fine-tune models
-- Dependent on Lovable's AI allocation
+- Dependent on Azure OpenAI quotas and deployment configuration
 
 ### Model Selection
 - `google/gemini-2.5-flash`: Primary model for all features
@@ -413,7 +411,7 @@ function checkRateLimit(identifier: string) {
 ### Alternatives Considered
 - Redis: More accurate, adds complexity/cost
 - Upstash: Good but adds dependency
-- Supabase table: Too slow for rate limiting
+- SQLite table: Too slow for rate limiting
 
 ---
 
@@ -423,13 +421,13 @@ function checkRateLimit(identifier: string) {
 Accepted
 
 ### Context
-Edge functions need to verify caller identity.
+FastAPI routes need to verify caller identity.
 
 ### Decision
-Use `getClaims()` for JWT validation instead of relying on `verify_jwt` config.
+Validate JWTs in FastAPI middleware/dependencies using `python-jose`.
 
 ### Rationale
-1. **Signing Keys**: New Supabase signing-keys system requires in-code validation
+1. **Key Control**: Explicit control over JWT secrets and rotation
 2. **Flexibility**: Can have public endpoints in same function
 3. **Error Handling**: Better control over auth error responses
 4. **Claims Access**: Direct access to JWT claims
@@ -446,23 +444,21 @@ Use `getClaims()` for JWT validation instead of relying on `verify_jwt` config.
 - Must remember to validate
 
 ### Implementation
-```typescript
-const token = authHeader.replace('Bearer ', '');
-const { data: claimsData, error } = await supabase.auth.getClaims(token);
+```python
+from jose import jwt
 
-if (error || !claimsData?.claims) {
-  return new Response('Unauthorized', { status: 401 });
-}
-
-const userId = claimsData.claims.sub;
+payload = jwt.decode(
+    token,
+    settings.jwt_secret,
+    algorithms=["HS256"],
+    audience=settings.jwt_audience,
+    issuer=settings.jwt_issuer,
+)
+user_id = payload["sub"]
 ```
 
 ### Config
-```toml
-# supabase/config.toml
-[functions.my-function]
-verify_jwt = false  # Validate in code instead
-```
+JWT validation is handled in the FastAPI dependency layer.
 
 ---
 
@@ -557,13 +553,13 @@ Use this template for future decisions:
 
 | ADR | Title | Status | Date |
 |-----|-------|--------|------|
-| 001 | Lovable Cloud Backend | Accepted | 2026-01 |
-| 002 | Edge Functions | Accepted | 2026-01 |
+| 001 | FastAPI + SQLite + Azure Backend | Accepted | 2026-01 |
+| 002 | FastAPI Routes | Accepted | 2026-01 |
 | 003 | Azure Communication Services | Accepted | 2026-01 |
-| 004 | Lovable AI Gateway | Accepted | 2026-01 |
+| 004 | Azure OpenAI | Accepted | 2026-01 |
 | 005 | React Query | Accepted | 2026-01 |
 | 006 | shadcn/ui | Accepted | 2026-01 |
-| 007 | Row Level Security | Accepted | 2026-01 |
+| 007 | App-Layer Authorization | Accepted | 2026-01 |
 | 008 | In-Memory Rate Limiting | Accepted | 2026-01 |
 | 009 | JWT Validation in Code | Accepted | 2026-01 |
 | 010 | Multi-Dimension Scoring | Accepted | 2026-01 |
