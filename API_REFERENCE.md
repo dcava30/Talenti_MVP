@@ -64,13 +64,13 @@ All endpoints implement rate limiting to prevent abuse:
 
 | Endpoint | Limit | Window |
 |----------|-------|--------|
-| acs-token-generator | 10 requests | 1 minute |
-| ai-interviewer | 30 requests | 1 minute |
-| azure-speech-token | 15 requests | 1 minute |
-| extract-requirements | 20 requests | 1 minute |
-| generate-shortlist | 10 requests | 5 minutes |
-| parse-resume | 5 requests | 1 minute |
-| score-interview | 10 requests | 5 minutes |
+| /api/v1/acs/token | 10 requests | 1 minute |
+| /api/v1/interview/chat | 30 requests | 1 minute |
+| /api/v1/speech/token | 15 requests | 1 minute |
+| /api/v1/roles/extract-requirements | 20 requests | 1 minute |
+| /api/v1/shortlist/generate | 10 requests | 5 minutes |
+| /api/v1/candidates/parse-resume | 5 requests | 1 minute |
+| /api/v1/scoring/analyze | 10 requests | 5 minutes |
 
 Rate limit headers returned on 429 responses:
 
@@ -186,33 +186,43 @@ Request a SAS upload URL for Azure Blob Storage.
 
 ## AI & Platform Routes
 
-### acs-token-generator
+### POST /api/auth/register
 
-Generate Azure Communication Services tokens for video/voice calls.
+Create a new user.
 
 **Endpoint:** `POST /api/v1/acs/token`
 
-**Authentication:** Required
+**Response:**
+```json
+{
+  "id": "user-uuid",
+  "email": "user@example.com",
+  "full_name": "Ada Lovelace",
+  "created_at": "2026-01-13T12:00:00Z"
+}
+```
+
+### POST /api/auth/login
+
+Authenticate and receive an access token. Refresh token is set as httpOnly cookie.
 
 **Request Body:**
 ```json
 {
-  "scopes": ["voip"]  // Optional, defaults to ["voip"]
+  "email": "user@example.com",
+  "password": "strong-password"
 }
 ```
 
 **Response:**
 ```json
 {
-  "token": "eyJ...",
-  "expiresOn": "2026-01-13T12:00:00.000Z",
-  "user": {
-    "communicationUserId": "8:acs:..."
-  }
+  "access_token": "eyJ...",
+  "token_type": "bearer"
 }
 ```
 
-**Errors:**
+### GET /api/auth/me
 
 | Status | Description |
 |--------|-------------|
@@ -223,49 +233,73 @@ Generate Azure Communication Services tokens for video/voice calls.
 **Required Secrets:**
 - `AZURE_ACS_CONNECTION_STRING`
 
----
+Create an organisation and assign the current user as admin.
 
-### acs-webhook-handler
+**Request Body:**
+```json
+{
+  "name": "Talenti",
+  "description": "AI interview platform",
+  "industry": "HR Tech",
+  "website": "https://talenti.app"
+}
+```
 
-Handle Azure Communication Services Event Grid webhooks.
+### POST /api/roles
+
+Create a job role for an organisation.
 
 **Endpoint:** `POST /api/v1/acs/webhook`
 
-**Authentication:** Webhook signature verification (no JWT)
+### POST /api/invitations
 
-**Supported Events:**
-- `Microsoft.EventGrid.SubscriptionValidationEvent`
-- `Microsoft.Communication.CallStarted`
-- `Microsoft.Communication.CallEnded`
-- `Microsoft.Communication.ParticipantAdded`
-- `Microsoft.Communication.ParticipantRemoved`
-- `Microsoft.Communication.RecordingFileStatusUpdated`
-- `Microsoft.Communication.PlayCompleted`
-- `Microsoft.Communication.PlayFailed`
-- `Microsoft.Communication.RecognizeCompleted`
-- `Microsoft.Communication.RecognizeFailed`
+Create an interview invitation.
 
-**Request Body (Event Grid format):**
+**Request Body:**
 ```json
-[
-  {
-    "id": "event-id",
-    "eventType": "Microsoft.Communication.CallStarted",
-    "subject": "/calls/...",
-    "data": {
-      "serverCallId": "...",
-      "correlationId": "uuid-format"
-    },
-    "eventTime": "2026-01-13T10:00:00Z"
-  }
-]
+{
+  "application_id": "app-uuid",
+  "candidate_email": "candidate@example.com",
+  "expires_at": "2026-01-13T12:00:00Z"
+}
+```
+
+### POST /api/storage/upload-url
+
+Request a SAS upload URL for Azure Blob Storage.
+
+**Request Body:**
+```json
+{
+  "organisation_id": "org-uuid",
+  "file_name": "resume.pdf",
+  "content_type": "application/pdf"
+}
+```
+
+---
+
+## AI & Platform Routes
+
+### ACS Token
+
+**Endpoint:** `POST /api/v1/acs/token`  
+**Authentication:** Required
+
+**Request Body:**
+```json
+{
+  "interview_id": "int-123",
+  "scopes": ["voip"]
+}
 ```
 
 **Response:**
 ```json
 {
-  "success": true,
-  "processed": 1
+  "token": "eyJ...",
+  "expires_on": "2026-01-13T12:00:00.000Z",
+  "user_id": "8:acs:..."
 }
 ```
 
@@ -275,87 +309,112 @@ Handle Azure Communication Services Event Grid webhooks.
 
 ---
 
-### ai-interviewer
+### Interview Scoring
 
-Generate AI interviewer responses during interviews.
+**Endpoint:** `POST /api/v1/scoring/analyze`  
+**Authentication:** Required
 
 **Endpoint:** `POST /api/v1/interview/chat`
 
+**Response:**
+```json
+{
+  "interview_id": "int-123",
+  "overall_score": 78,
+  "dimensions": [{ "name": "communication", "score": 31 }],
+  "summary": "Automated scoring based on transcript analysis."
+}
+```
+
+---
+
+### Resume Parsing
+
+**Endpoint:** `POST /api/v1/candidates/parse-resume`  
 **Authentication:** Required
 
 **Request Body:**
 ```json
 {
-  "messages": [
-    { "role": "user", "content": "Hello, I'm here for the interview" }
-  ],
-  "jobTitle": "Senior Software Engineer",
-  "companyName": "Acme Corp",
-  "currentQuestionIndex": 0,
-  "isPractice": false,
-  "jobDescription": "We're looking for...",
-  "requirements": {
-    "skills": ["React", "TypeScript"],
-    "experience": ["5+ years frontend"],
-    "qualifications": ["Bachelor's degree"],
-    "responsibilities": ["Lead frontend team"]
-  },
-  "orgValues": ["Innovation", "Collaboration"],
-  "candidateContext": {
-    "skills": ["React", "Node.js"],
-    "experienceYears": 6,
-    "recentRoles": ["Frontend Developer"]
-  },
-  "competenciesCovered": ["technical_skills"],
-  "competenciesToCover": ["communication", "culture_fit"]
+  "candidate_id": "cand-123",
+  "job_role_id": "role-123",
+  "resume_text": "..."
 }
 ```
 
 **Response:**
 ```json
 {
-  "message": "Welcome! I'm excited to learn more about your experience...",
-  "detectedCompetencies": ["communication"]
+  "candidate_id": "cand-123",
+  "parsed": { "full_name": "Jane Doe", "skills": ["React"] }
 }
 ```
 
-**Rate Limits:**
-- IP-based: 30 requests/minute
-- User-based: 30 requests/minute
+---
 
-**Errors:**
+### Extract Requirements
 
-| Status | Description |
-|--------|-------------|
-| 401 | Unauthorized |
-| 402 | AI credits depleted |
-| 429 | Rate limit exceeded |
+**Endpoint:** `POST /api/v1/roles/extract-requirements`  
+**Authentication:** Required
 
 **Required Secrets:**
 - `AZURE_OPENAI_API_KEY`
 
 ---
 
-### azure-speech-token
+### Shortlist Generation
 
-Generate Azure Speech Services tokens for speech-to-text and text-to-speech.
+**Endpoint:** `POST /api/v1/shortlist/generate`  
+**Authentication:** Required
 
 **Endpoint:** `POST /api/v1/speech/token`
 
+**Response:**
+```json
+{
+  "job_role_id": "role-123",
+  "ranked": [{ "application_id": "app-1", "score": 0.9 }]
+}
+```
+
+---
+
+### Azure Speech Token
+
+**Endpoint:** `POST /api/v1/speech/token`  
 **Authentication:** Required
 
 **Response:**
 ```json
 {
   "token": "eyJ...",
-  "region": "australiaeast",
-  "expiresIn": 600
+  "region": "australiaeast"
 }
 ```
 
-**Required Secrets:**
-- `AZURE_SPEECH_KEY`
-- `AZURE_SPEECH_REGION`
+---
+
+### Data Retention Cleanup
+
+**Endpoint:** `POST /api/v1/data-retention/cleanup`  
+**Authentication:** Required (org admin)
+
+**Request Body:**
+```json
+{
+  "organisation_id": "org-123",
+  "retention_days": 30
+}
+```
+
+**Response:**
+```json
+{
+  "interviews_removed": 0,
+  "recordings_removed": 0,
+  "applications_anonymized": 0
+}
+```
 
 ---
 
