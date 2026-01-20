@@ -43,30 +43,3 @@ def create_org(
         website=org.website,
         created_at=org.created_at,
     )
-
-
-@router.get("/{org_id}", response_model=OrganisationResponse)
-def get_org(
-    org_id: str,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-) -> OrganisationResponse:
-    membership = (
-        db.query(OrgUser)
-        .filter(OrgUser.organisation_id == org_id, OrgUser.user_id == user.id)
-        .first()
-    )
-    if not membership:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not an org member")
-
-    org = db.query(Organisation).filter(Organisation.id == org_id).first()
-    if not org:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
-    return OrganisationResponse(
-        id=org.id,
-        name=org.name,
-        description=org.description,
-        industry=org.industry,
-        website=org.website,
-        created_at=org.created_at,
-    )

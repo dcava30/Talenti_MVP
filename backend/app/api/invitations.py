@@ -1,11 +1,10 @@
 import secrets
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db, require_org_role
-from app.models import Application, JobRole
+from app.api.deps import get_current_user, get_db
 from app.models import Invitation, User
 from app.schemas.invitations import InvitationCreate, InvitationResponse
 
@@ -18,14 +17,6 @@ def create_invitation(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> InvitationResponse:
-    application = db.query(Application).filter(Application.id == payload.application_id).first()
-    if not application:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
-    job_role = db.query(JobRole).filter(JobRole.id == application.job_role_id).first()
-    if not job_role:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job role not found")
-    require_org_role(job_role.organisation_id, ["admin", "recruiter"], db, user)
-
     token = secrets.token_urlsafe(32)
     invitation = Invitation(
         application_id=payload.application_id,

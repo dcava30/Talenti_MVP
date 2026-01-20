@@ -2,7 +2,6 @@ from pydantic import BaseModel
 
 
 class ExtractRequirementsRequest(BaseModel):
-    job_role_id: str
     job_description: str
 
 

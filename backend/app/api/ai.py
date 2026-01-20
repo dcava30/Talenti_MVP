@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db, require_org_member
+from app.api.deps import get_current_user, get_db
 from app.core.config import settings
-from app.models import Application, Interview, JobRole, User
+from app.models import User
 from app.schemas.ai import AiInterviewerRequest, AiInterviewerResponse
 from app.services.openai_client import get_openai_client
 
@@ -16,16 +16,6 @@ def interview_chat(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> AiInterviewerResponse:
-    interview = db.query(Interview).filter(Interview.id == payload.interview_id).first()
-    if not interview:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
-    application = db.query(Application).filter(Application.id == interview.application_id).first()
-    if not application:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
-    job_role = db.query(JobRole).filter(JobRole.id == application.job_role_id).first()
-    if not job_role:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job role not found")
-    require_org_member(job_role.organisation_id, db, user)
     if not payload.messages:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Messages required")
 

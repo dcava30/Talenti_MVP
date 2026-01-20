@@ -3,7 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db, require_org_member
+from app.api.deps import get_current_user, get_db
 from app.models import File, User
 from app.schemas.storage import UploadUrlRequest, UploadUrlResponse
 from app.services.blob_storage import build_blob_path, generate_upload_sas
@@ -22,9 +22,6 @@ def create_upload_url(
         upload_url, expires_in = generate_upload_sas(blob_path)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    if payload.organisation_id:
-        require_org_member(payload.organisation_id, db, user)
 
     file_record = File(
         organisation_id=payload.organisation_id,
