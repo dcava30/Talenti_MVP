@@ -1,31 +1,3 @@
-from app.api import (
-    acs,
-    ai,
-    auth,
-    candidates,
-    invitations,
-    orgs,
-    requirements,
-    retention,
-    roles,
-    scoring,
-    shortlist,
-    speech,
-    storage,
-)
+from app.api import auth, invitations, orgs, roles, storage
 
-__all__ = [
-    "acs",
-    "ai",
-    "auth",
-    "candidates",
-    "invitations",
-    "orgs",
-    "requirements",
-    "retention",
-    "roles",
-    "scoring",
-    "shortlist",
-    "speech",
-    "storage",
-]
+__all__ = ["auth", "invitations", "orgs", "roles", "storage"]

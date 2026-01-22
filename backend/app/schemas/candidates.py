@@ -4,7 +4,6 @@ from pydantic import BaseModel, EmailStr
 class ParseResumeRequest(BaseModel):
     candidate_id: str
     resume_text: str
-    job_role_id: str | None = None
 
 
 class ParsedResume(BaseModel):
