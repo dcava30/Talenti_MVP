@@ -2,7 +2,7 @@
 
 > **Version:** 1.0.0  
 > **Last Updated:** January 2026  
-> **Database:** SQLite (FastAPI)
+> **Database:** PostgreSQL (Supabase)
 
 ## Overview
 
