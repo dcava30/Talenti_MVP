@@ -89,18 +89,11 @@ ACR_USERNAME              # Registry username (or use managed identity)
 ACR_PASSWORD              # Registry password (or use managed identity)
 
 # Application secrets (stored in Key Vault, referenced here)
-DATABASE_URL
-JWT_SECRET
-JWT_ISSUER
-JWT_AUDIENCE
-AZURE_STORAGE_ACCOUNT
-AZURE_STORAGE_ACCOUNT_KEY
-AZURE_STORAGE_CONTAINER
-AZURE_STORAGE_SAS_TTL_MINUTES
-AZURE_ACS_CONNECTION_STRING
+SUPABASE_URL
+SUPABASE_SERVICE_KEY
+ACS_CONNECTION_STRING
 AZURE_OPENAI_ENDPOINT
 AZURE_OPENAI_API_KEY
-AZURE_OPENAI_DEPLOYMENT
 AZURE_SPEECH_KEY
 AZURE_SPEECH_REGION
 ```
@@ -284,28 +277,12 @@ param imageTag string = 'latest'
 @description('Enable zone redundancy (prod only)')
 param zoneRedundant bool = environment == 'prod'
 
-@description('Database configuration')
+@description('Supabase configuration')
 @secure()
-param databaseUrl string
-
-@description('JWT configuration')
-@secure()
-param jwtSecret string
-
-param jwtIssuer string = 'talenti'
-param jwtAudience string = 'talenti-users'
-
-@description('Azure Storage configuration')
-@secure()
-param storageAccount string
+param supabaseUrl string
 
 @secure()
-param storageAccountKey string
-
-@secure()
-param storageContainer string
-
-param storageSasTtlMinutes int = 15
+param supabaseServiceKey string
 
 @description('Azure OpenAI configuration')
 @secure()
@@ -394,14 +371,8 @@ module keyVault 'modules/key-vault.bicep' = {
     location: location
     tags: tags
     secrets: [
-      { name: 'database-url', value: databaseUrl }
-      { name: 'jwt-secret', value: jwtSecret }
-      { name: 'jwt-issuer', value: jwtIssuer }
-      { name: 'jwt-audience', value: jwtAudience }
-      { name: 'azure-storage-account', value: storageAccount }
-      { name: 'azure-storage-account-key', value: storageAccountKey }
-      { name: 'azure-storage-container', value: storageContainer }
-      { name: 'azure-storage-sas-ttl', value: string(storageSasTtlMinutes) }
+      { name: 'supabase-url', value: supabaseUrl }
+      { name: 'supabase-service-key', value: supabaseServiceKey }
       { name: 'azure-openai-endpoint', value: azureOpenAIEndpoint }
       { name: 'azure-openai-key', value: azureOpenAIKey }
       { name: 'azure-speech-key', value: azureSpeechKey }
@@ -479,14 +450,8 @@ module apiContainerApp 'modules/container-app.bicep' = {
     
     // Secret references from Key Vault
     secretRefs: [
-      { name: 'database-url', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/database-url' }
-      { name: 'jwt-secret', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/jwt-secret' }
-      { name: 'jwt-issuer', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/jwt-issuer' }
-      { name: 'jwt-audience', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/jwt-audience' }
-      { name: 'azure-storage-account', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/azure-storage-account' }
-      { name: 'azure-storage-account-key', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/azure-storage-account-key' }
-      { name: 'azure-storage-container', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/azure-storage-container' }
-      { name: 'azure-storage-sas-ttl', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/azure-storage-sas-ttl' }
+      { name: 'supabase-url', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/supabase-url' }
+      { name: 'supabase-service-key', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/supabase-service-key' }
       { name: 'azure-openai-endpoint', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/azure-openai-endpoint' }
       { name: 'azure-openai-key', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/azure-openai-key' }
       { name: 'azure-speech-key', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/azure-speech-key' }
@@ -496,7 +461,7 @@ module apiContainerApp 'modules/container-app.bicep' = {
     // Health probes
     livenessProbe: {
       httpGet: {
-        path: '/health'
+        path: '/health/live'
         port: 8000
       }
       initialDelaySeconds: 10
@@ -504,7 +469,7 @@ module apiContainerApp 'modules/container-app.bicep' = {
     }
     readinessProbe: {
       httpGet: {
-        path: '/health'
+        path: '/health/ready'
         port: 8000
       }
       initialDelaySeconds: 5
@@ -549,18 +514,8 @@ module workerContainerApp 'modules/container-app.bicep' = {
     ]
     
     secretRefs: [
-      { name: 'database-url', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/database-url' }
-      { name: 'jwt-secret', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/jwt-secret' }
-      { name: 'jwt-issuer', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/jwt-issuer' }
-      { name: 'jwt-audience', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/jwt-audience' }
-      { name: 'azure-storage-account', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/azure-storage-account' }
-      { name: 'azure-storage-account-key', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/azure-storage-account-key' }
-      { name: 'azure-storage-container', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/azure-storage-container' }
-      { name: 'azure-storage-sas-ttl', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/azure-storage-sas-ttl' }
-      { name: 'azure-openai-endpoint', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/azure-openai-endpoint' }
-      { name: 'azure-openai-key', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/azure-openai-key' }
-      { name: 'azure-speech-key', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/azure-speech-key' }
-      { name: 'acs-connection-string', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/acs-connection-string' }
+      { name: 'supabase-url', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/supabase-url' }
+      { name: 'supabase-service-key', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/supabase-service-key' }
     ]
     
     ingressEnabled: false
@@ -1052,18 +1007,12 @@ param imageTag = 'latest'
 param zoneRedundant = true
 
 // Secrets passed via GitHub Actions or Key Vault
-param databaseUrl = readEnvironmentVariable('DATABASE_URL')
-param jwtSecret = readEnvironmentVariable('JWT_SECRET')
-param jwtIssuer = readEnvironmentVariable('JWT_ISSUER')
-param jwtAudience = readEnvironmentVariable('JWT_AUDIENCE')
-param storageAccount = readEnvironmentVariable('AZURE_STORAGE_ACCOUNT')
-param storageAccountKey = readEnvironmentVariable('AZURE_STORAGE_ACCOUNT_KEY')
-param storageContainer = readEnvironmentVariable('AZURE_STORAGE_CONTAINER')
-param storageSasTtlMinutes = int(readEnvironmentVariable('AZURE_STORAGE_SAS_TTL_MINUTES'))
+param supabaseUrl = readEnvironmentVariable('SUPABASE_URL')
+param supabaseServiceKey = readEnvironmentVariable('SUPABASE_SERVICE_KEY')
 param azureOpenAIEndpoint = readEnvironmentVariable('AZURE_OPENAI_ENDPOINT')
-param azureOpenAIKey = readEnvironmentVariable('AZURE_OPENAI_API_KEY')
+param azureOpenAIKey = readEnvironmentVariable('AZURE_OPENAI_KEY')
 param azureSpeechKey = readEnvironmentVariable('AZURE_SPEECH_KEY')
-param acsConnectionString = readEnvironmentVariable('AZURE_ACS_CONNECTION_STRING')
+param acsConnectionString = readEnvironmentVariable('ACS_CONNECTION_STRING')
 ```
 
 ---
@@ -1811,22 +1760,21 @@ AZURE_SPEECH_REGION=australiaeast
 AZURE_SPEECH_ENDPOINT=https://australiaeast.api.cognitive.microsoft.com/
 
 # Azure Communication Services
-AZURE_ACS_CONNECTION_STRING=endpoint=https://acs-talenti-prod.communication.azure.com/;accesskey=...
+ACS_CONNECTION_STRING=endpoint=https://acs-talenti-prod.communication.azure.com/;accesskey=...
+ACS_ENDPOINT=https://acs-talenti-prod.communication.azure.com/
 
 # Azure Blob Storage
-AZURE_STORAGE_ACCOUNT=sttalentiprodaue
-AZURE_STORAGE_ACCOUNT_KEY=<storage-account-key>
-AZURE_STORAGE_CONTAINER=interview-recordings
-AZURE_STORAGE_SAS_TTL_MINUTES=15
+AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=sttalentiprodaue;...
+AZURE_STORAGE_ACCOUNT_NAME=sttalentiprodaue
+RECORDING_CONTAINER=interview-recordings
 
 # ===========================================
-# REQUIRED - Database + Auth
+# REQUIRED - Supabase
 # ===========================================
 
-DATABASE_URL=sqlite:///./data/app.db
-JWT_SECRET=<jwt-secret>
-JWT_ISSUER=talenti
-JWT_AUDIENCE=talenti-users
+SUPABASE_URL=https://hmktvnmqcenhxhshwdwc.supabase.co
+SUPABASE_SERVICE_KEY=<service-role-key>
+SUPABASE_JWT_SECRET=<jwt-secret>
 
 # ===========================================
 # APPLICATION SETTINGS
@@ -1864,13 +1812,8 @@ REDIS_PASSWORD=<optional>
 
 ```bash
 # Create secrets in Key Vault
-az keyvault secret set --vault-name kv-talenti-prod-aue --name database-url --value "$DATABASE_URL"
-az keyvault secret set --vault-name kv-talenti-prod-aue --name jwt-secret --value "$JWT_SECRET"
-az keyvault secret set --vault-name kv-talenti-prod-aue --name jwt-issuer --value "$JWT_ISSUER"
-az keyvault secret set --vault-name kv-talenti-prod-aue --name jwt-audience --value "$JWT_AUDIENCE"
-az keyvault secret set --vault-name kv-talenti-prod-aue --name azure-storage-account --value "$AZURE_STORAGE_ACCOUNT"
-az keyvault secret set --vault-name kv-talenti-prod-aue --name azure-storage-account-key --value "$AZURE_STORAGE_ACCOUNT_KEY"
-az keyvault secret set --vault-name kv-talenti-prod-aue --name azure-storage-container --value "$AZURE_STORAGE_CONTAINER"
+az keyvault secret set --vault-name kv-talenti-prod-aue --name supabase-url --value "$SUPABASE_URL"
+az keyvault secret set --vault-name kv-talenti-prod-aue --name supabase-service-key --value "$SUPABASE_SERVICE_KEY"
 az keyvault secret set --vault-name kv-talenti-prod-aue --name azure-openai-endpoint --value "$AZURE_OPENAI_ENDPOINT"
 az keyvault secret set --vault-name kv-talenti-prod-aue --name azure-openai-key --value "$AZURE_OPENAI_API_KEY"
 az keyvault secret set --vault-name kv-talenti-prod-aue --name azure-speech-key --value "$AZURE_SPEECH_KEY"

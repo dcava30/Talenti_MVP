@@ -2,11 +2,11 @@
 
 > **Version:** 1.0.0  
 > **Last Updated:** January 2026  
-> **Base URL:** `http://localhost:8000`
+> **Base URL:** `https://<project-id>.supabase.co/functions/v1`
 
 ## Overview
 
-Talenti's backend is powered by FastAPI. All endpoints require authentication unless otherwise specified.
+Talenti's backend is powered by Supabase Edge Functions. All endpoints require authentication unless otherwise specified.
 
 ---
 
@@ -14,8 +14,7 @@ Talenti's backend is powered by FastAPI. All endpoints require authentication un
 
 1. [Authentication](#authentication)
 2. [Rate Limiting](#rate-limiting)
-3. [Core Routes](#core-routes)
-4. [AI & Platform Routes](#ai--platform-routes)
+3. [Edge Functions](#edge-functions)
    - [acs-token-generator](#acs-token-generator)
    - [acs-webhook-handler](#acs-webhook-handler)
    - [ai-interviewer](#ai-interviewer)
@@ -27,8 +26,8 @@ Talenti's backend is powered by FastAPI. All endpoints require authentication un
    - [parse-resume](#parse-resume)
    - [score-interview](#score-interview)
    - [send-invitation](#send-invitation)
-5. [Error Codes](#error-codes)
-6. [Webhook Events](#webhook-events)
+4. [Error Codes](#error-codes)
+5. [Webhook Events](#webhook-events)
 
 ---
 
@@ -40,20 +39,20 @@ All authenticated endpoints require a valid JWT token in the Authorization heade
 Authorization: Bearer <jwt_token>
 ```
 
-Tokens are obtained via `POST /api/auth/login` and validated with JWT verification in FastAPI.
+Tokens are obtained via Supabase Auth and validated using `getClaims()`.
 
 ### Authentication Flow
 
 ```mermaid
 sequenceDiagram
     participant Client
-    participant API
-    participant FastAPI Auth
+    participant EdgeFunction
+    participant Supabase Auth
     
-    Client->>API: Request + Bearer Token
-    API->>FastAPI Auth: JWT decode
-    FastAPI Auth-->>API: Claims or Error
-    API-->>Client: Response or 401
+    Client->>EdgeFunction: Request + Bearer Token
+    EdgeFunction->>Supabase Auth: getClaims(token)
+    Supabase Auth-->>EdgeFunction: Claims or Error
+    EdgeFunction-->>Client: Response or 401
 ```
 
 ---
@@ -64,13 +63,13 @@ All endpoints implement rate limiting to prevent abuse:
 
 | Endpoint | Limit | Window |
 |----------|-------|--------|
-| /api/v1/acs/token | 10 requests | 1 minute |
-| /api/v1/interview/chat | 30 requests | 1 minute |
-| /api/v1/speech/token | 15 requests | 1 minute |
-| /api/v1/roles/extract-requirements | 20 requests | 1 minute |
-| /api/v1/shortlist/generate | 10 requests | 5 minutes |
-| /api/v1/candidates/parse-resume | 5 requests | 1 minute |
-| /api/v1/scoring/analyze | 10 requests | 5 minutes |
+| acs-token-generator | 10 requests | 1 minute |
+| ai-interviewer | 30 requests | 1 minute |
+| azure-speech-token | 15 requests | 1 minute |
+| extract-requirements | 20 requests | 1 minute |
+| generate-shortlist | 10 requests | 5 minutes |
+| parse-resume | 5 requests | 1 minute |
+| score-interview | 10 requests | 5 minutes |
 
 Rate limit headers returned on 429 responses:
 
@@ -80,341 +79,178 @@ Retry-After: <seconds>
 
 ---
 
-## Core Routes
+## Edge Functions
 
-### POST /api/auth/register
+### acs-token-generator
 
-Create a new user.
+Generate Azure Communication Services tokens for video/voice calls.
+
+**Endpoint:** `POST /acs-token-generator`
+
+**Authentication:** Required
 
 **Request Body:**
 ```json
 {
-  "email": "user@example.com",
-  "password": "strong-password",
-  "full_name": "Ada Lovelace"
+  "scopes": ["voip"]  // Optional, defaults to ["voip"]
 }
 ```
 
 **Response:**
 ```json
 {
-  "id": "user-uuid",
-  "email": "user@example.com",
-  "full_name": "Ada Lovelace",
-  "created_at": "2026-01-13T12:00:00Z"
+  "token": "eyJ...",
+  "expiresOn": "2026-01-13T12:00:00.000Z",
+  "user": {
+    "communicationUserId": "8:acs:..."
+  }
 }
 ```
 
-### POST /api/auth/login
-
-Authenticate and receive an access token. Refresh token is set as httpOnly cookie.
-
-**Request Body:**
-```json
-{
-  "email": "user@example.com",
-  "password": "strong-password"
-}
-```
-
-**Response:**
-```json
-{
-  "access_token": "eyJ...",
-  "token_type": "bearer"
-}
-```
-
-### GET /api/auth/me
-
-Return current user profile.
-
-### POST /api/orgs
-
-Create an organisation and assign the current user as admin.
-
-**Request Body:**
-```json
-{
-  "name": "Talenti",
-  "description": "AI interview platform",
-  "industry": "HR Tech",
-  "website": "https://talenti.app"
-}
-```
-
-### POST /api/roles
-
-Create a job role for an organisation.
-
-**Request Body:**
-```json
-{
-  "organisation_id": "org-uuid",
-  "title": "Senior Frontend Engineer",
-  "description": "Role description"
-}
-```
-
-### POST /api/invitations
-
-Create an interview invitation.
-
-**Request Body:**
-```json
-{
-  "application_id": "app-uuid",
-  "candidate_email": "candidate@example.com",
-  "expires_at": "2026-01-13T12:00:00Z"
-}
-```
-
-### POST /api/storage/upload-url
-
-Request a SAS upload URL for Azure Blob Storage.
-
-**Request Body:**
-```json
-{
-  "organisation_id": "org-uuid",
-  "file_name": "resume.pdf",
-  "content_type": "application/pdf"
-}
-```
-
----
-
-## AI & Platform Routes
-
-### POST /api/auth/register
-
-Create a new user.
-
-**Endpoint:** `POST /api/v1/acs/token`
-
-**Response:**
-```json
-{
-  "id": "user-uuid",
-  "email": "user@example.com",
-  "full_name": "Ada Lovelace",
-  "created_at": "2026-01-13T12:00:00Z"
-}
-```
-
-### POST /api/auth/login
-
-Authenticate and receive an access token. Refresh token is set as httpOnly cookie.
-
-**Request Body:**
-```json
-{
-  "email": "user@example.com",
-  "password": "strong-password"
-}
-```
-
-**Response:**
-```json
-{
-  "access_token": "eyJ...",
-  "token_type": "bearer"
-}
-```
-
-### GET /api/auth/me
+**Errors:**
 
 | Status | Description |
 |--------|-------------|
 | 401 | Unauthorized - invalid or missing token |
 | 429 | Rate limit exceeded |
-| 500 | AZURE_ACS_CONNECTION_STRING not configured |
+| 500 | ACS_CONNECTION_STRING not configured |
 
 **Required Secrets:**
-- `AZURE_ACS_CONNECTION_STRING`
-
-Create an organisation and assign the current user as admin.
-
-**Request Body:**
-```json
-{
-  "name": "Talenti",
-  "description": "AI interview platform",
-  "industry": "HR Tech",
-  "website": "https://talenti.app"
-}
-```
-
-### POST /api/roles
-
-Create a job role for an organisation.
-
-**Endpoint:** `POST /api/v1/acs/webhook`
-
-### POST /api/invitations
-
-Create an interview invitation.
-
-**Request Body:**
-```json
-{
-  "application_id": "app-uuid",
-  "candidate_email": "candidate@example.com",
-  "expires_at": "2026-01-13T12:00:00Z"
-}
-```
-
-### POST /api/storage/upload-url
-
-Request a SAS upload URL for Azure Blob Storage.
-
-**Request Body:**
-```json
-{
-  "organisation_id": "org-uuid",
-  "file_name": "resume.pdf",
-  "content_type": "application/pdf"
-}
-```
+- `ACS_CONNECTION_STRING`
 
 ---
 
-## AI & Platform Routes
+### acs-webhook-handler
 
-### ACS Token
+Handle Azure Communication Services Event Grid webhooks.
 
-**Endpoint:** `POST /api/v1/acs/token`  
-**Authentication:** Required
+**Endpoint:** `POST /acs-webhook-handler`
 
-**Request Body:**
+**Authentication:** Webhook signature verification (no JWT)
+
+**Supported Events:**
+- `Microsoft.EventGrid.SubscriptionValidationEvent`
+- `Microsoft.Communication.CallStarted`
+- `Microsoft.Communication.CallEnded`
+- `Microsoft.Communication.ParticipantAdded`
+- `Microsoft.Communication.ParticipantRemoved`
+- `Microsoft.Communication.RecordingFileStatusUpdated`
+- `Microsoft.Communication.PlayCompleted`
+- `Microsoft.Communication.PlayFailed`
+- `Microsoft.Communication.RecognizeCompleted`
+- `Microsoft.Communication.RecognizeFailed`
+
+**Request Body (Event Grid format):**
 ```json
-{
-  "interview_id": "int-123",
-  "scopes": ["voip"]
-}
+[
+  {
+    "id": "event-id",
+    "eventType": "Microsoft.Communication.CallStarted",
+    "subject": "/calls/...",
+    "data": {
+      "serverCallId": "...",
+      "correlationId": "uuid-format"
+    },
+    "eventTime": "2026-01-13T10:00:00Z"
+  }
+]
 ```
 
 **Response:**
 ```json
 {
-  "token": "eyJ...",
-  "expires_on": "2026-01-13T12:00:00.000Z",
-  "user_id": "8:acs:..."
+  "success": true,
+  "processed": 1
 }
 ```
 
 **Required Secrets:**
 - `ACS_WEBHOOK_SECRET`
-- `JWT_SECRET`
+- `SUPABASE_SERVICE_ROLE_KEY`
 
 ---
 
-### Interview Scoring
+### ai-interviewer
 
-**Endpoint:** `POST /api/v1/scoring/analyze`  
-**Authentication:** Required
+Generate AI interviewer responses during interviews.
 
-**Endpoint:** `POST /api/v1/interview/chat`
+**Endpoint:** `POST /ai-interviewer`
 
-**Response:**
-```json
-{
-  "interview_id": "int-123",
-  "overall_score": 78,
-  "dimensions": [{ "name": "communication", "score": 31 }],
-  "summary": "Automated scoring based on transcript analysis."
-}
-```
-
----
-
-### Resume Parsing
-
-**Endpoint:** `POST /api/v1/candidates/parse-resume`  
 **Authentication:** Required
 
 **Request Body:**
 ```json
 {
-  "candidate_id": "cand-123",
-  "job_role_id": "role-123",
-  "resume_text": "..."
+  "messages": [
+    { "role": "user", "content": "Hello, I'm here for the interview" }
+  ],
+  "jobTitle": "Senior Software Engineer",
+  "companyName": "Acme Corp",
+  "currentQuestionIndex": 0,
+  "isPractice": false,
+  "jobDescription": "We're looking for...",
+  "requirements": {
+    "skills": ["React", "TypeScript"],
+    "experience": ["5+ years frontend"],
+    "qualifications": ["Bachelor's degree"],
+    "responsibilities": ["Lead frontend team"]
+  },
+  "orgValues": ["Innovation", "Collaboration"],
+  "candidateContext": {
+    "skills": ["React", "Node.js"],
+    "experienceYears": 6,
+    "recentRoles": ["Frontend Developer"]
+  },
+  "competenciesCovered": ["technical_skills"],
+  "competenciesToCover": ["communication", "culture_fit"]
 }
 ```
 
 **Response:**
 ```json
 {
-  "candidate_id": "cand-123",
-  "parsed": { "full_name": "Jane Doe", "skills": ["React"] }
+  "message": "Welcome! I'm excited to learn more about your experience...",
+  "detectedCompetencies": ["communication"]
 }
 ```
 
----
+**Rate Limits:**
+- IP-based: 30 requests/minute
+- User-based: 30 requests/minute
 
-### Extract Requirements
+**Errors:**
 
-**Endpoint:** `POST /api/v1/roles/extract-requirements`  
-**Authentication:** Required
+| Status | Description |
+|--------|-------------|
+| 401 | Unauthorized |
+| 402 | AI credits depleted |
+| 429 | Rate limit exceeded |
 
 **Required Secrets:**
-- `AZURE_OPENAI_API_KEY`
+- `LOVABLE_API_KEY` (auto-configured)
 
 ---
 
-### Shortlist Generation
+### azure-speech-token
 
-**Endpoint:** `POST /api/v1/shortlist/generate`  
-**Authentication:** Required
+Generate Azure Speech Services tokens for speech-to-text and text-to-speech.
 
-**Endpoint:** `POST /api/v1/speech/token`
+**Endpoint:** `POST /azure-speech-token`
 
-**Response:**
-```json
-{
-  "job_role_id": "role-123",
-  "ranked": [{ "application_id": "app-1", "score": 0.9 }]
-}
-```
-
----
-
-### Azure Speech Token
-
-**Endpoint:** `POST /api/v1/speech/token`  
 **Authentication:** Required
 
 **Response:**
 ```json
 {
   "token": "eyJ...",
-  "region": "australiaeast"
+  "region": "australiaeast",
+  "expiresIn": 600
 }
 ```
 
----
-
-### Data Retention Cleanup
-
-**Endpoint:** `POST /api/v1/data-retention/cleanup`  
-**Authentication:** Required (org admin)
-
-**Request Body:**
-```json
-{
-  "organisation_id": "org-123",
-  "retention_days": 30
-}
-```
-
-**Response:**
-```json
-{
-  "interviews_removed": 0,
-  "recordings_removed": 0,
-  "applications_anonymized": 0
-}
-```
+**Required Secrets:**
+- `AZURE_SPEECH_KEY`
+- `AZURE_SPEECH_REGION`
 
 ---
 
@@ -422,7 +258,7 @@ Request a SAS upload URL for Azure Blob Storage.
 
 Create a new organisation and add the requesting user as admin.
 
-**Endpoint:** `POST /api/orgs`
+**Endpoint:** `POST /create-organisation`
 
 **Authentication:** Required
 
@@ -454,7 +290,7 @@ Create a new organisation and add the requesting user as admin.
 ```
 
 **Required Secrets:**
-- `JWT_SECRET`
+- `SUPABASE_SERVICE_ROLE_KEY`
 
 ---
 
@@ -462,7 +298,7 @@ Create a new organisation and add the requesting user as admin.
 
 Process data retention policies and deletion requests (scheduled job).
 
-**Endpoint:** `POST /api/v1/data-retention/cleanup`
+**Endpoint:** `POST /data-retention-cleanup`
 
 **Authentication:** None (internal service)
 
@@ -512,7 +348,7 @@ Process data retention policies and deletion requests (scheduled job).
 
 Extract structured job requirements from job descriptions using AI.
 
-**Endpoint:** `POST /api/v1/roles/extract-requirements`
+**Endpoint:** `POST /extract-requirements`
 
 **Authentication:** Required
 
@@ -547,7 +383,7 @@ Extract structured job requirements from job descriptions using AI.
 
 Generate AI-ranked candidate shortlist for a job role.
 
-**Endpoint:** `POST /api/v1/shortlist/generate`
+**Endpoint:** `POST /generate-shortlist`
 
 **Authentication:** Required (org member only)
 
@@ -589,7 +425,7 @@ Generate AI-ranked candidate shortlist for a job role.
 
 Parse uploaded CV/resume using AI to extract structured data.
 
-**Endpoint:** `POST /api/v1/candidates/parse-resume`
+**Endpoint:** `POST /parse-resume`
 
 **Authentication:** Required (own CV only)
 
@@ -658,7 +494,7 @@ Parse uploaded CV/resume using AI to extract structured data.
 
 Score a completed interview using AI analysis.
 
-**Endpoint:** `POST /api/v1/scoring/analyze`
+**Endpoint:** `POST /score-interview`
 
 **Authentication:** None (service endpoint)
 
@@ -730,7 +566,7 @@ Score a completed interview using AI analysis.
 
 Send interview invitation email to a candidate.
 
-**Endpoint:** `POST /api/invitations`
+**Endpoint:** `POST /send-invitation`
 
 **Authentication:** Required (org recruiter/admin only)
 
@@ -797,7 +633,7 @@ Send interview invitation email to a candidate.
 
 The `acs-webhook-handler` endpoint receives Event Grid events from Azure.
 
-**Webhook URL:** `POST /api/v1/acs/webhook`
+**Webhook URL:** `https://<project-id>.supabase.co/functions/v1/acs-webhook-handler`
 
 **Configuration:**
 1. Create Event Grid subscription in Azure Portal
@@ -810,7 +646,7 @@ The `acs-webhook-handler` endpoint receives Event Grid events from Azure.
 sequenceDiagram
     participant ACS as Azure Communication Services
     participant Webhook as acs-webhook-handler
-    participant DB as SQLite Database
+    participant DB as Supabase Database
     
     ACS->>Webhook: CallStarted Event
     Webhook->>Webhook: Validate Signature
@@ -850,14 +686,22 @@ The handler responds with:
 ### Frontend (React/TypeScript)
 
 ```typescript
-import { apiClient } from "@/lib/apiClient";
+import { supabase } from "@/integrations/supabase/client";
 
-// Call an API route
-const { data } = await apiClient.post("/api/v1/interview/chat", {
-  messages: [...],
-  jobTitle: "Software Engineer",
-  currentQuestionIndex: 0
+// Call an edge function
+const { data, error } = await supabase.functions.invoke('ai-interviewer', {
+  body: {
+    messages: [...],
+    jobTitle: 'Software Engineer',
+    currentQuestionIndex: 0
+  }
 });
+
+if (error) {
+  if (error.message.includes('429')) {
+    // Handle rate limiting
+  }
+}
 ```
 
 ### Handling Rate Limits
@@ -887,10 +731,11 @@ async function callWithRetry(fn: () => Promise<any>, maxRetries = 3) {
 
 | Variable | Description | Used By |
 |----------|-------------|---------|
-| `DATABASE_URL` | SQLite connection string | All functions |
-| `JWT_SECRET` | JWT signing key | Authenticated endpoints |
-| `AZURE_OPENAI_API_KEY` | Azure OpenAI key | AI functions |
-| `AZURE_ACS_CONNECTION_STRING` | Azure Communication Services | ACS token routes |
+| `SUPABASE_URL` | Supabase project URL | All functions |
+| `SUPABASE_ANON_KEY` | Supabase anonymous key | All functions |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service role key | Admin operations |
+| `LOVABLE_API_KEY` | Lovable AI gateway key | AI functions |
+| `ACS_CONNECTION_STRING` | Azure Communication Services | acs-token-generator |
 | `ACS_WEBHOOK_SECRET` | Webhook signature secret | acs-webhook-handler |
 | `AZURE_SPEECH_KEY` | Azure Speech Services key | azure-speech-token |
 | `AZURE_SPEECH_REGION` | Azure Speech region | azure-speech-token |
