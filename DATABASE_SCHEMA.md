@@ -2,11 +2,11 @@
 
 > **Version:** 1.0.0  
 > **Last Updated:** January 2026  
-> **Database:** PostgreSQL (Supabase)
+> **Database:** SQLite (FastAPI)
 
 ## Overview
 
-This document provides comprehensive documentation of the Talenti database schema, including table structures, relationships, RLS policies, and data flow patterns.
+This document provides comprehensive documentation of the Talenti database schema, including table structures, relationships, App-layer policies, and data flow patterns.
 
 ---
 
@@ -16,7 +16,7 @@ This document provides comprehensive documentation of the Talenti database schem
 2. [Tables](#tables)
 3. [Enums](#enums)
 4. [Functions](#functions)
-5. [RLS Policy Summary](#rls-policy-summary)
+5. [Authorization Summary](#authorization-summary)
 6. [Data Flow Patterns](#data-flow-patterns)
 
 ---
@@ -29,7 +29,7 @@ erDiagram
     organisations ||--o{ job_roles : "has roles"
     organisations ||--o{ audit_log : "tracks"
     
-    org_users }o--|| auth_users : "references"
+    org_users }o--|| users : "references"
     
     job_roles ||--o{ applications : "receives"
     
@@ -41,15 +41,15 @@ erDiagram
     interviews ||--o{ score_dimensions : "scored by"
     interviews ||--|| interview_scores : "has summary"
     
-    candidate_profiles ||--|| auth_users : "belongs to"
+    candidate_profiles ||--|| users : "belongs to"
     candidate_profiles ||--o{ candidate_skills : "has"
     candidate_profiles ||--o{ education : "has"
     candidate_profiles ||--o{ employment_history : "has"
     candidate_profiles ||--|| candidate_dei : "has optional"
     
-    auth_users ||--o{ user_roles : "has"
-    auth_users ||--o{ practice_interviews : "conducts"
-    auth_users ||--o{ data_deletion_requests : "requests"
+    users ||--o{ user_roles : "has"
+    users ||--o{ practice_interviews : "conducts"
+    users ||--o{ data_deletion_requests : "requests"
 ```
 
 ---
@@ -62,7 +62,7 @@ Company/business accounts that use the platform.
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | Primary key |
+| id | text | NO | uuid4() | Primary key |
 | name | text | NO | - | Organisation name |
 | description | text | YES | NULL | About the organisation |
 | industry | text | YES | NULL | Industry sector |
@@ -70,10 +70,10 @@ Company/business accounts that use the platform.
 | logo_url | text | YES | NULL | Logo image URL |
 | billing_email | text | YES | NULL | Billing contact email |
 | billing_address | text | YES | NULL | Billing address |
-| values_framework | jsonb | YES | NULL | Company values for culture fit |
+| values_framework | text | YES | NULL | Company values for culture fit |
 | recording_retention_days | integer | YES | NULL | How long to keep recordings |
-| created_at | timestamptz | NO | now() | Creation timestamp |
-| updated_at | timestamptz | NO | now() | Last update timestamp |
+| created_at | datetime | NO | now() | Creation timestamp |
+| updated_at | datetime | NO | now() | Last update timestamp |
 
 **Indexes:**
 - `organisations_pkey` (id)
@@ -86,11 +86,11 @@ Team members belonging to an organisation.
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | Primary key |
-| organisation_id | uuid | NO | - | FK to organisations |
-| user_id | uuid | NO | - | FK to auth.users |
+| id | text | NO | uuid4() | Primary key |
+| organisation_id | text | NO | - | FK to organisations |
+| user_id | text | NO | - | FK to users |
 | role | text | NO | 'member' | Role in org (admin, recruiter, viewer) |
-| created_at | timestamptz | NO | now() | When added to org |
+| created_at | datetime | NO | now() | When added to org |
 
 **Indexes:**
 - `org_users_pkey` (id)
@@ -107,8 +107,8 @@ Open positions/job listings created by organisations.
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | Primary key |
-| organisation_id | uuid | NO | - | FK to organisations |
+| id | text | NO | uuid4() | Primary key |
+| organisation_id | text | NO | - | FK to organisations |
 | title | text | NO | - | Job title |
 | description | text | YES | NULL | Full job description |
 | department | text | YES | NULL | Department/team |
@@ -118,15 +118,15 @@ Open positions/job listings created by organisations.
 | industry | text | YES | NULL | Industry category |
 | salary_range_min | integer | YES | NULL | Minimum salary |
 | salary_range_max | integer | YES | NULL | Maximum salary |
-| requirements | jsonb | YES | NULL | Extracted requirements |
-| scoring_rubric | jsonb | YES | NULL | Custom scoring weights |
-| interview_structure | jsonb | YES | NULL | Interview configuration |
-| status | job_role_status | NO | 'draft' | Role status |
-| created_by | uuid | YES | NULL | User who created |
-| created_at | timestamptz | NO | now() | Creation timestamp |
-| updated_at | timestamptz | NO | now() | Last update timestamp |
+| requirements | text | YES | NULL | Extracted requirements |
+| scoring_rubric | text | YES | NULL | Custom scoring weights |
+| interview_structure | text | YES | NULL | Interview configuration |
+| status | text | NO | 'draft' | Role status |
+| created_by | text | YES | NULL | User who created |
+| created_at | datetime | NO | now() | Creation timestamp |
+| updated_at | datetime | NO | now() | Last update timestamp |
 
-**Requirements JSONB Structure:**
+**Requirements JSON (stored as TEXT) Structure:**
 ```json
 {
   "skills": ["React", "TypeScript"],
@@ -136,7 +136,7 @@ Open positions/job listings created by organisations.
 }
 ```
 
-**Scoring Rubric JSONB Structure:**
+**Scoring Rubric JSON (stored as TEXT) Structure:**
 ```json
 {
   "technical_skills": { "weight": 0.3, "label": "Technical Skills" },
@@ -159,8 +159,8 @@ Candidate personal information and profile data.
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | Primary key |
-| user_id | uuid | NO | - | FK to auth.users |
+| id | text | NO | uuid4() | Primary key |
+| user_id | text | NO | - | FK to users |
 | first_name | text | YES | NULL | First name |
 | last_name | text | YES | NULL | Last name |
 | email | text | YES | NULL | Contact email |
@@ -172,16 +172,16 @@ Candidate personal information and profile data.
 | linkedin_url | text | YES | NULL | LinkedIn profile |
 | portfolio_url | text | YES | NULL | Portfolio/website |
 | cv_file_path | text | YES | NULL | Path to CV in storage |
-| cv_uploaded_at | timestamptz | YES | NULL | When CV was uploaded |
+| cv_uploaded_at | datetime | YES | NULL | When CV was uploaded |
 | availability | text | YES | NULL | When available to start |
 | work_mode | text | YES | NULL | Preferred work mode |
 | work_rights | text | YES | NULL | Work authorization |
-| gpa_wam | numeric | YES | NULL | Academic score |
+| gpa_wam | real | YES | NULL | Academic score |
 | profile_visibility | text | YES | NULL | Visibility setting |
-| visibility_settings | jsonb | YES | NULL | Detailed visibility |
-| paused_at | timestamptz | YES | NULL | When paused job search |
-| created_at | timestamptz | NO | now() | Creation timestamp |
-| updated_at | timestamptz | NO | now() | Last update timestamp |
+| visibility_settings | text | YES | NULL | Detailed visibility |
+| paused_at | datetime | YES | NULL | When paused job search |
+| created_at | datetime | NO | now() | Creation timestamp |
+| updated_at | datetime | NO | now() | Last update timestamp |
 
 **Indexes:**
 - `candidate_profiles_pkey` (id)
@@ -195,12 +195,12 @@ Skills listed by candidates.
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | Primary key |
-| user_id | uuid | NO | - | FK to auth.users |
+| id | text | NO | uuid4() | Primary key |
+| user_id | text | NO | - | FK to users |
 | skill_name | text | NO | - | Skill name |
 | skill_type | text | NO | - | hard/soft |
 | proficiency_level | text | YES | NULL | beginner/intermediate/expert |
-| created_at | timestamptz | NO | now() | Creation timestamp |
+| created_at | datetime | NO | now() | Creation timestamp |
 
 **Indexes:**
 - `candidate_skills_pkey` (id)
@@ -214,15 +214,15 @@ Educational history for candidates.
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | Primary key |
-| user_id | uuid | NO | - | FK to auth.users |
+| id | text | NO | uuid4() | Primary key |
+| user_id | text | NO | - | FK to users |
 | institution | text | NO | - | School/university name |
 | degree | text | NO | - | Degree title |
 | field_of_study | text | YES | NULL | Major/field |
 | start_date | date | YES | NULL | Start date |
 | end_date | date | YES | NULL | End/graduation date |
 | is_current | boolean | YES | false | Currently studying |
-| created_at | timestamptz | NO | now() | Creation timestamp |
+| created_at | datetime | NO | now() | Creation timestamp |
 
 **Indexes:**
 - `education_pkey` (id)
@@ -236,15 +236,15 @@ Work history for candidates.
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | Primary key |
-| user_id | uuid | NO | - | FK to auth.users |
+| id | text | NO | uuid4() | Primary key |
+| user_id | text | NO | - | FK to users |
 | company_name | text | NO | - | Employer name |
 | job_title | text | NO | - | Position title |
 | description | text | YES | NULL | Role description |
 | start_date | date | NO | - | Start date |
 | end_date | date | YES | NULL | End date (null if current) |
 | is_current | boolean | YES | false | Currently employed |
-| created_at | timestamptz | NO | now() | Creation timestamp |
+| created_at | datetime | NO | now() | Creation timestamp |
 
 **Indexes:**
 - `employment_history_pkey` (id)
@@ -258,13 +258,13 @@ Diversity, equity, and inclusion data (optional, extra sensitive).
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | Primary key |
-| user_id | uuid | NO | - | FK to auth.users |
+| id | text | NO | uuid4() | Primary key |
+| user_id | text | NO | - | FK to users |
 | gender | text | YES | NULL | Gender identity |
 | ethnicity | text | YES | NULL | Ethnic background |
 | disability_status | text | YES | NULL | Disability disclosure |
 | veteran_status | text | YES | NULL | Veteran status |
-| created_at | timestamptz | NO | now() | Creation timestamp |
+| created_at | datetime | NO | now() | Creation timestamp |
 
 **Note:** This data is used only for aggregate DEI reporting, never for individual candidate evaluation.
 
@@ -276,13 +276,13 @@ Job applications from candidates.
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | Primary key |
-| job_role_id | uuid | NO | - | FK to job_roles |
-| candidate_id | uuid | NO | - | FK to auth.users (candidate) |
+| id | text | NO | uuid4() | Primary key |
+| job_role_id | text | NO | - | FK to job_roles |
+| candidate_id | text | NO | - | FK to users (candidate) |
 | status | text | NO | 'applied' | Application status |
 | match_score | integer | YES | NULL | AI match score (0-100) |
-| created_at | timestamptz | NO | now() | Application date |
-| updated_at | timestamptz | NO | now() | Last update |
+| created_at | datetime | NO | now() | Application date |
+| updated_at | datetime | NO | now() | Last update |
 
 **Status Values:**
 - `applied` - Initial application
@@ -310,24 +310,24 @@ Interview sessions.
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | Primary key |
-| application_id | uuid | NO | - | FK to applications |
+| id | text | NO | uuid4() | Primary key |
+| application_id | text | NO | - | FK to applications |
 | status | interview_status | NO | 'invited' | Interview status |
-| started_at | timestamptz | YES | NULL | When interview began |
-| ended_at | timestamptz | YES | NULL | When interview ended |
+| started_at | datetime | YES | NULL | When interview began |
+| ended_at | datetime | YES | NULL | When interview ended |
 | duration_seconds | integer | YES | NULL | Total duration |
 | recording_url | text | YES | NULL | URL to recording |
-| recording_deleted_at | timestamptz | YES | NULL | When recording deleted |
-| anti_cheat_signals | jsonb | YES | NULL | Detected anomalies |
-| metadata | jsonb | YES | NULL | Additional data |
-| created_at | timestamptz | NO | now() | Creation timestamp |
-| updated_at | timestamptz | NO | now() | Last update |
+| recording_deleted_at | datetime | YES | NULL | When recording deleted |
+| anti_cheat_signals | text | YES | NULL | Detected anomalies |
+| metadata | text | YES | NULL | Additional data |
+| created_at | datetime | NO | now() | Creation timestamp |
+| updated_at | datetime | NO | now() | Last update |
 
-**Metadata JSONB Structure:**
+**Metadata JSON (stored as TEXT) Structure:**
 ```json
 {
   "serverCallId": "...",
-  "correlationId": "uuid",
+  "correlationId": "text",
   "lastEventAt": "2026-01-13T10:00:00Z"
 }
 ```
@@ -347,14 +347,14 @@ Interview transcript broken into speaker segments.
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | Primary key |
-| interview_id | uuid | NO | - | FK to interviews |
+| id | text | NO | uuid4() | Primary key |
+| interview_id | text | NO | - | FK to interviews |
 | speaker | text | NO | - | 'ai' or 'candidate' |
 | content | text | NO | - | Spoken text |
 | start_time_ms | integer | NO | - | Start time in ms |
 | end_time_ms | integer | YES | NULL | End time in ms |
-| confidence | numeric | YES | NULL | STT confidence score |
-| created_at | timestamptz | NO | now() | Creation timestamp |
+| confidence | real | YES | NULL | STT confidence score |
+| created_at | datetime | NO | now() | Creation timestamp |
 
 **Indexes:**
 - `transcript_segments_pkey` (id)
@@ -372,8 +372,8 @@ Summary scoring for completed interviews.
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | Primary key |
-| interview_id | uuid | NO | - | FK to interviews (UNIQUE) |
+| id | text | NO | uuid4() | Primary key |
+| interview_id | text | NO | - | FK to interviews (UNIQUE) |
 | overall_score | integer | YES | NULL | Weighted score (0-100) |
 | narrative_summary | text | YES | NULL | AI-generated summary |
 | candidate_feedback | text | YES | NULL | Feedback for candidate |
@@ -383,10 +383,10 @@ Summary scoring for completed interviews.
 | prompt_version | text | YES | NULL | Prompt version |
 | rubric_version | text | YES | NULL | Rubric version |
 | human_override | boolean | YES | false | Manual adjustment made |
-| human_override_by | uuid | YES | NULL | Who overrode |
+| human_override_by | text | YES | NULL | Who overrode |
 | human_override_reason | text | YES | NULL | Why overridden |
-| created_at | timestamptz | NO | now() | Creation timestamp |
-| updated_at | timestamptz | NO | now() | Last update |
+| created_at | datetime | NO | now() | Creation timestamp |
+| updated_at | datetime | NO | now() | Last update |
 
 **Indexes:**
 - `interview_scores_pkey` (id)
@@ -403,14 +403,14 @@ Individual dimension scores for interviews.
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | Primary key |
-| interview_id | uuid | NO | - | FK to interviews |
+| id | text | NO | uuid4() | Primary key |
+| interview_id | text | NO | - | FK to interviews |
 | dimension | text | NO | - | Dimension name |
-| score | numeric | NO | - | Score (0-10) |
-| weight | numeric | YES | NULL | Weight used (0-1) |
+| score | real | NO | - | Score (0-10) |
+| weight | real | YES | NULL | Weight used (0-1) |
 | evidence | text | YES | NULL | Explanation |
-| cited_quotes | jsonb | YES | NULL | Supporting quotes |
-| created_at | timestamptz | NO | now() | Creation timestamp |
+| cited_quotes | text | YES | NULL | Supporting quotes |
+| created_at | datetime | NO | now() | Creation timestamp |
 
 **Default Dimensions:**
 - vocabulary
@@ -437,15 +437,15 @@ Interview invitations sent to candidates.
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | Primary key |
-| application_id | uuid | NO | - | FK to applications |
+| id | text | NO | uuid4() | Primary key |
+| application_id | text | NO | - | FK to applications |
 | token | text | NO | - | Secure invite token |
-| status | invitation_status | NO | 'pending' | Invitation status |
+| status | text | NO | 'pending' | Invitation status |
 | email_template | text | YES | NULL | Template used |
-| expires_at | timestamptz | NO | - | Expiration time |
-| sent_at | timestamptz | YES | NULL | When email sent |
-| opened_at | timestamptz | YES | NULL | When link clicked |
-| created_at | timestamptz | NO | now() | Creation timestamp |
+| expires_at | datetime | NO | - | Expiration time |
+| sent_at | datetime | YES | NULL | When email sent |
+| opened_at | datetime | YES | NULL | When link clicked |
+| created_at | datetime | NO | now() | Creation timestamp |
 
 **Indexes:**
 - `invitations_pkey` (id)
@@ -463,15 +463,15 @@ Practice interview sessions (not tied to real jobs).
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | Primary key |
-| user_id | uuid | NO | - | FK to auth.users |
+| id | text | NO | uuid4() | Primary key |
+| user_id | text | NO | - | FK to users |
 | sample_role_type | text | NO | - | Practice role category |
 | status | text | NO | 'pending' | Session status |
-| started_at | timestamptz | YES | NULL | Start time |
-| ended_at | timestamptz | YES | NULL | End time |
+| started_at | datetime | YES | NULL | Start time |
+| ended_at | datetime | YES | NULL | End time |
 | duration_seconds | integer | YES | NULL | Duration |
-| feedback | jsonb | YES | NULL | Practice feedback |
-| created_at | timestamptz | NO | now() | Creation timestamp |
+| feedback | text | YES | NULL | Practice feedback |
+| created_at | datetime | NO | now() | Creation timestamp |
 
 ---
 
@@ -481,10 +481,10 @@ Application-level role assignments.
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | Primary key |
-| user_id | uuid | NO | - | FK to auth.users |
-| role | app_role | NO | - | Role enum value |
-| created_at | timestamptz | NO | now() | When assigned |
+| id | text | NO | uuid4() | Primary key |
+| user_id | text | NO | - | FK to users |
+| role | text | NO | - | Role enum value |
+| created_at | datetime | NO | now() | When assigned |
 
 **Indexes:**
 - `user_roles_pkey` (id)
@@ -498,16 +498,16 @@ Audit trail for security and compliance.
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | Primary key |
-| user_id | uuid | YES | NULL | User who took action |
-| organisation_id | uuid | YES | NULL | Related organisation |
+| id | text | NO | uuid4() | Primary key |
+| user_id | text | YES | NULL | User who took action |
+| organisation_id | text | YES | NULL | Related organisation |
 | action | text | NO | - | Action type |
 | entity_type | text | NO | - | What was affected |
-| entity_id | uuid | YES | NULL | ID of affected entity |
-| old_values | jsonb | YES | NULL | Before state |
-| new_values | jsonb | YES | NULL | After state |
+| entity_id | text | YES | NULL | ID of affected entity |
+| old_values | text | YES | NULL | Before state |
+| new_values | text | YES | NULL | After state |
 | ip_address | text | YES | NULL | Client IP |
-| created_at | timestamptz | NO | now() | When action occurred |
+| created_at | datetime | NO | now() | When action occurred |
 
 **Indexes:**
 - `audit_log_pkey` (id)
@@ -525,14 +525,14 @@ GDPR data deletion request tracking.
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | Primary key |
-| user_id | uuid | NO | - | User requesting deletion |
+| id | text | NO | uuid4() | Primary key |
+| user_id | text | NO | - | User requesting deletion |
 | request_type | text | NO | 'full_deletion' | Type of deletion |
 | status | text | NO | 'pending' | Request status |
 | reason | text | YES | NULL | Why requesting |
 | notes | text | YES | NULL | Processing notes |
-| requested_at | timestamptz | NO | now() | Request time |
-| processed_at | timestamptz | YES | NULL | Completion time |
+| requested_at | datetime | NO | now() | Request time |
+| processed_at | datetime | YES | NULL | Completion time |
 | processed_by | text | YES | NULL | Who processed |
 
 **Request Types:**
@@ -548,101 +548,69 @@ GDPR data deletion request tracking.
 
 ---
 
-## Enums
+## Enums (Stored as TEXT in SQLite)
 
 ### app_role
 
-Application-level roles.
+Application-level roles (stored as `TEXT`).
 
-```sql
-CREATE TYPE app_role AS ENUM (
-  'org_admin',
-  'org_recruiter', 
-  'org_viewer',
-  'candidate'
-);
-```
+- `org_admin`
+- `org_recruiter`
+- `org_viewer`
+- `candidate`
 
 ### interview_status
 
-Interview session states.
+Interview session states (stored as `TEXT`).
 
-```sql
-CREATE TYPE interview_status AS ENUM (
-  'invited',
-  'scheduled',
-  'in_progress',
-  'completed',
-  'cancelled',
-  'expired'
-);
-```
+- `invited`
+- `scheduled`
+- `in_progress`
+- `completed`
+- `cancelled`
+- `expired`
 
 ### invitation_status
 
-Invitation states.
+Invitation states (stored as `TEXT`).
 
-```sql
-CREATE TYPE invitation_status AS ENUM (
-  'pending',
-  'sent',
-  'delivered',
-  'opened',
-  'bounced',
-  'expired'
-);
-```
+- `pending`
+- `sent`
+- `delivered`
+- `opened`
+- `bounced`
+- `expired`
 
 ### job_role_status
 
-Job listing states.
+Job listing states (stored as `TEXT`).
 
-```sql
-CREATE TYPE job_role_status AS ENUM (
-  'draft',
-  'active',
-  'paused',
-  'closed'
-);
-```
+- `draft`
+- `active`
+- `paused`
+- `closed`
 
 ---
 
 ## Functions
 
+SQLite does not support Postgres functions; org membership and role checks are enforced in the FastAPI application layer.
+
 ### user_belongs_to_org
 
-Check if user is member of organisation.
-
-```sql
-CREATE FUNCTION user_belongs_to_org(_org_id uuid, _user_id uuid)
-RETURNS boolean AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM org_users 
-    WHERE organisation_id = _org_id AND user_id = _user_id
-  );
-$$ LANGUAGE sql SECURITY DEFINER;
-```
+Implemented in FastAPI dependency helpers (see `require_org_member`).
 
 ### user_org_role
 
-Get user's role in organisation.
-
-```sql
-CREATE FUNCTION user_org_role(_org_id uuid, _user_id uuid)
-RETURNS text AS $$
-  SELECT role FROM org_users 
-  WHERE organisation_id = _org_id AND user_id = _user_id;
-$$ LANGUAGE sql SECURITY DEFINER;
-```
+Implemented in FastAPI dependency helpers (see `require_org_role`).
 
 ### get_user_org_id
 
 Get user's primary organisation.
 
 ```sql
-CREATE FUNCTION get_user_org_id(_user_id uuid)
-RETURNS uuid AS $$
+CREATE FUNCTION get_user_org_id(_user_id text)
+RETURNS text AS $$
   SELECT organisation_id FROM org_users 
   WHERE user_id = _user_id 
   LIMIT 1;
@@ -651,26 +619,16 @@ $$ LANGUAGE sql SECURITY DEFINER;
 
 ### has_role
 
-Check if user has specific app role.
-
-```sql
-CREATE FUNCTION has_role(_role app_role, _user_id uuid)
-RETURNS boolean AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM user_roles 
-    WHERE user_id = _user_id AND role = _role
-  );
-$$ LANGUAGE sql SECURITY DEFINER;
-```
+Role checks are enforced in FastAPI dependency helpers (no SQL function in SQLite).
 
 ---
 
-## RLS Policy Summary
+## Authorization Summary
 
 | Table | SELECT | INSERT | UPDATE | DELETE |
 |-------|--------|--------|--------|--------|
-| organisations | Own org members | Service role | Org admins | - |
-| org_users | Own org members | Service role | Org admins | Org admins |
+| organisations | Org members | Org admins | Org admins | - |
+| org_users | Org admins | Org admins | Org admins | Org admins |
 | job_roles | Org members + public active | Org recruiters | Org recruiters | Org admins |
 | candidate_profiles | Own + org with application | Own only | Own only | Own only |
 | candidate_skills | Own + org with application | Own only | Own only | Own only |
@@ -678,14 +636,14 @@ $$ LANGUAGE sql SECURITY DEFINER;
 | employment_history | Own + org with application | Own only | Own only | Own only |
 | candidate_dei | Own only | Own only | Own only | Own only |
 | applications | Own + org members | Candidates | Org members | - |
-| interviews | Own + org members | System | System | - |
-| transcript_segments | Own + org members | System | - | - |
-| interview_scores | Own + org members | System | Org admins | - |
-| score_dimensions | Own + org members | System | - | - |
+| interviews | Own + org members | Org members | Org members | - |
+| transcript_segments | Own + org members | Org members | - | - |
+| interview_scores | Own + org members | Org members | Org admins | - |
+| score_dimensions | Own + org members | Org members | - | - |
 | invitations | Org members | Org recruiters | Org recruiters | - |
 | practice_interviews | Own only | Own only | Own only | Own only |
-| audit_log | Org admins | System | - | - |
-| data_deletion_requests | Own only | Own only | System | - |
+| audit_log | Org admins | Org admins | - | - |
+| data_deletion_requests | Own only | Own only | Org admins | - |
 
 ---
 
