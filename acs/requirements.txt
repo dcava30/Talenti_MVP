@@ -1,0 +1,29 @@
+# FastAPI and server
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic-settings==2.1.0
+python-multipart==0.0.6
+
+# Azure Communication Services
+azure-communication-callautomation==1.1.0
+azure-communication-identity==1.4.0
+
+# Azure Storage
+azure-storage-blob==12.19.0
+
+# Azure Service Bus (for async processing)
+azure-servicebus==7.11.4
+
+# Supabase
+supabase==2.3.0
+
+# HTTP client
+httpx==0.26.0
+
+# Audio processing
+pydub==0.25.1
+
+# Testing
+pytest==7.4.4
+pytest-asyncio==0.23.3
+httpx==0.26.0
