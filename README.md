@@ -8,6 +8,12 @@
 
 **URL**: https://lovable.dev/projects/823a9c71-397c-4a49-9190-91f5f3f8cbaf
 
+## Target architecture
+
+- Supabase is legacy and will be removed.
+- Backend will be FastAPI + SQLite.
+- Frontend will move to JS/JSX (no TypeScript).
+
 ## How can I edit this code?
 
 There are several ways of editing your application.
