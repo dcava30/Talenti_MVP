@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { apiClient } from "@/lib/apiClient";
+import { authClient } from "@/lib/authClient";
 
 /**
  * Hook for fetching the current candidate's profile.
@@ -22,17 +23,9 @@ export function useCandidateProfile() {
   return useQuery({
     queryKey: ["candidate-profile"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return null;
-
-      const { data, error } = await supabase
-        .from("candidate_profiles")
-        .select("*")
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      if (error) throw error;
-      return data;
+      const user = await authClient.me();
+      if (!user?.id) return null;
+      return apiClient.get(`/api/candidates/${user.id}`);
     },
   });
 }
@@ -64,40 +57,9 @@ export function useCandidateApplications() {
   return useQuery({
     queryKey: ["candidate-applications"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return [];
-
-      const { data, error } = await supabase
-        .from("applications")
-        .select(`
-          *,
-          job_roles (
-            id,
-            title,
-            department,
-            location,
-            organisations (
-              id,
-              name
-            )
-          ),
-          interviews (
-            id,
-            status,
-            started_at,
-            ended_at,
-            interview_scores (
-              overall_score,
-              candidate_feedback,
-              narrative_summary
-            )
-          )
-        `)
-        .eq("candidate_id", user.id)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return data || [];
+      const user = await authClient.me();
+      if (!user?.id) return [];
+      return apiClient.get(`/api/candidates/${user.id}/applications`);
     },
   });
 }
@@ -123,42 +85,9 @@ export function useCandidateInvitations() {
   return useQuery({
     queryKey: ["candidate-invitations"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return [];
-
-      // Get applications for this user
-      const { data: applications } = await supabase
-        .from("applications")
-        .select("id")
-        .eq("candidate_id", user.id);
-
-      if (!applications || applications.length === 0) return [];
-
-      const applicationIds = applications.map(a => a.id);
-
-      // Get pending invitations for these applications
-      const { data, error } = await supabase
-        .from("invitations")
-        .select(`
-          *,
-          applications (
-            id,
-            job_roles (
-              id,
-              title,
-              organisations (
-                name
-              )
-            )
-          )
-        `)
-        .in("application_id", applicationIds)
-        .in("status", ["sent", "opened", "pending"])
-        .gt("expires_at", new Date().toISOString())
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return data || [];
+      const user = await authClient.me();
+      if (!user?.id) return [];
+      return apiClient.get(`/api/candidates/${user.id}/invitations`);
     },
   });
 }
@@ -188,42 +117,9 @@ export function useCandidateInterviewFeedback() {
   return useQuery({
     queryKey: ["candidate-feedback"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return [];
-
-      const { data, error } = await supabase
-        .from("applications")
-        .select(`
-          id,
-          job_roles (
-            title,
-            organisations (
-              name
-            )
-          ),
-          interviews!inner (
-            id,
-            status,
-            ended_at,
-            interview_scores (
-              overall_score,
-              candidate_feedback,
-              narrative_summary,
-              created_at
-            ),
-            score_dimensions (
-              dimension,
-              score,
-              evidence
-            )
-          )
-        `)
-        .eq("candidate_id", user.id)
-        .eq("interviews.status", "completed")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return data || [];
+      const user = await authClient.me();
+      if (!user?.id) return [];
+      return apiClient.get(`/api/candidates/${user.id}/feedback`);
     },
   });
 }

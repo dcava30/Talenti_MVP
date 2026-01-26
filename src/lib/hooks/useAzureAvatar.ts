@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import * as SpeechSDK from "microsoft-cognitiveservices-speech-sdk";
-import { supabase } from "@/integrations/supabase/client";
+import { apiClient } from "@/lib/apiClient";
 
 /**
  * Configuration options for the Azure Avatar hook.
@@ -159,11 +159,11 @@ export const useAzureAvatar = (options: UseAzureAvatarOptions = {}) => {
     setError(null);
 
     try {
-      // Fetch speech token from edge function
-      const { data: tokenData, error: tokenError } = await supabase.functions.invoke("azure-speech-token");
+      // Fetch speech token from backend
+      const tokenData = await apiClient.post<{ token: string; region: string }>("/api/azure/speech/token");
 
-      if (tokenError || !tokenData?.token || !tokenData?.region) {
-        throw new Error(tokenError?.message || "Failed to fetch Azure Speech token");
+      if (!tokenData?.token || !tokenData?.region) {
+        throw new Error("Failed to fetch Azure Speech token");
       }
 
       const { token, region } = tokenData;
