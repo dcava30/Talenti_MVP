@@ -1,8 +1,12 @@
 # FastAPI and server
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
+pydantic==2.8.2
 pydantic-settings==2.1.0
 python-multipart==0.0.6
+python-dotenv==1.0.1
+sqlalchemy==2.0.30
+alembic==1.13.1
 
 # Azure Communication Services
 azure-communication-callautomation==1.1.0
@@ -13,9 +17,6 @@ azure-storage-blob==12.19.0
 
 # Azure Service Bus (for async processing)
 azure-servicebus==7.11.4
-
-# Supabase
-supabase==2.3.0
 
 # HTTP client
 httpx==0.26.0

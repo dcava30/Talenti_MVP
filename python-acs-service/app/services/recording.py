@@ -10,7 +10,6 @@ from azure.communication.callautomation.aio import CallAutomationClient as Async
 from azure.storage.blob.aio import BlobServiceClient
 from typing import Optional, Dict, Any, List, Tuple, AsyncIterator
 import logging
-import httpx
 from datetime import datetime
 
 from app.config import settings
@@ -21,7 +20,8 @@ from app.models.recording import (
     RecordingState,
     RecordingStatus
 )
-from app.services.supabase_client import supabase_service
+from app.db.session import SessionLocal
+from app.repositories.interviews import InterviewRepository
 
 logger = logging.getLogger(__name__)
 
@@ -107,10 +107,15 @@ class RecordingService:
         }
         
         # Update interview record
-        await supabase_service.update_interview(
-            interview_id,
-            {"recording_started": True, "recording_id": recording_id}
-        )
+        with SessionLocal() as session:
+            repository = InterviewRepository(session)
+            updated = repository.update_recording(
+                interview_id=interview_id,
+                recording_id=recording_id,
+                recording_started=True,
+            )
+            if not updated:
+                logger.warning("Failed to update interview %s recording start state", interview_id)
         
         return {
             "recording_id": recording_id,
@@ -201,14 +206,16 @@ class RecordingService:
             recording["file_size_bytes"] = len(content)
             recording["processed_at"] = datetime.utcnow()
             
-            # Update interview record in Supabase
-            await supabase_service.update_interview(
-                interview_id,
-                {
-                    "recording_url": blob_url,
-                    "recording_processed": True
-                }
-            )
+            # Update interview record in SQLite
+            with SessionLocal() as session:
+                repository = InterviewRepository(session)
+                updated = repository.update_recording(
+                    interview_id=interview_id,
+                    recording_processed=True,
+                    recording_url=blob_url,
+                )
+                if not updated:
+                    logger.warning("Failed to update interview %s recording status", interview_id)
             
             logger.info(f"Recording {recording_id} processed and uploaded to {blob_url}")
             

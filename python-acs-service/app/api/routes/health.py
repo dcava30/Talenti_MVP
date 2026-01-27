@@ -15,9 +15,7 @@ logger = logging.getLogger(__name__)
 async def health_check():
     """Basic health check endpoint"""
     return {
-        "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
-        "environment": settings.ENVIRONMENT
+        "status": "ok"
     }
 
 
@@ -29,7 +27,7 @@ async def readiness_check():
     checks = {
         "acs_configured": bool(settings.ACS_CONNECTION_STRING),
         "storage_configured": bool(settings.AZURE_STORAGE_CONNECTION_STRING),
-        "supabase_configured": bool(settings.SUPABASE_URL and settings.SUPABASE_SERVICE_KEY),
+        "database_configured": bool(settings.DATABASE_URL),
     }
     
     all_ready = all(checks.values())
