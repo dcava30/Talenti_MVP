@@ -42,7 +42,13 @@ cd <YOUR_PROJECT_NAME>
 # Step 3: Install the necessary dependencies.
 npm i
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Step 4: Start the backend API (FastAPI).
+cd backend
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Step 5: Start the frontend development server with auto-reloading and an instant preview.
+cd ..
+export VITE_API_BASE_URL=http://localhost:8000
 npm run dev
 ```
 

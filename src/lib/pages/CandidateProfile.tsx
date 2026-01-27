@@ -12,7 +12,9 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { authApi } from "@/api/auth";
+import { candidatesApi } from "@/api/candidates";
+import { resumeApi } from "@/api/resume";
 import { useToast } from "@/hooks/use-toast";
 import ProfileManagement from "@/components/ProfileManagement";
 import {
@@ -149,15 +151,19 @@ const CandidateProfile = () => {
   }, []);
 
   const checkAuthAndLoadData = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session?.user) {
-      navigate("/auth?type=candidate");
-      return;
-    }
+    try {
+      const user = await authApi.me();
+      if (!user) {
+        navigate("/auth?type=candidate");
+        return;
+      }
 
-    setUserId(session.user.id);
-    await loadProfileData(session.user.id);
+      setUserId(user.id);
+      await loadProfileData(user.id);
+    } catch (error) {
+      console.error("Error loading user:", error);
+      navigate("/auth?type=candidate");
+    }
   };
 
   const loadProfileData = async (uid: string) => {
@@ -165,11 +171,7 @@ const CandidateProfile = () => {
 
     try {
       // Load profile
-      const { data: profileData } = await supabase
-        .from("candidate_profiles")
-        .select("*")
-        .eq("user_id", uid)
-        .maybeSingle();
+      const profileData = await candidatesApi.getProfile(uid);
 
       if (profileData) {
         setProfile({
@@ -193,11 +195,7 @@ const CandidateProfile = () => {
       }
 
       // Load employment history
-      const { data: employmentData } = await supabase
-        .from("employment_history")
-        .select("*")
-        .eq("user_id", uid)
-        .order("start_date", { ascending: false });
+      const employmentData = await candidatesApi.listEmployment(uid);
 
       if (employmentData) {
         setEmploymentHistory(employmentData.map(e => ({
@@ -212,11 +210,7 @@ const CandidateProfile = () => {
       }
 
       // Load education
-      const { data: educationData } = await supabase
-        .from("education")
-        .select("*")
-        .eq("user_id", uid)
-        .order("start_date", { ascending: false });
+      const educationData = await candidatesApi.listEducation(uid);
 
       if (educationData) {
         setEducation(educationData.map(e => ({
@@ -231,10 +225,7 @@ const CandidateProfile = () => {
       }
 
       // Load skills
-      const { data: skillsData } = await supabase
-        .from("candidate_skills")
-        .select("*")
-        .eq("user_id", uid);
+      const skillsData = await candidatesApi.listSkills(uid);
 
       if (skillsData) {
         setSkills(skillsData.map(s => ({
@@ -263,14 +254,10 @@ const CandidateProfile = () => {
     setIsSaving(true);
 
     try {
-      const { error } = await supabase
-        .from("candidate_profiles")
-        .upsert({
-          user_id: userId,
-          ...profile,
-        }, { onConflict: "user_id" });
-
-      if (error) throw error;
+      await candidatesApi.upsertProfile({
+        user_id: userId,
+        ...profile,
+      });
 
       toast({
         title: "Profile saved",
@@ -296,24 +283,17 @@ const CandidateProfile = () => {
 
     try {
       const fileExt = file.name.split(".").pop();
-      const filePath = `${userId}/cv.${fileExt}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("candidate-cvs")
-        .upload(filePath, file, { upsert: true });
-
-      if (uploadError) throw uploadError;
+      const uploadResult = await candidatesApi.uploadCv(file, userId);
+      const filePath = uploadResult?.file_path || uploadResult?.path || `${userId}/cv.${fileExt}`;
 
       setProfile(prev => ({ ...prev, cv_file_path: filePath }));
 
       // Save the path to profile
-      await supabase
-        .from("candidate_profiles")
-        .upsert({
-          user_id: userId,
-          cv_file_path: filePath,
-          cv_uploaded_at: new Date().toISOString(),
-        }, { onConflict: "user_id" });
+      await candidatesApi.upsertProfile({
+        user_id: userId,
+        cv_file_path: filePath,
+        cv_uploaded_at: new Date().toISOString(),
+      });
 
       toast({
         title: "CV uploaded",
@@ -342,17 +322,12 @@ const CandidateProfile = () => {
     setIsParsingCV(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke("parse-resume", {
-        body: { filePath, userId },
-      });
+      const data = await resumeApi.parse({ file_path: filePath, candidate_id: userId });
+      const parsed = data?.data || data?.parsed || data;
 
-      if (error) throw error;
-
-      if (!data?.success || !data?.data) {
-        throw new Error(data?.error || "Failed to parse resume");
+      if (!parsed) {
+        throw new Error("Failed to parse resume");
       }
-
-      const parsed = data.data;
 
       // Update profile with parsed personal info
       if (parsed.personal) {
@@ -372,49 +347,35 @@ const CandidateProfile = () => {
         setProfile(updatedProfile);
 
         // Save to database
-        await supabase.from("candidate_profiles").upsert({
+        await candidatesApi.upsertProfile({
           user_id: userId,
           ...updatedProfile,
-        }, { onConflict: "user_id" });
+        });
       }
 
       // Add employment history
       if (parsed.employment && parsed.employment.length > 0) {
         for (const emp of parsed.employment) {
-          const { data: existingEmp } = await supabase
-            .from("employment_history")
-            .select("id")
-            .eq("user_id", userId)
-            .eq("job_title", emp.job_title)
-            .eq("company_name", emp.company_name)
-            .maybeSingle();
+          const newEmp = await candidatesApi.createEmployment({
+            user_id: userId,
+            job_title: emp.job_title,
+            company_name: emp.company_name,
+            start_date: emp.start_date,
+            end_date: emp.end_date || null,
+            is_current: emp.is_current,
+            description: emp.description || "",
+          });
 
-          if (!existingEmp) {
-            const { data: newEmp } = await supabase
-              .from("employment_history")
-              .insert({
-                user_id: userId,
-                job_title: emp.job_title,
-                company_name: emp.company_name,
-                start_date: emp.start_date,
-                end_date: emp.end_date || null,
-                is_current: emp.is_current,
-                description: emp.description || "",
-              })
-              .select()
-              .single();
-
-            if (newEmp) {
-              setEmploymentHistory(prev => [...prev, {
-                id: newEmp.id,
-                job_title: newEmp.job_title,
-                company_name: newEmp.company_name,
-                start_date: newEmp.start_date,
-                end_date: newEmp.end_date || "",
-                is_current: newEmp.is_current || false,
-                description: newEmp.description || "",
-              }]);
-            }
+          if (newEmp) {
+            setEmploymentHistory(prev => [...prev, {
+              id: newEmp.id,
+              job_title: newEmp.job_title,
+              company_name: newEmp.company_name,
+              start_date: newEmp.start_date,
+              end_date: newEmp.end_date || "",
+              is_current: newEmp.is_current || false,
+              description: newEmp.description || "",
+            }]);
           }
         }
       }
@@ -422,40 +383,26 @@ const CandidateProfile = () => {
       // Add education
       if (parsed.education && parsed.education.length > 0) {
         for (const edu of parsed.education) {
-          const { data: existingEdu } = await supabase
-            .from("education")
-            .select("id")
-            .eq("user_id", userId)
-            .eq("institution", edu.institution)
-            .eq("degree", edu.degree)
-            .maybeSingle();
+          const newEdu = await candidatesApi.createEducation({
+            user_id: userId,
+            institution: edu.institution,
+            degree: edu.degree,
+            field_of_study: edu.field_of_study || null,
+            start_date: edu.start_date || null,
+            end_date: edu.end_date || null,
+            is_current: edu.is_current || false,
+          });
 
-          if (!existingEdu) {
-            const { data: newEdu } = await supabase
-              .from("education")
-              .insert({
-                user_id: userId,
-                institution: edu.institution,
-                degree: edu.degree,
-                field_of_study: edu.field_of_study || null,
-                start_date: edu.start_date || null,
-                end_date: edu.end_date || null,
-                is_current: edu.is_current || false,
-              })
-              .select()
-              .single();
-
-            if (newEdu) {
-              setEducation(prev => [...prev, {
-                id: newEdu.id,
-                institution: newEdu.institution,
-                degree: newEdu.degree,
-                field_of_study: newEdu.field_of_study || "",
-                start_date: newEdu.start_date || "",
-                end_date: newEdu.end_date || "",
-                is_current: newEdu.is_current || false,
-              }]);
-            }
+          if (newEdu) {
+            setEducation(prev => [...prev, {
+              id: newEdu.id,
+              institution: newEdu.institution,
+              degree: newEdu.degree,
+              field_of_study: newEdu.field_of_study || "",
+              start_date: newEdu.start_date || "",
+              end_date: newEdu.end_date || "",
+              is_current: newEdu.is_current || false,
+            }]);
           }
         }
       }
@@ -463,32 +410,19 @@ const CandidateProfile = () => {
       // Add skills
       if (parsed.skills && parsed.skills.length > 0) {
         for (const skill of parsed.skills) {
-          const { data: existingSkill } = await supabase
-            .from("candidate_skills")
-            .select("id")
-            .eq("user_id", userId)
-            .eq("skill_name", skill.skill_name)
-            .maybeSingle();
+          const newSkillData = await candidatesApi.createSkill({
+            user_id: userId,
+            skill_name: skill.skill_name,
+            skill_type: skill.skill_type,
+          });
 
-          if (!existingSkill) {
-            const { data: newSkillData } = await supabase
-              .from("candidate_skills")
-              .insert({
-                user_id: userId,
-                skill_name: skill.skill_name,
-                skill_type: skill.skill_type,
-              })
-              .select()
-              .single();
-
-            if (newSkillData) {
-              setSkills(prev => [...prev, {
-                id: newSkillData.id,
-                skill_name: newSkillData.skill_name,
-                skill_type: newSkillData.skill_type as "hard" | "soft",
-                proficiency_level: "",
-              }]);
-            }
+          if (newSkillData) {
+            setSkills(prev => [...prev, {
+              id: newSkillData.id,
+              skill_name: newSkillData.skill_name,
+              skill_type: newSkillData.skill_type as "hard" | "soft",
+              proficiency_level: "",
+            }]);
           }
         }
       }
@@ -513,17 +447,11 @@ const CandidateProfile = () => {
     if (!newSkill.trim() || !userId) return;
 
     try {
-      const { data, error } = await supabase
-        .from("candidate_skills")
-        .insert({
-          user_id: userId,
-          skill_name: newSkill.trim(),
-          skill_type: newSkillType,
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
+      const data = await candidatesApi.createSkill({
+        user_id: userId,
+        skill_name: newSkill.trim(),
+        skill_type: newSkillType,
+      });
 
       setSkills(prev => [...prev, {
         id: data.id,
@@ -545,12 +473,7 @@ const CandidateProfile = () => {
 
   const handleRemoveSkill = async (skillId: string) => {
     try {
-      const { error } = await supabase
-        .from("candidate_skills")
-        .delete()
-        .eq("id", skillId);
-
-      if (error) throw error;
+      await candidatesApi.deleteSkill(skillId);
 
       setSkills(prev => prev.filter(s => s.id !== skillId));
     } catch (error) {
@@ -564,40 +487,29 @@ const CandidateProfile = () => {
     try {
       if (employment.id) {
         // Update existing
-        const { error } = await supabase
-          .from("employment_history")
-          .update({
-            job_title: employment.job_title,
-            company_name: employment.company_name,
-            start_date: employment.start_date,
-            end_date: employment.end_date || null,
-            is_current: employment.is_current,
-            description: employment.description,
-          })
-          .eq("id", employment.id);
-
-        if (error) throw error;
+        await candidatesApi.updateEmployment(employment.id, {
+          job_title: employment.job_title,
+          company_name: employment.company_name,
+          start_date: employment.start_date,
+          end_date: employment.end_date || null,
+          is_current: employment.is_current,
+          description: employment.description,
+        });
 
         setEmploymentHistory(prev =>
           prev.map(e => e.id === employment.id ? employment : e)
         );
       } else {
         // Create new
-        const { data, error } = await supabase
-          .from("employment_history")
-          .insert({
-            user_id: userId,
-            job_title: employment.job_title,
-            company_name: employment.company_name,
-            start_date: employment.start_date,
-            end_date: employment.end_date || null,
-            is_current: employment.is_current,
-            description: employment.description,
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
+        const data = await candidatesApi.createEmployment({
+          user_id: userId,
+          job_title: employment.job_title,
+          company_name: employment.company_name,
+          start_date: employment.start_date,
+          end_date: employment.end_date || null,
+          is_current: employment.is_current,
+          description: employment.description,
+        });
 
         setEmploymentHistory(prev => [{ ...employment, id: data.id }, ...prev]);
       }
@@ -616,12 +528,7 @@ const CandidateProfile = () => {
 
   const handleDeleteEmployment = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from("employment_history")
-        .delete()
-        .eq("id", id);
-
-      if (error) throw error;
+      await candidatesApi.deleteEmployment(id);
 
       setEmploymentHistory(prev => prev.filter(e => e.id !== id));
     } catch (error) {
@@ -634,37 +541,26 @@ const CandidateProfile = () => {
 
     try {
       if (edu.id) {
-        const { error } = await supabase
-          .from("education")
-          .update({
-            institution: edu.institution,
-            degree: edu.degree,
-            field_of_study: edu.field_of_study,
-            start_date: edu.start_date || null,
-            end_date: edu.end_date || null,
-            is_current: edu.is_current,
-          })
-          .eq("id", edu.id);
-
-        if (error) throw error;
+        await candidatesApi.updateEducation(edu.id, {
+          institution: edu.institution,
+          degree: edu.degree,
+          field_of_study: edu.field_of_study,
+          start_date: edu.start_date || null,
+          end_date: edu.end_date || null,
+          is_current: edu.is_current,
+        });
 
         setEducation(prev => prev.map(e => e.id === edu.id ? edu : e));
       } else {
-        const { data, error } = await supabase
-          .from("education")
-          .insert({
-            user_id: userId,
-            institution: edu.institution,
-            degree: edu.degree,
-            field_of_study: edu.field_of_study,
-            start_date: edu.start_date || null,
-            end_date: edu.end_date || null,
-            is_current: edu.is_current,
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
+        const data = await candidatesApi.createEducation({
+          user_id: userId,
+          institution: edu.institution,
+          degree: edu.degree,
+          field_of_study: edu.field_of_study,
+          start_date: edu.start_date || null,
+          end_date: edu.end_date || null,
+          is_current: edu.is_current,
+        });
 
         setEducation(prev => [{ ...edu, id: data.id }, ...prev]);
       }
@@ -683,12 +579,7 @@ const CandidateProfile = () => {
 
   const handleDeleteEducation = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from("education")
-        .delete()
-        .eq("id", id);
-
-      if (error) throw error;
+      await candidatesApi.deleteEducation(id);
 
       setEducation(prev => prev.filter(e => e.id !== id));
     } catch (error) {

@@ -13,7 +13,7 @@ import { useInterviewPersistence } from "@/hooks/useInterviewPersistence";
 import { useInterviewContext } from "@/hooks/useInterviewContext";
 import { useAcsToken } from "@/hooks/useAcsToken";
 import { useAcsCall } from "@/hooks/useAcsCall";
-import { supabase } from "@/integrations/supabase/client";
+import { interviewsApi } from "@/api/interviews";
 import { VideoTile } from "@/components/VideoRenderer";
 import { AvatarRenderer } from "@/components/AvatarRenderer";
 import { CallControls } from "@/components/CallControls";
@@ -537,22 +537,19 @@ const LiveInterview = () => {
         totalQuestions,
       };
 
-      const { data, error } = await supabase.functions.invoke("ai-interviewer", {
-        body: {
-          messages: conversationHistory.map(m => ({
-            role: m.role === "ai" ? "assistant" : "user",
-            content: m.content,
-          })),
-          ...cagContext,
-        },
+      const data = await interviewsApi.aiInterviewer({
+        messages: conversationHistory.map(m => ({
+          role: m.role === "ai" ? "assistant" : "user",
+          content: m.content,
+        })),
+        ...cagContext,
       });
 
-      if (error) throw error;
-
+      const responseText = data.reply || data.message || "Could you tell me more about that?";
       const aiMessage: Message = {
         id: crypto.randomUUID(),
         role: "ai",
-        content: data.message,
+        content: responseText,
         timestamp: new Date(),
       };
 
@@ -568,14 +565,14 @@ const LiveInterview = () => {
         const currentTimeMs = Date.now() - interviewStartTimeRef.current;
         await saveTranscriptSegment(currentInterviewIdRef.current, {
           speaker: "ai",
-          content: data.message,
+          content: responseText,
           startTimeMs: currentTimeMs,
         });
       }
 
       if (ttsSupported) {
         setStatus("questioning");
-        speak(data.message);
+        speak(responseText);
       } else {
         setStatus("listening");
         startListening();

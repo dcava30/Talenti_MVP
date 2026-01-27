@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Link, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { authApi } from "@/api/auth";
 import { useToast } from "@/hooks/use-toast";
 import {
   useCandidateProfile,
@@ -45,17 +45,20 @@ const CandidatePortal = () => {
   const isLoading = profileLoading || applicationsLoading;
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    await authApi.logout();
     navigate("/");
   };
 
   // Check auth
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) {
-        navigate("/auth?type=candidate");
-      }
-    });
+    authApi
+      .me()
+      .then((user) => {
+        if (!user) {
+          navigate("/auth?type=candidate");
+        }
+      })
+      .catch(() => navigate("/auth?type=candidate"));
   }, [navigate]);
 
   const getStatusBadge = (status: string) => {

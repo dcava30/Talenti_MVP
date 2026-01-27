@@ -4,7 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Plus, Users, Briefcase, TrendingUp, FileText, LogOut, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useCurrentOrg, useJobRoles, useOrgStats } from "@/hooks/useOrgData";
-import { supabase } from "@/integrations/supabase/client";
+import { authApi } from "@/api/auth";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 
@@ -17,7 +17,7 @@ const OrgDashboard = () => {
   const { data: stats, isLoading: statsLoading } = useOrgStats(organisation?.id);
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    await authApi.logout();
     toast.success("Signed out successfully");
     navigate("/auth");
   };

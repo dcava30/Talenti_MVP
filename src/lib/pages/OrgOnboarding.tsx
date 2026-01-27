@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { authApi } from "@/api/auth";
+import { organisationsApi } from "@/api/organisations";
 import { useToast } from "@/hooks/use-toast";
 import { Building2, Globe, Mail, Loader2, CheckCircle2, ArrowRight } from "lucide-react";
 
@@ -30,42 +31,25 @@ const OrgOnboarding = () => {
   }, []);
 
   const checkExistingOrg = async () => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    try {
+      const user = await authApi.me();
+      if (!user) {
+        navigate("/auth?type=organisation");
+        return;
+      }
 
-    const user = session?.user;
+      const orgUser = await organisationsApi.getCurrentMembership();
+      if (orgUser?.organisation?.id) {
+        navigate("/org");
+        return;
+      }
 
-    if (!user) {
+      setBillingEmail(user.email || "");
+      setIsLoading(false);
+    } catch (error) {
+      console.error("[OrgOnboarding] org lookup failed:", error);
       navigate("/auth?type=organisation");
-      return;
     }
-
-    // Check if user already belongs to an org
-    const { data: orgUser, error: orgUserError } = await supabase
-      .from("org_users")
-      .select("organisation_id")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (orgUserError) {
-      console.error("[OrgOnboarding] org_users lookup failed:", {
-        message: orgUserError.message,
-        code: (orgUserError as any).code,
-        details: (orgUserError as any).details,
-        hint: (orgUserError as any).hint,
-      });
-    }
-
-    if (orgUser?.organisation_id) {
-      // User already has an org, redirect to dashboard
-      navigate("/org");
-      return;
-    }
-
-    // Pre-fill billing email
-    setBillingEmail(user.email || "");
-    setIsLoading(false);
   };
 
   const handleCreateOrg = async (e: React.FormEvent) => {
@@ -83,45 +67,14 @@ const OrgOnboarding = () => {
     setIsSubmitting(true);
 
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session?.user) throw new Error("Not authenticated");
-
-      // Verify token is valid and ensure the client has an in-memory session
-      const { data: userRes, error: userErr } = await supabase.auth.getUser();
-      if (userErr || !userRes?.user) {
-        throw new Error(userErr?.message || "Not authenticated");
-      }
-
-      try {
-        await supabase.auth.setSession({
-          access_token: session.access_token,
-          refresh_token: session.refresh_token,
-        });
-      } catch {
-        // ignore
-      }
-
-      const user = userRes.user;
-      // Create organisation via backend function (avoids client-side RLS edge cases)
-      const { data, error: fnError } = await supabase.functions.invoke("create-organisation", {
-        body: {
-          name: orgName,
-          industry: industry || null,
-          website: website || null,
-          description: description || null,
-          billing_email: billingEmail || null,
-        },
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
+      await authApi.me();
+      const org = await organisationsApi.create({
+        name: orgName,
+        industry: industry || null,
+        website: website || null,
+        description: description || null,
       });
 
-      if (fnError) throw fnError;
-
-      const org = (data as any)?.organisation;
       if (!org?.id) throw new Error("Organisation creation failed");
 
       toast({
@@ -131,18 +84,10 @@ const OrgOnboarding = () => {
 
       navigate("/org");
     } catch (error: any) {
-      const code = error?.code ? String(error.code) : "";
       const message = error?.message ? String(error.message) : "Unknown error";
-      const details = error?.details ? String(error.details) : error?.hint ? String(error.hint) : "";
+      console.error("[OrgOnboarding] Create org failed:", error);
 
-      console.error("[OrgOnboarding] Create org failed:", {
-        code,
-        message,
-        details,
-      });
-
-      const friendly = [code ? `[${code}]` : null, message, details].filter(Boolean).join(" ");
-
+      const friendly = message || "An error occurred. Please try again.";
       toast({
         title: "Failed to Create Organisation",
         description: friendly || "An error occurred. Please try again.",
@@ -150,9 +95,6 @@ const OrgOnboarding = () => {
       });
 
       // If this was an auth/RLS issue, a quick sign-out/in typically resolves it.
-      if (message.toLowerCase().includes("row-level security")) {
-        console.warn("[OrgOnboarding] RLS denial detected; session may be missing/expired.");
-      }
     } finally {
       setIsSubmitting(false);
     }

@@ -34,7 +34,7 @@ import {
   User,
   Bot,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { interviewsApi } from "@/api/interviews";
 import { toast } from "sonner";
 import { downloadInterviewReport } from "@/lib/generateInterviewReport";
 
@@ -134,91 +134,24 @@ const InterviewReport = () => {
     setIsLoading(true);
 
     try {
-      // Fetch interview with application and job role
-      const { data: interviewData, error: interviewError } = await supabase
-        .from("interviews")
-        .select(`
-          id,
-          status,
-          started_at,
-          ended_at,
-          duration_seconds,
-          recording_url,
-          anti_cheat_signals,
-          applications!inner(
-            id,
-            candidate_id,
-            job_roles!inner(
-              id,
-              title,
-              organisations!inner(
-                id,
-                name
-              )
-            )
-          )
-        `)
-        .eq("id", interviewId)
-        .single();
+      const interviewData = await interviewsApi.getById(interviewId);
 
-      if (interviewError) throw interviewError;
+      if (interviewData) {
+        setInterview(interviewData);
+      }
 
-      const application = interviewData.applications as any;
-      const jobRole = application?.job_roles;
-      const organisation = jobRole?.organisations;
-
-      setInterview({
-        id: interviewData.id,
-        status: interviewData.status,
-        started_at: interviewData.started_at,
-        ended_at: interviewData.ended_at,
-        duration_seconds: interviewData.duration_seconds,
-        recording_url: interviewData.recording_url,
-        anti_cheat_signals: interviewData.anti_cheat_signals,
-        application: {
-          id: application.id,
-          candidate_id: application.candidate_id,
-          job_role: {
-            id: jobRole.id,
-            title: jobRole.title,
-            organisation: {
-              id: organisation.id,
-              name: organisation.name,
-            },
-          },
-        },
-      });
-
-      // Fetch score
-      const { data: scoreData } = await supabase
-        .from("interview_scores")
-        .select("*")
-        .eq("interview_id", interviewId)
-        .maybeSingle();
-
+      const scoreData = await interviewsApi.getScore(interviewId);
       if (scoreData) {
         setScore(scoreData);
         setEditedScore(scoreData.overall_score);
       }
 
-      // Fetch dimensions
-      const { data: dimensionData } = await supabase
-        .from("score_dimensions")
-        .select("*")
-        .eq("interview_id", interviewId)
-        .order("score", { ascending: false });
-
+      const dimensionData = await interviewsApi.listDimensions(interviewId);
       if (dimensionData) {
         setDimensions(dimensionData);
       }
 
-      // Fetch transcripts
-      const { data: transcriptData } = await supabase
-        .from("transcript_segments")
-        .select("*")
-        .eq("interview_id", interviewId)
-        .order("start_time_ms", { ascending: true });
-
+      const transcriptData = await interviewsApi.listTranscripts(interviewId);
       if (transcriptData) {
         setTranscripts(transcriptData);
       }
@@ -236,16 +169,11 @@ const InterviewReport = () => {
     setIsSaving(true);
 
     try {
-      const { error } = await supabase
-        .from("interview_scores")
-        .update({
-          overall_score: editedScore,
-          human_override: true,
-          human_override_reason: overrideReason,
-        })
-        .eq("id", score.id);
-
-      if (error) throw error;
+      await interviewsApi.updateScore(score.id, {
+        overall_score: editedScore,
+        human_override: true,
+        human_override_reason: overrideReason,
+      });
 
       setScore({
         ...score,

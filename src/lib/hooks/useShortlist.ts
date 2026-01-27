@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { shortlistApi } from "@/api/shortlist";
 import { toast } from "sonner";
 
 /**
@@ -70,17 +70,9 @@ export function useShortlist() {
     setIsGenerating(true);
     
     try {
-      const { data, error } = await supabase.functions.invoke('generate-shortlist', {
-        body: { roleId }
-      });
+      const data = await shortlistApi.generate({ roleId });
 
-      if (error) {
-        console.error('Shortlist generation error:', error);
-        toast.error('Failed to generate shortlist');
-        return null;
-      }
-
-      if (data.error) {
+      if (data?.error) {
         if (data.error.includes('Rate limit')) {
           toast.error('Rate limit exceeded. Please try again in a moment.');
         } else if (data.error.includes('Usage limit')) {

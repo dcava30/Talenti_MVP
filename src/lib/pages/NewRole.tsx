@@ -9,9 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Upload, Sparkles, Loader2, X, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { authApi } from "@/api/auth";
+import { requirementsApi } from "@/api/requirements";
+import { rolesApi } from "@/api/roles";
 import { useCurrentOrg } from "@/hooks/useOrgData";
-import type { Json } from "@/integrations/supabase/types";
 
 interface ExtractedRequirements {
   skills: string[];
@@ -66,14 +67,10 @@ const NewRole = () => {
 
     setIsExtracting(true);
     try {
-      const { data, error } = await supabase.functions.invoke("extract-requirements", {
-        body: { jobDescription: description, jobTitle: title },
-      });
+      const data = await requirementsApi.extract({ job_description: description, job_title: title });
 
-      if (error) throw error;
-      
-      if (data.requirements) {
-        setExtractedRequirements(data.requirements);
+      if (data) {
+        setExtractedRequirements(data);
         toast({
           title: "Requirements Extracted",
           description: "AI has analyzed your job description and extracted key requirements.",
@@ -127,8 +124,8 @@ const NewRole = () => {
         return acc;
       }, {} as Record<string, { weight: number; label: string }>);
 
-      const { data: { user } } = await supabase.auth.getUser();
-      
+      const user = await authApi.me();
+
       const roleData: {
         organisation_id: string;
         created_by: string | null;
@@ -139,9 +136,9 @@ const NewRole = () => {
         salary_range_min: number | null;
         salary_range_max: number | null;
         description: string | null;
-        requirements: Json;
-        scoring_rubric: Json;
-        interview_structure: Json;
+        requirements: Record<string, unknown>;
+        scoring_rubric: Record<string, unknown>;
+        interview_structure: Record<string, unknown>;
         status: "active" | "closed" | "draft";
       } = {
         organisation_id: orgData.organisation.id,
@@ -158,17 +155,11 @@ const NewRole = () => {
         interview_structure: {
           questions: extractedRequirements?.interviewQuestions || [],
           duration_minutes: 15,
-        } as Json,
+        },
         status: "active",
       };
 
-      const { data: role, error } = await supabase
-        .from("job_roles")
-        .insert(roleData)
-        .select()
-        .single();
-
-      if (error) throw error;
+      const role = await rolesApi.create(roleData);
 
       toast({
         title: "Role Created!",

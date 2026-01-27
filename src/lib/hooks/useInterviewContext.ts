@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { interviewsApi } from "@/api/interviews";
 
 /**
  * Job role context for the AI interviewer.
@@ -121,105 +121,14 @@ export const useInterviewContext = (applicationId: string | undefined) => {
       setIsLoading(true);
       setError(null);
 
-      // Fetch application with job role and organization
-      const { data: application, error: appError } = await supabase
-        .from("applications")
-        .select(`
-          id,
-          candidate_id,
-          job_roles (
-            id,
-            title,
-            description,
-            requirements,
-            interview_structure,
-            scoring_rubric,
-            organisations (
-              id,
-              name,
-              industry,
-              values_framework
-            )
-          )
-        `)
-        .eq("id", applicationId)
-        .single();
-
-      if (appError) throw appError;
-
-      const jobRole = application?.job_roles as any;
-      const org = jobRole?.organisations;
-      const requirements = jobRole?.requirements || {};
-      const interviewStructure = jobRole?.interview_structure || {};
-
-      // Fetch candidate profile and skills
-      const candidateId = application?.candidate_id;
-      
-      // Use candidate_profiles table directly - RLS policies ensure proper access
-      const [profileResult, skillsResult, employmentResult] = await Promise.all([
-        supabase
-          .from("candidate_profiles")
-          .select("*")
-          .eq("user_id", candidateId)
-          .maybeSingle(),
-        supabase
-          .from("candidate_skills")
-          .select("skill_name, skill_type")
-          .eq("user_id", candidateId),
-        supabase
-          .from("employment_history")
-          .select("job_title, company_name, start_date, end_date, is_current")
-          .eq("user_id", candidateId)
-          .order("start_date", { ascending: false })
-          .limit(5),
-      ]);
-
-      // Calculate experience years
-      const employment = employmentResult.data || [];
-      let experienceYears = 0;
-      for (const job of employment) {
-        const start = new Date(job.start_date);
-        const end = job.is_current ? new Date() : new Date(job.end_date || new Date());
-        experienceYears += (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 365);
-      }
-
-      // Build competencies to cover from requirements
-      const competenciesToCover = [
-        ...(requirements.skills || []),
-        ...(requirements.experience || []).slice(0, 3),
-      ];
-
-      // Parse org values
-      const valuesFramework = org?.values_framework as any;
-      const orgValues = Array.isArray(valuesFramework) 
-        ? valuesFramework 
-        : (valuesFramework?.values || []);
+      const contextData = await interviewsApi.getContext(applicationId);
 
       setContext({
-        job: {
-          title: jobRole?.title || "Unknown Position",
-          description: jobRole?.description || "",
-          requirements: {
-            skills: requirements.skills || [],
-            experience: requirements.experience || [],
-            qualifications: requirements.qualifications || [],
-            responsibilities: requirements.responsibilities || [],
-          },
-          interviewQuestions: interviewStructure.questions || [],
-        },
-        org: {
-          name: org?.name || "Unknown Company",
-          values: orgValues,
-          industry: org?.industry || "",
-        },
-        candidate: {
-          skills: (skillsResult.data || []).map(s => s.skill_name),
-          experienceYears: Math.round(experienceYears),
-          recentRoles: employment.map(e => e.job_title),
-          educationLevel: profileResult.data?.gpa_wam ? "University" : "Not specified",
-        },
-        competenciesCovered: [],
-        competenciesToCover,
+        job: contextData?.job ?? null,
+        org: contextData?.org ?? null,
+        candidate: contextData?.candidate ?? null,
+        competenciesCovered: contextData?.competencies_covered ?? [],
+        competenciesToCover: contextData?.competencies_to_cover ?? [],
       });
     } catch (err) {
       console.error("Error loading interview context:", err);
