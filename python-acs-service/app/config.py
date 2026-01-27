@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     ENVIRONMENT: str = "development"
 
+    # Auth settings
+    JWT_SECRET: str = "change-me"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = 60
+
     # Recording settings
     RECORDING_RETENTION_DAYS: int = 30
     MAX_RECORDING_DURATION_MINUTES: int = 60

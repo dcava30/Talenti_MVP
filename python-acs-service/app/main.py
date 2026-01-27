@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import logging
 
 from app.config import settings
-from app.api.routes import calls, recordings, health
+from app.api.router import api_router
 
 # Configure logging
 logging.basicConfig(
@@ -46,9 +46,7 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(health.router, tags=["Health"])
-app.include_router(calls.router, prefix="/api/calls", tags=["Calls"])
-app.include_router(recordings.router, prefix="/api/recordings", tags=["Recordings"])
+app.include_router(api_router)
 
 
 @app.get("/")
