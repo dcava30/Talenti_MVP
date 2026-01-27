@@ -1,13 +1,6 @@
 """
 Recording management service
 """
-from azure.communication.callautomation import (
-    RecordingContent,
-    RecordingChannel,
-    RecordingFormat
-)
-from azure.communication.callautomation.aio import CallAutomationClient as AsyncCallAutomationClient
-from azure.storage.blob.aio import BlobServiceClient
 from typing import Optional, Dict, Any, List, Tuple, AsyncIterator
 import logging
 from datetime import datetime
@@ -26,50 +19,76 @@ from app.repositories.interviews import InterviewRepository
 logger = logging.getLogger(__name__)
 
 
+def _load_recording_clients() -> Tuple[Any, Any, Any, Any, Any]:
+    """Load recording-related Azure clients lazily."""
+    from azure.communication.callautomation import (  # noqa: WPS433
+        RecordingContent,
+        RecordingChannel,
+        RecordingFormat,
+    )
+    from azure.communication.callautomation.aio import (  # noqa: WPS433
+        CallAutomationClient as AsyncCallAutomationClient,
+    )
+    from azure.storage.blob.aio import BlobServiceClient  # noqa: WPS433
+
+    return (
+        RecordingContent,
+        RecordingChannel,
+        RecordingFormat,
+        AsyncCallAutomationClient,
+        BlobServiceClient,
+    )
+
+
 class RecordingService:
     """
     Service for managing call recordings
     """
     
     def __init__(self):
-        self._acs_client: Optional[AsyncCallAutomationClient] = None
-        self._blob_client: Optional[BlobServiceClient] = None
+        self._acs_client: Optional[Any] = None
+        self._blob_client: Optional[Any] = None
         self._recordings: Dict[str, Dict[str, Any]] = {}  # In-memory cache
     
     @property
-    def acs_client(self) -> AsyncCallAutomationClient:
-        """Lazy initialization of the ACS client"""
+    def acs_client(self) -> Any:
+        """Lazy initialization of the ACS client."""
         if self._acs_client is None:
-            self._acs_client = AsyncCallAutomationClient.from_connection_string(
+            _, _, _, async_client, _ = _load_recording_clients()
+            self._acs_client = async_client.from_connection_string(
                 settings.ACS_CONNECTION_STRING
             )
         return self._acs_client
     
     @property
-    def blob_client(self) -> BlobServiceClient:
-        """Lazy initialization of the Blob client"""
+    def blob_client(self) -> Any:
+        """Lazy initialization of the Blob client."""
         if self._blob_client is None:
-            self._blob_client = BlobServiceClient.from_connection_string(
+            _, _, _, _, blob_client = _load_recording_clients()
+            self._blob_client = blob_client.from_connection_string(
                 settings.AZURE_STORAGE_CONNECTION_STRING
             )
         return self._blob_client
     
-    def _map_content_type(self, content_type: RecordingContentType) -> RecordingContent:
-        """Map our enum to ACS enum"""
-        return RecordingContent.AUDIO if content_type == RecordingContentType.AUDIO else RecordingContent.AUDIO_VIDEO
+    def _map_content_type(self, content_type: RecordingContentType) -> Any:
+        """Map our enum to ACS enum."""
+        recording_content, _, _, _, _ = _load_recording_clients()
+        return recording_content.AUDIO if content_type == RecordingContentType.AUDIO else recording_content.AUDIO_VIDEO
     
-    def _map_channel_type(self, channel_type: RecordingChannelType) -> RecordingChannel:
-        """Map our enum to ACS enum"""
-        return RecordingChannel.MIXED if channel_type == RecordingChannelType.MIXED else RecordingChannel.UNMIXED
+    def _map_channel_type(self, channel_type: RecordingChannelType) -> Any:
+        """Map our enum to ACS enum."""
+        _, recording_channel, _, _, _ = _load_recording_clients()
+        return recording_channel.MIXED if channel_type == RecordingChannelType.MIXED else recording_channel.UNMIXED
     
-    def _map_format_type(self, format_type: RecordingFormatType) -> RecordingFormat:
-        """Map our enum to ACS enum"""
+    def _map_format_type(self, format_type: RecordingFormatType) -> Any:
+        """Map our enum to ACS enum."""
+        _, _, recording_format, _, _ = _load_recording_clients()
         mapping = {
-            RecordingFormatType.WAV: RecordingFormat.WAV,
-            RecordingFormatType.MP3: RecordingFormat.MP3,
-            RecordingFormatType.MP4: RecordingFormat.MP4
+            RecordingFormatType.WAV: recording_format.WAV,
+            RecordingFormatType.MP3: recording_format.MP3,
+            RecordingFormatType.MP4: recording_format.MP4,
         }
-        return mapping.get(format_type, RecordingFormat.WAV)
+        return mapping.get(format_type, recording_format.WAV)
     
     async def start_recording(
         self,

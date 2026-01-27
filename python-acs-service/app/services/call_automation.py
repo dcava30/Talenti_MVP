@@ -1,16 +1,7 @@
 """
 Azure Communication Services Call Automation Service
 """
-from azure.communication.callautomation import (
-    CallAutomationClient,
-    CallInvite,
-    CommunicationUserIdentifier,
-    PhoneNumberIdentifier,
-    TextSource,
-    FileSource
-)
-from azure.communication.callautomation.aio import CallAutomationClient as AsyncCallAutomationClient
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 import logging
 import uuid
 
@@ -19,30 +10,57 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _load_acs_clients() -> Tuple[Any, Any, Any, Any, Any, Any]:
+    """Load ACS client classes lazily to avoid import-time failures."""
+    from azure.communication.callautomation import (  # noqa: WPS433
+        CallAutomationClient,
+        CallInvite,
+        CommunicationUserIdentifier,
+        PhoneNumberIdentifier,
+        TextSource,
+        FileSource,
+    )
+    from azure.communication.callautomation.aio import (  # noqa: WPS433
+        CallAutomationClient as AsyncCallAutomationClient,
+    )
+
+    return (
+        CallAutomationClient,
+        CallInvite,
+        CommunicationUserIdentifier,
+        PhoneNumberIdentifier,
+        TextSource,
+        FileSource,
+        AsyncCallAutomationClient,
+    )
+
+
 class CallAutomationService:
     """
     Service for managing ACS Call Automation operations
     """
     
     def __init__(self):
-        self._client: Optional[AsyncCallAutomationClient] = None
+        self._client: Optional[Any] = None
     
     @property
-    def client(self) -> AsyncCallAutomationClient:
-        """Lazy initialization of the ACS client"""
+    def client(self) -> Any:
+        """Lazy initialization of the ACS client."""
         if self._client is None:
+            _, _, _, _, _, _, async_client = _load_acs_clients()
             if not settings.ACS_CONNECTION_STRING:
                 raise ValueError("ACS_CONNECTION_STRING not configured")
-            self._client = AsyncCallAutomationClient.from_connection_string(
+            self._client = async_client.from_connection_string(
                 settings.ACS_CONNECTION_STRING
             )
         return self._client
     
     def _parse_identity(self, identity: str):
         """Parse identity string to appropriate identifier type"""
+        _, _, communication_user, phone_number, _, _, _ = _load_acs_clients()
         if identity.startswith("+"):
-            return PhoneNumberIdentifier(identity)
-        return CommunicationUserIdentifier(identity)
+            return phone_number(identity)
+        return communication_user(identity)
     
     async def create_call(
         self,
@@ -58,10 +76,11 @@ class CallAutomationService:
         callback = callback_url or settings.ACS_CALLBACK_URL
         
         target = self._parse_identity(target_identity)
-        call_invite = CallInvite(target=target)
+        _, call_invite_class, _, phone_number, _, _, _ = _load_acs_clients()
+        call_invite = call_invite_class(target=target)
         
         if source_identity:
-            call_invite.source_caller_id_number = PhoneNumberIdentifier(source_identity)
+            call_invite.source_caller_id_number = phone_number(source_identity)
         
         logger.info(f"Creating call to {target_identity} for interview {interview_id}")
         
@@ -146,12 +165,14 @@ class CallAutomationService:
         call_connection = self.client.get_call_connection(call_connection_id)
         
         if text:
-            play_source = TextSource(
+            _, _, _, _, text_source, file_source, _ = _load_acs_clients()
+            play_source = text_source(
                 text=text,
                 voice_name=voice_name
             )
         elif audio_url:
-            play_source = FileSource(url=audio_url)
+            _, _, _, _, _, file_source, _ = _load_acs_clients()
+            play_source = file_source(url=audio_url)
         else:
             raise ValueError("Either text or audio_url must be provided")
         
@@ -174,9 +195,10 @@ class CallAutomationService:
         call_connection = self.client.get_call_connection(call_connection_id)
         target = self._parse_identity(target_identity)
         
-        call_invite = CallInvite(target=target)
+        _, call_invite_class, _, phone_number, _, _, _ = _load_acs_clients()
+        call_invite = call_invite_class(target=target)
         if source_identity:
-            call_invite.source_caller_id_number = PhoneNumberIdentifier(source_identity)
+            call_invite.source_caller_id_number = phone_number(source_identity)
         
         result = await call_connection.add_participant(call_invite)
         
