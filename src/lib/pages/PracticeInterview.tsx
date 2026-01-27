@@ -7,7 +7,9 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useSpeechSynthesis } from "@/hooks/useSpeechSynthesis";
-import { supabase } from "@/integrations/supabase/client";
+import { authApi } from "@/api/auth";
+import { candidatesApi } from "@/api/candidates";
+import { interviewsApi } from "@/api/interviews";
 import { 
   Mic, 
   MicOff, 
@@ -167,18 +169,14 @@ const PracticeInterview = () => {
       streamRef.current = stream;
 
       // Create practice interview record
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = await authApi.me();
       if (user) {
-        const { data: practice } = await supabase
-          .from("practice_interviews")
-          .insert({
-            user_id: user.id,
-            sample_role_type: roleType,
-            status: "in_progress",
-            started_at: new Date().toISOString(),
-          })
-          .select()
-          .single();
+        const practice = await candidatesApi.createPracticeInterview({
+          user_id: user.id,
+          sample_role_type: roleType,
+          status: "in_progress",
+          started_at: new Date().toISOString(),
+        });
 
         if (practice) {
           setPracticeId(practice.id);
@@ -200,25 +198,21 @@ const PracticeInterview = () => {
 
   const getAIResponse = async (conversationHistory: Message[]) => {
     try {
-      const { data, error } = await supabase.functions.invoke("ai-interviewer", {
-        body: {
-          messages: conversationHistory.map(m => ({
-            role: m.role === "ai" ? "assistant" : "user",
-            content: m.content,
-          })),
-          jobTitle: role.title,
-          companyName: "Practice Company",
-          currentQuestionIndex: currentQuestion,
-          isPractice: true,
-        },
+      const data = await interviewsApi.aiInterviewer({
+        messages: conversationHistory.map(m => ({
+          role: m.role === "ai" ? "assistant" : "user",
+          content: m.content,
+        })),
+        job_title: role.title,
+        company_name: "Practice Company",
+        current_question_index: currentQuestion,
+        is_practice: true,
       });
-
-      if (error) throw error;
 
       const aiMessage: Message = {
         id: crypto.randomUUID(),
         role: "ai",
-        content: data.message,
+        content: data.reply || data.message,
         timestamp: new Date(),
       };
 
@@ -277,10 +271,8 @@ const PracticeInterview = () => {
 
   const handleEndInterview = async () => {
     // Update practice record
-    if (practiceId) {
-      await supabase
-        .from("practice_interviews")
-        .update({
+      if (practiceId) {
+        await candidatesApi.updatePracticeInterview(practiceId, {
           status: "completed",
           ended_at: new Date().toISOString(),
           duration_seconds: elapsedTime,
@@ -288,9 +280,8 @@ const PracticeInterview = () => {
             questionsAnswered: currentQuestion,
             totalDuration: elapsedTime,
           },
-        })
-        .eq("id", practiceId);
-    }
+        });
+      }
 
     cleanup();
     navigate(`/candidate/practice/complete?practiceId=${practiceId}`);

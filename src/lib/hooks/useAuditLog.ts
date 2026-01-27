@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { auditApi } from "@/api/audit";
 
 /**
  * Represents a single entry in the audit log.
@@ -58,14 +58,7 @@ export function useAuditLog(organisationId: string | undefined) {
     queryFn: async (): Promise<AuditLogEntry[]> => {
       if (!organisationId) return [];
 
-      const { data, error } = await supabase
-        .from("audit_log")
-        .select("*")
-        .eq("organisation_id", organisationId)
-        .order("created_at", { ascending: false })
-        .limit(100);
-
-      if (error) throw error;
+      const data = await auditApi.list(organisationId);
       return (data || []) as AuditLogEntry[];
     },
     enabled: !!organisationId,

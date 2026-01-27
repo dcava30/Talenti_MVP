@@ -1,5 +1,5 @@
 import jsPDF from "jspdf";
-import { supabase } from "@/integrations/supabase/client";
+import { interviewsApi } from "@/api/interviews";
 
 interface ScoreDimension {
   dimension: string;
@@ -53,60 +53,22 @@ export const fetchInterviewReportData = async (
 ): Promise<ReportData | null> => {
   try {
     // Fetch interview with application info
-    const { data: interview, error: interviewError } = await supabase
-      .from("interviews")
-      .select(`
-        id,
-        started_at,
-        ended_at,
-        application_id,
-        applications!inner(
-          candidate_id
-        )
-      `)
-      .eq("id", interviewId)
-      .single();
-
-    if (interviewError || !interview) {
-      console.error("Failed to fetch interview:", interviewError);
+    const interview = await interviewsApi.getById(interviewId);
+    if (!interview) {
+      console.error("Failed to fetch interview:", interviewId);
       return null;
     }
 
     // Fetch score
-    const { data: score, error: scoreError } = await supabase
-      .from("interview_scores")
-      .select("*")
-      .eq("interview_id", interviewId)
-      .maybeSingle();
-
-    if (scoreError) {
-      console.error("Failed to fetch score:", scoreError);
-      return null;
-    }
+    const score = await interviewsApi.getScore(interviewId);
 
     // Fetch dimensions
-    const { data: dimensions, error: dimError } = await supabase
-      .from("score_dimensions")
-      .select("*")
-      .eq("interview_id", interviewId)
-      .order("score", { ascending: false });
-
-    if (dimError) {
-      console.error("Failed to fetch dimensions:", dimError);
-    }
+    const dimensions = await interviewsApi.listDimensions(interviewId);
 
     // Fetch transcripts
-    const { data: transcripts, error: transcriptError } = await supabase
-      .from("transcript_segments")
-      .select("*")
-      .eq("interview_id", interviewId)
-      .order("start_time_ms", { ascending: true });
+    const transcripts = await interviewsApi.listTranscripts(interviewId);
 
-    if (transcriptError) {
-      console.error("Failed to fetch transcripts:", transcriptError);
-    }
-
-    const application = interview.applications as any;
+    const application = interview.application || interview.applications;
 
     return {
       roleTitle,

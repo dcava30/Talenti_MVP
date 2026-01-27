@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Link, useSearchParams } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { candidatesApi } from "@/api/candidates";
 import { 
   CheckCircle2, 
   Clock, 
@@ -38,14 +38,13 @@ const PracticeInterviewComplete = () => {
   }, [practiceId]);
 
   const loadPracticeData = async () => {
-    const { data, error } = await supabase
-      .from("practice_interviews")
-      .select("*")
-      .eq("id", practiceId)
-      .single();
-
-    if (!error && data) {
-      setPractice(data);
+    try {
+      const data = await candidatesApi.getPracticeInterview(practiceId);
+      if (data) {
+        setPractice(data);
+      }
+    } catch (error) {
+      console.error("Failed to load practice interview:", error);
     }
     setIsLoading(false);
   };

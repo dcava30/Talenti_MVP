@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { candidatesApi } from "@/api/candidates";
 import { toast } from "sonner";
 
 /**
@@ -51,16 +51,7 @@ export const useDeletionRequests = () => {
   return useQuery({
     queryKey: ["deletion-requests"],
     queryFn: async (): Promise<DeletionRequest[]> => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return [];
-
-      const { data, error } = await supabase
-        .from("data_deletion_requests")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("requested_at", { ascending: false });
-
-      if (error) throw error;
+      const data = await candidatesApi.listDeletionRequests();
       return data as DeletionRequest[];
     },
   });
@@ -105,21 +96,10 @@ export const useCreateDeletionRequest = () => {
       requestType: "full_deletion" | "recording_only" | "anonymize";
       reason?: string;
     }) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-
-      const { data, error } = await supabase
-        .from("data_deletion_requests")
-        .insert({
-          user_id: user.id,
-          request_type: requestType,
-          reason: reason || null,
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
+      return candidatesApi.createDeletionRequest({
+        request_type: requestType,
+        reason: reason || null,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["deletion-requests"] });

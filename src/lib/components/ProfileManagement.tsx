@@ -15,7 +15,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { supabase } from "@/integrations/supabase/client";
+import { authApi } from "@/api/auth";
+import { candidatesApi } from "@/api/candidates";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import {
@@ -74,11 +75,7 @@ const ProfileManagement = ({ userId }: ProfileManagementProps) => {
   const loadProfileSettings = async () => {
     setIsLoading(true);
     try {
-      const { data } = await supabase
-        .from("candidate_profiles")
-        .select("paused_at, visibility_settings")
-        .eq("user_id", userId)
-        .maybeSingle();
+      const data = await candidatesApi.getProfile(userId);
 
       if (data) {
         setIsPaused(!!data.paused_at);
@@ -96,15 +93,10 @@ const ProfileManagement = ({ userId }: ProfileManagementProps) => {
     setIsPausing(true);
     try {
       const newPausedState = !isPaused;
-      const { error } = await supabase
-        .from("candidate_profiles")
-        .update({
-          profile_visibility: newPausedState ? "hidden" : "visible",
-          paused_at: newPausedState ? new Date().toISOString() : null,
-        })
-        .eq("user_id", userId);
-
-      if (error) throw error;
+      await candidatesApi.updateProfile(userId, {
+        profile_visibility: newPausedState ? "hidden" : "visible",
+        paused_at: newPausedState ? new Date().toISOString() : null,
+      });
 
       setIsPaused(newPausedState);
       toast({
@@ -128,19 +120,8 @@ const ProfileManagement = ({ userId }: ProfileManagementProps) => {
     setIsDeleting(true);
     try {
       // Delete all related data
-      await Promise.all([
-        supabase.from("candidate_skills").delete().eq("user_id", userId),
-        supabase.from("employment_history").delete().eq("user_id", userId),
-        supabase.from("education").delete().eq("user_id", userId),
-        supabase.from("candidate_dei").delete().eq("user_id", userId),
-        supabase.from("practice_interviews").delete().eq("user_id", userId),
-      ]);
-
-      // Delete profile
-      await supabase.from("candidate_profiles").delete().eq("user_id", userId);
-
-      // Sign out
-      await supabase.auth.signOut();
+      await candidatesApi.deleteAccount(userId);
+      await authApi.logout();
 
       toast({
         title: "Account Deleted",
@@ -164,12 +145,9 @@ const ProfileManagement = ({ userId }: ProfileManagementProps) => {
     
     setIsSavingVisibility(true);
     try {
-      const { error } = await supabase
-        .from("candidate_profiles")
-        .update({ visibility_settings: newSettings })
-        .eq("user_id", userId);
-
-      if (error) throw error;
+      await candidatesApi.updateProfile(userId, {
+        visibility_settings: newSettings,
+      });
     } catch (error) {
       console.error("Error updating visibility:", error);
       setSettings(settings); // Revert on error

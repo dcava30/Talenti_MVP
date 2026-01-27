@@ -1,5 +1,5 @@
-import { supabase } from "@/integrations/supabase/client";
-import type { Json } from "@/integrations/supabase/types";
+import { auditApi } from "@/api/audit";
+import { authApi } from "@/api/auth";
 
 export type AuditAction = 
   | "profile_unlocked"
@@ -24,8 +24,8 @@ interface LogAuditEventParams {
   entityType: AuditEntityType;
   entityId?: string;
   organisationId: string;
-  oldValues?: Json;
-  newValues?: Json;
+  oldValues?: Record<string, unknown> | null;
+  newValues?: Record<string, unknown> | null;
 }
 
 export async function logAuditEvent({
@@ -37,14 +37,14 @@ export async function logAuditEvent({
   newValues,
 }: LogAuditEventParams): Promise<boolean> {
   try {
-    const { data: { user } } = await supabase.auth.getUser();
-    
+    const user = await authApi.me();
+
     if (!user) {
       console.warn("No authenticated user for audit log");
       return false;
     }
 
-    const { error } = await supabase.from("audit_log").insert([{
+    await auditApi.create({
       user_id: user.id,
       action,
       entity_type: entityType,
@@ -52,12 +52,7 @@ export async function logAuditEvent({
       organisation_id: organisationId,
       old_values: oldValues || null,
       new_values: newValues || null,
-    }]);
-
-    if (error) {
-      console.error("Failed to log audit event:", error);
-      return false;
-    }
+    });
 
     return true;
   } catch (err) {

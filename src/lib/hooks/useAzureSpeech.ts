@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { speechApi } from "@/api/speech";
 import * as SpeechSDK from "microsoft-cognitiveservices-speech-sdk";
 
 /**
@@ -31,7 +31,7 @@ interface SpeechToken {
   /** Azure region (e.g., "australiaeast") */
   region: string;
   /** Token lifetime in seconds */
-  expiresIn: number;
+  expiresIn?: number;
 }
 
 /**
@@ -100,17 +100,12 @@ export const useAzureSpeech = (options: UseAzureSpeechOptions = {}) => {
   const fetchToken = useCallback(async (): Promise<SpeechToken | null> => {
     try {
       console.log("[useAzureSpeech] Fetching speech token...");
-      const { data, error } = await supabase.functions.invoke("azure-speech-token");
-      
-      if (error) {
-        console.error("[useAzureSpeech] Token fetch error:", error);
-        setError("Failed to get speech token");
-        return null;
-      }
+      const data = await speechApi.getToken();
 
       console.log("[useAzureSpeech] Token obtained for region:", data.region);
-      tokenExpiryRef.current = Date.now() + (data.expiresIn * 1000);
-      return data as SpeechToken;
+      const fallbackExpirySeconds = 9 * 60;
+      tokenExpiryRef.current = Date.now() + ((data.expiresIn ?? fallbackExpirySeconds) * 1000);
+      return { ...data, expiresIn: data.expiresIn ?? fallbackExpirySeconds } as SpeechToken;
     } catch (err) {
       console.error("[useAzureSpeech] Token fetch exception:", err);
       setError(err instanceof Error ? err.message : "Failed to fetch token");

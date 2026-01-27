@@ -1,4 +1,5 @@
-import { supabase } from "@/integrations/supabase/client";
+import { interviewsApi } from "@/api/interviews";
+import { scoringApi } from "@/api/scoring";
 
 interface ScoreDimension {
   dimension: string;
@@ -24,45 +25,13 @@ export const triggerInterviewScoring = async (interviewId: string): Promise<Scor
   try {
     console.log("Fetching interview data for scoring:", interviewId);
 
-    // Fetch interview with application, job role, and organization info
-    const { data: interview, error: interviewError } = await supabase
-      .from("interviews")
-      .select(`
-        id,
-        application_id,
-        applications!inner(
-          job_role_id,
-          job_roles!inner(
-            title,
-            description,
-            requirements,
-            scoring_rubric,
-            organisations!inner(
-              name,
-              values_framework
-            )
-          )
-        )
-      `)
-      .eq("id", interviewId)
-      .single();
-
-    if (interviewError || !interview) {
-      console.error("Failed to fetch interview:", interviewError);
+    const interview = await interviewsApi.getById(interviewId);
+    if (!interview) {
+      console.error("Failed to fetch interview:", interviewId);
       return null;
     }
 
-    // Fetch transcript segments
-    const { data: transcripts, error: transcriptError } = await supabase
-      .from("transcript_segments")
-      .select("*")
-      .eq("interview_id", interviewId)
-      .order("start_time_ms", { ascending: true });
-
-    if (transcriptError) {
-      console.error("Failed to fetch transcripts:", transcriptError);
-      return null;
-    }
+    const transcripts = await interviewsApi.listTranscripts(interviewId);
 
     if (!transcripts || transcripts.length === 0) {
       console.log("No transcripts available for scoring");
@@ -70,9 +39,9 @@ export const triggerInterviewScoring = async (interviewId: string): Promise<Scor
     }
 
     // Access nested data safely
-    const application = interview.applications as any;
-    const jobRole = application?.job_roles;
-    const organisation = jobRole?.organisations;
+    const application = interview.application || interview.applications;
+    const jobRole = application?.job_role || application?.job_roles;
+    const organisation = jobRole?.organisation || jobRole?.organisations;
     const requirements = jobRole?.requirements as any;
     const scoringRubric = jobRole?.scoring_rubric as any;
     
@@ -86,35 +55,37 @@ export const triggerInterviewScoring = async (interviewId: string): Promise<Scor
     console.log("Org values count:", orgValues?.length || 0);
 
     // Call scoring edge function with enhanced context
-    const { data, error } = await supabase.functions.invoke("score-interview", {
-      body: {
-        interviewId,
-        transcripts: transcripts.map(t => ({
-          speaker: t.speaker,
-          content: t.content,
-          start_time_ms: t.start_time_ms,
-        })),
-        jobTitle: jobRole?.title || "Unknown Position",
-        jobDescription: jobRole?.description,
-        requirements: requirements ? {
-          skills: requirements.skills || [],
-          experience: requirements.experience || [],
-          qualifications: requirements.qualifications || [],
-          responsibilities: requirements.responsibilities || [],
-        } : undefined,
-        orgValues,
-        scoringRubric,
-      },
+    const apiResult = await scoringApi.scoreInterview({
+      interview_id: interviewId,
+      transcript: transcripts.map(t => ({
+        speaker: t.speaker,
+        content: t.content,
+        start_time_ms: t.start_time_ms,
+      })),
+      job_title: jobRole?.title || "Unknown Position",
+      job_description: jobRole?.description,
+      requirements: requirements ? {
+        skills: requirements.skills || [],
+        experience: requirements.experience || [],
+        qualifications: requirements.qualifications || [],
+        responsibilities: requirements.responsibilities || [],
+      } : undefined,
+      org_values: orgValues,
+      scoring_rubric: scoringRubric,
     });
 
-    if (error) {
-      console.error("Scoring function error:", error);
-      return null;
-    }
+    const result: ScoringResult = {
+      success: true,
+      interviewId,
+      dimensions: apiResult.dimensions || [],
+      overall_score: apiResult.overall_score ?? apiResult.overall ?? 0,
+      narrative_summary: apiResult.summary || apiResult.narrative_summary || "",
+      candidate_feedback: apiResult.candidate_feedback || "",
+      anti_cheat_risk_level: apiResult.anti_cheat_risk_level || "low",
+      anti_cheat_notes: apiResult.anti_cheat_notes,
+    };
 
-    const result = data as ScoringResult;
-
-    if (!result.success) {
+    if (result.success === false) {
       console.error("Scoring failed:", result.error);
       return null;
     }
@@ -122,7 +93,7 @@ export const triggerInterviewScoring = async (interviewId: string): Promise<Scor
     console.log("Scoring completed successfully:", result.overall_score);
 
     // Save scores to database
-    await saveScoresToDatabase(interviewId, result);
+    await saveScoresToDatabase(interviewId, result, interview);
 
     return result;
   } catch (error) {
@@ -131,59 +102,28 @@ export const triggerInterviewScoring = async (interviewId: string): Promise<Scor
   }
 };
 
-const saveScoresToDatabase = async (interviewId: string, result: ScoringResult): Promise<void> => {
+const saveScoresToDatabase = async (
+  interviewId: string,
+  result: ScoringResult,
+  interview?: Record<string, any>
+): Promise<void> => {
   try {
-    // Save individual dimension scores
-    const dimensionInserts = result.dimensions.map(dim => ({
+    await interviewsApi.saveScores(interviewId, {
       interview_id: interviewId,
-      dimension: dim.dimension,
-      score: dim.score,
-      weight: dim.weight,
-      evidence: dim.evidence,
-      cited_quotes: dim.cited_quotes,
-    }));
+      overall_score: result.overall_score,
+      narrative_summary: result.narrative_summary,
+      candidate_feedback: result.candidate_feedback,
+      anti_cheat_risk_level: result.anti_cheat_risk_level,
+      scored_by: "ai",
+      model_version: "gemini-2.5-flash",
+      prompt_version: "v2.0",
+      rubric_version: "v2.0",
+      dimensions: result.dimensions,
+    });
 
-    const { error: dimError } = await supabase
-      .from("score_dimensions")
-      .insert(dimensionInserts);
-
-    if (dimError) {
-      console.error("Failed to save dimension scores:", dimError);
-    }
-
-    // Save overall score
-    const { error: scoreError } = await supabase
-      .from("interview_scores")
-      .upsert({
-        interview_id: interviewId,
-        overall_score: result.overall_score,
-        narrative_summary: result.narrative_summary,
-        candidate_feedback: result.candidate_feedback,
-        anti_cheat_risk_level: result.anti_cheat_risk_level,
-        scored_by: "ai",
-        model_version: "gemini-2.5-flash",
-        prompt_version: "v2.0",
-        rubric_version: "v2.0",
-      }, {
-        onConflict: "interview_id",
-      });
-
-    if (scoreError) {
-      console.error("Failed to save interview score:", scoreError);
-    }
-
-    // Update application status to 'scoring' -> 'reviewed'
-    const { data: interview } = await supabase
-      .from("interviews")
-      .select("application_id")
-      .eq("id", interviewId)
-      .single();
-
-    if (interview) {
-      await supabase
-        .from("applications")
-        .update({ status: "reviewed" })
-        .eq("id", interview.application_id);
+    const applicationId = interview?.application_id || interview?.application?.id;
+    if (applicationId) {
+      await interviewsApi.updateApplication(applicationId, { status: "reviewed" });
     }
 
     console.log("Scores saved to database successfully");
@@ -193,29 +133,10 @@ const saveScoresToDatabase = async (interviewId: string, result: ScoringResult):
 };
 
 export const getInterviewScore = async (interviewId: string) => {
-  // Fetch interview score
-  const { data: score, error: scoreError } = await supabase
-    .from("interview_scores")
-    .select("*")
-    .eq("interview_id", interviewId)
-    .maybeSingle();
-
-  if (scoreError) {
-    console.error("Error fetching interview score:", scoreError);
-    return null;
-  }
-
+  const score = await interviewsApi.getScore(interviewId);
   if (!score) return null;
 
-  // Fetch dimensions separately
-  const { data: dimensions, error: dimError } = await supabase
-    .from("score_dimensions")
-    .select("*")
-    .eq("interview_id", interviewId);
-
-  if (dimError) {
-    console.error("Error fetching score dimensions:", dimError);
-  }
+  const dimensions = await interviewsApi.listDimensions(interviewId);
 
   return {
     ...score,

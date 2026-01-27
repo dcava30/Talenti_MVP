@@ -8,10 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Save, Loader2, Scale, RotateCcw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { rolesApi } from "@/api/roles";
 import { useCurrentOrg } from "@/hooks/useOrgData";
 import { logAuditEvent } from "@/lib/auditLog";
-import type { Json } from "@/integrations/supabase/types";
 
 interface ScoringDimension {
   dimension: string;
@@ -52,13 +51,7 @@ const EditRoleRubric = () => {
     if (!roleId) return;
     
     try {
-      const { data, error } = await supabase
-        .from("job_roles")
-        .select("title, scoring_rubric")
-        .eq("id", roleId)
-        .single();
-
-      if (error) throw error;
+      const data = await rolesApi.getById(roleId);
 
       setRoleTitle(data.title);
 
@@ -121,12 +114,7 @@ const EditRoleRubric = () => {
         };
       }
 
-      const { error } = await supabase
-        .from("job_roles")
-        .update({ scoring_rubric: scoringRubric as unknown as Json })
-        .eq("id", roleId);
-
-      if (error) throw error;
+      await rolesApi.updateRubric(roleId, { scoring_rubric: scoringRubric });
 
       // Log audit event
       if (organisation?.id && roleId) {
@@ -135,8 +123,8 @@ const EditRoleRubric = () => {
           entityType: "scoring_rubric",
           entityId: roleId,
           organisationId: organisation.id,
-          oldValues: originalRubric as Json,
-          newValues: scoringRubric as Json,
+          oldValues: originalRubric || null,
+          newValues: scoringRubric,
         });
       }
 

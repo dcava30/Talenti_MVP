@@ -12,7 +12,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, Send, Mail, UserPlus } from "lucide-react";
 import { useInvitations } from "@/hooks/useInvitations";
-import { supabase } from "@/integrations/supabase/client";
+import { authApi } from "@/api/auth";
+import { candidatesApi } from "@/api/candidates";
 import { useToast } from "@/hooks/use-toast";
 
 interface SendInvitationDialogProps {
@@ -52,7 +53,7 @@ export function SendInvitationDialog({
       // If no applicationId, create a new application for this candidate
       if (!appId) {
         // Get current user
-        const { data: { user } } = await supabase.auth.getUser();
+        const user = await authApi.me();
         if (!user) throw new Error("Not authenticated");
 
         // Check if this email already has an application for this role
@@ -60,19 +61,11 @@ export function SendInvitationDialog({
         // In production, this would create/lookup a candidate account
         
         // Create application
-        const { data: application, error: appError } = await supabase
-          .from("applications")
-          .insert({
-            job_role_id: roleId,
-            candidate_id: user.id, // Temporary - in production this would be the actual candidate
-            status: "applied",
-          })
-          .select()
-          .single();
-
-        if (appError) {
-          throw new Error(`Failed to create application: ${appError.message}`);
-        }
+        const application = await candidatesApi.createApplication({
+          job_role_id: roleId,
+          candidate_id: user.id,
+          status: "applied",
+        });
 
         appId = application.id;
       }

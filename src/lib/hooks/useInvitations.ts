@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { invitationsApi } from "@/api/invitations";
 import { useToast } from "@/hooks/use-toast";
 
 /**
@@ -98,11 +98,7 @@ export function useInvitations() {
   const sendInvitation = async (params: SendInvitationParams): Promise<{ success: boolean; data?: any; error?: string }> => {
     setIsSending(true);
     try {
-      const { data, error } = await supabase.functions.invoke("send-invitation", {
-        body: params,
-      });
-
-      if (error) throw error;
+      const data = await invitationsApi.send(params);
 
       toast({
         title: "Invitation Sent",
@@ -135,89 +131,8 @@ export function useInvitations() {
   const validateInvitation = async (token: string): Promise<ValidateInvitationResult> => {
     setIsValidating(true);
     try {
-      // Find invitation by token
-      const { data: invitation, error: invitationError } = await supabase
-        .from("invitations")
-        .select("*")
-        .eq("token", token)
-        .single();
-
-      if (invitationError || !invitation) {
-        return { valid: false, error: "Invalid invitation link" };
-      }
-
-      // Check if expired
-      if (new Date(invitation.expires_at) < new Date()) {
-        return { valid: false, error: "This invitation has expired" };
-      }
-
-      // Check if already used (interview started or completed)
-      if (invitation.status === "delivered") {
-        return { valid: false, error: "This invitation has already been used" };
-      }
-
-      // Mark as opened if first time
-      if (!invitation.opened_at) {
-        await supabase
-          .from("invitations")
-          .update({ 
-            opened_at: new Date().toISOString(),
-            status: "opened" 
-          })
-          .eq("id", invitation.id);
-      }
-
-      // Get application details
-      const { data: application, error: appError } = await supabase
-        .from("applications")
-        .select("*")
-        .eq("id", invitation.application_id)
-        .single();
-
-      if (appError || !application) {
-        return { valid: false, error: "Application not found" };
-      }
-
-      // Get job role and org details
-      const { data: jobRole, error: roleError } = await supabase
-        .from("job_roles")
-        .select(`
-          id,
-          title,
-          department,
-          description,
-          organisations!inner(name)
-        `)
-        .eq("id", application.job_role_id)
-        .single();
-
-      if (roleError || !jobRole) {
-        return { valid: false, error: "Job role not found" };
-      }
-
-      return {
-        valid: true,
-        invitation: {
-          id: invitation.id,
-          applicationId: invitation.application_id,
-          status: invitation.status,
-          expiresAt: invitation.expires_at,
-        },
-        application: {
-          id: application.id,
-          status: application.status,
-          jobRoleId: application.job_role_id,
-        },
-        jobRole: {
-          id: jobRole.id,
-          title: jobRole.title,
-          department: jobRole.department,
-          description: jobRole.description,
-          organisation: {
-            name: (jobRole.organisations as any).name,
-          },
-        },
-      };
+      const response = await invitationsApi.validate(token);
+      return response;
     } catch (error: any) {
       console.error("Error validating invitation:", error);
       return { valid: false, error: "Failed to validate invitation" };
@@ -235,10 +150,7 @@ export function useInvitations() {
    */
   const markInvitationCompleted = async (invitationId: string): Promise<void> => {
     try {
-      await supabase
-        .from("invitations")
-        .update({ status: "delivered" })
-        .eq("id", invitationId);
+      await invitationsApi.update(invitationId, { status: "delivered" });
     } catch (error) {
       console.error("Error marking invitation completed:", error);
     }

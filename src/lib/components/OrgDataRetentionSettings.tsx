@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/integrations/supabase/client";
+import { organisationsApi } from "@/api/organisations";
 import { toast } from "sonner";
 import { Loader2, HardDrive, Clock } from "lucide-react";
 
@@ -22,12 +22,7 @@ export const OrgDataRetentionSettings = ({
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const { error } = await supabase
-        .from("organisations")
-        .update({ recording_retention_days: retentionDays })
-        .eq("id", organisationId);
-
-      if (error) throw error;
+      await organisationsApi.updateRetention(organisationId, retentionDays);
 
       toast.success("Data retention settings updated successfully");
     } catch (error) {

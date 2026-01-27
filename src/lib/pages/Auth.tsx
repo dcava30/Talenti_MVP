@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { authApi } from "@/api/auth";
+import { organisationsApi } from "@/api/organisations";
 import { useToast } from "@/hooks/use-toast";
 import { User, Briefcase, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { z } from "zod";
@@ -33,18 +34,16 @@ const Auth = () => {
   const [errors, setErrors] = useState<{ email?: string; password?: string; confirmPassword?: string }>({});
 
   useEffect(() => {
-    const checkUserAndRedirect = async (userId: string, selectedUserType: UserType) => {
+    const checkUserAndRedirect = async (selectedUserType: UserType) => {
       if (selectedUserType === "organisation") {
-        // Check if user already has an org
-        const { data: orgUser } = await supabase
-          .from("org_users")
-          .select("organisation_id")
-          .eq("user_id", userId)
-          .maybeSingle();
-
-        if (orgUser?.organisation_id) {
-          navigate("/org");
-        } else {
+        try {
+          const orgUser = await organisationsApi.getCurrentMembership();
+          if (orgUser?.organisation?.id) {
+            navigate("/org");
+          } else {
+            navigate("/org/onboarding");
+          }
+        } catch {
           navigate("/org/onboarding");
         }
       } else {
@@ -52,26 +51,12 @@ const Auth = () => {
       }
     };
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      // Important: keep this callback synchronous (avoid Supabase calls here)
-      if (session?.user) {
-        const userTypeFromMeta = session.user.user_metadata?.user_type as UserType | undefined;
-        setTimeout(() => {
-          checkUserAndRedirect(session.user.id, userTypeFromMeta || userType);
-        }, 0);
-      }
-    });
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        const userTypeFromMeta = session.user.user_metadata?.user_type as UserType | undefined;
-        setTimeout(() => {
-          checkUserAndRedirect(session.user!.id, userTypeFromMeta || userType);
-        }, 0);
-      }
-    });
-
-    return () => subscription.unsubscribe();
+    if (authApi.getToken()) {
+      authApi
+        .me()
+        .then(() => checkUserAndRedirect(userType))
+        .catch(() => undefined);
+    }
   }, [navigate, userType]);
 
   const validateForm = (isSignUp: boolean) => {
@@ -109,23 +94,21 @@ const Auth = () => {
     }
 
     setIsLoading(true);
-    const redirectUrl = `${window.location.origin}/`;
-
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: redirectUrl,
-        data: {
-          user_type: userType,
-        },
-      },
-    });
-
-    setIsLoading(false);
-
-    if (error) {
-      if (error.message.includes("already registered")) {
+    try {
+      await authApi.register({ email, password, full_name: "" });
+      await authApi.login({ email, password });
+      toast({
+        title: "Account Created!",
+        description: "Welcome to Talenti. You are now signed in.",
+      });
+      if (userType === "organisation") {
+        navigate("/org/onboarding");
+      } else {
+        navigate("/candidate/portal");
+      }
+    } catch (error: any) {
+      const message = error?.message || "Unable to sign up";
+      if (message.includes("already")) {
         toast({
           title: "Account Exists",
           description: "This email is already registered. Please sign in instead.",
@@ -134,15 +117,12 @@ const Auth = () => {
       } else {
         toast({
           title: "Sign Up Failed",
-          description: error.message,
+          description: message,
           variant: "destructive",
         });
       }
-    } else {
-      toast({
-        title: "Account Created!",
-        description: "Welcome to Talenti. You are now signed in.",
-      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -152,24 +132,25 @@ const Auth = () => {
 
     setIsLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    setIsLoading(false);
-
-    if (error) {
+    try {
+      await authApi.login({ email, password });
+      toast({
+        title: "Welcome back!",
+        description: "You have successfully signed in.",
+      });
+      if (userType === "organisation") {
+        navigate("/org");
+      } else {
+        navigate("/candidate/portal");
+      }
+    } catch (error) {
       toast({
         title: "Sign In Failed",
         description: "Invalid email or password. Please try again.",
         variant: "destructive",
       });
-    } else {
-      toast({
-        title: "Welcome back!",
-        description: "You have successfully signed in.",
-      });
+    } finally {
+      setIsLoading(false);
     }
   };
 

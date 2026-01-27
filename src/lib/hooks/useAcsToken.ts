@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { acsApi } from '@/api/acs';
 
 /**
  * Represents an Azure Communication Services access token.
@@ -128,22 +128,14 @@ export const useAcsToken = ({
     try {
       console.log(`[useAcsToken] Fetching token for user: ${userId}`);
 
-      const { data, error: fnError } = await supabase.functions.invoke('acs-token-generator', {
-        body: { userId, scopes },
-      });
-
-      if (fnError) {
-        throw new Error(fnError.message || 'Failed to generate ACS token');
-      }
-
-      if (data.error) {
-        throw new Error(data.error);
-      }
+      const data = await acsApi.getToken(scopes);
 
       const newToken: AcsToken = {
         token: data.token,
-        expiresOn: data.expiresOn,
-        user: data.user,
+        expiresOn: data.expires_on,
+        user: {
+          communicationUserId: data.user_id,
+        },
       };
 
       console.log(`[useAcsToken] Token received, expires: ${newToken.expiresOn}`);

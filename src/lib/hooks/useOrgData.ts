@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { organisationsApi } from "@/api/organisations";
+import { rolesApi } from "@/api/roles";
 
 /**
  * Hook for fetching the current user's organisation and role.
@@ -22,19 +23,7 @@ export const useCurrentOrg = () => {
   return useQuery({
     queryKey: ["current-org"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return null;
-
-      const { data: orgUser, error } = await supabase
-        .from("org_users")
-        .select(`
-          role,
-          organisation:organisations(*)
-        `)
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      if (error) throw error;
+      const orgUser = await organisationsApi.getCurrentMembership();
       return orgUser;
     },
   });
@@ -68,13 +57,7 @@ export const useJobRoles = (organisationId: string | undefined) => {
     queryFn: async () => {
       if (!organisationId) return [];
 
-      const { data, error } = await supabase
-        .from("job_roles")
-        .select("*")
-        .eq("organisation_id", organisationId)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
+      const data = await rolesApi.listByOrganisation(organisationId);
       return data;
     },
     enabled: !!organisationId,
@@ -102,13 +85,7 @@ export const useJobRole = (roleId: string | undefined) => {
     queryFn: async () => {
       if (!roleId) return null;
 
-      const { data, error } = await supabase
-        .from("job_roles")
-        .select("*")
-        .eq("id", roleId)
-        .maybeSingle();
-
-      if (error) throw error;
+      const data = await rolesApi.getById(roleId);
       return data;
     },
     enabled: !!roleId,
@@ -143,20 +120,7 @@ export const useRoleApplications = (roleId: string | undefined) => {
     queryFn: async () => {
       if (!roleId) return [];
 
-      const { data, error } = await supabase
-        .from("applications")
-        .select(`
-          *,
-          interviews(
-            *,
-            interview_scores(*),
-            score_dimensions(*)
-          )
-        `)
-        .eq("job_role_id", roleId)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
+      const data = await rolesApi.listApplications(roleId);
       return data;
     },
     enabled: !!roleId,
@@ -206,83 +170,8 @@ export const useOrgStats = (organisationId: string | undefined) => {
     queryFn: async (): Promise<OrgStats | null> => {
       if (!organisationId) return null;
 
-      // Get active roles count
-      const { count: activeRolesCount } = await supabase
-        .from("job_roles")
-        .select("*", { count: "exact", head: true })
-        .eq("organisation_id", organisationId)
-        .eq("status", "active");
-
-      // Get all role IDs for this org
-      const { data: roles } = await supabase
-        .from("job_roles")
-        .select("id")
-        .eq("organisation_id", organisationId);
-
-      const roleIds = roles?.map(r => r.id) || [];
-
-      if (roleIds.length === 0) {
-        return {
-          activeRoles: 0,
-          totalCandidates: 0,
-          completedInterviews: 0,
-          avgMatchScore: 0,
-        };
-      }
-
-      // Get total candidates
-      const { count: totalCandidates } = await supabase
-        .from("applications")
-        .select("*", { count: "exact", head: true })
-        .in("job_role_id", roleIds);
-
-      // Get application IDs
-      const { data: applications } = await supabase
-        .from("applications")
-        .select("id")
-        .in("job_role_id", roleIds);
-
-      const applicationIds = applications?.map(a => a.id) || [];
-
-      let completedInterviews = 0;
-      let avgMatchScore = 0;
-
-      if (applicationIds.length > 0) {
-        // Get completed interviews count
-        const { count: completedCount } = await supabase
-          .from("interviews")
-          .select("*", { count: "exact", head: true })
-          .in("application_id", applicationIds)
-          .eq("status", "completed");
-
-        completedInterviews = completedCount || 0;
-
-        // Get average score
-        const { data: scores } = await supabase
-          .from("interviews")
-          .select("interview_scores(overall_score)")
-          .in("application_id", applicationIds)
-          .eq("status", "completed");
-
-        if (scores && scores.length > 0) {
-          const validScores = scores
-            .map(s => s.interview_scores?.[0]?.overall_score)
-            .filter((s): s is number => s !== null && s !== undefined);
-          
-          if (validScores.length > 0) {
-            avgMatchScore = Math.round(
-              validScores.reduce((a, b) => a + b, 0) / validScores.length
-            );
-          }
-        }
-      }
-
-      return {
-        activeRoles: activeRolesCount || 0,
-        totalCandidates: totalCandidates || 0,
-        completedInterviews,
-        avgMatchScore,
-      };
+      const stats = await organisationsApi.getStats(organisationId);
+      return stats;
     },
     enabled: !!organisationId,
   });

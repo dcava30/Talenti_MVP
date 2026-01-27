@@ -1,5 +1,8 @@
 import { useState, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { authApi } from "@/api/auth";
+import { interviewsApi } from "@/api/interviews";
+import { rolesApi } from "@/api/roles";
+import { candidatesApi } from "@/api/candidates";
 
 /**
  * Represents a single segment of interview transcript.
@@ -79,43 +82,27 @@ export const useInterviewPersistence = () => {
 
     try {
       // Check for existing in_progress interview
-      const { data: existing } = await supabase
-        .from("interviews")
-        .select("id")
-        .eq("application_id", applicationId)
-        .in("status", ["invited", "scheduled", "in_progress"])
-        .maybeSingle();
+      const existing = await interviewsApi.findActive(applicationId);
 
       if (existing) {
         // Update to in_progress
-        const { error: updateError } = await supabase
-          .from("interviews")
-          .update({
-            status: "in_progress",
-            started_at: new Date().toISOString(),
-          })
-          .eq("id", existing.id);
-
-        if (updateError) throw updateError;
+        await interviewsApi.update(existing.id, {
+          status: "in_progress",
+          started_at: new Date().toISOString(),
+        });
         setInterviewId(existing.id);
         console.log("Resumed existing interview:", existing.id);
         return existing.id;
       }
 
       // Create new interview
-      const { data, error: createError } = await supabase
-        .from("interviews")
-        .insert({
-          application_id: applicationId,
-          status: "in_progress",
-          started_at: new Date().toISOString(),
-          anti_cheat_signals: [],
-          metadata: {},
-        })
-        .select("id")
-        .single();
-
-      if (createError) throw createError;
+      const data = await interviewsApi.create({
+        application_id: applicationId,
+        status: "in_progress",
+        started_at: new Date().toISOString(),
+        anti_cheat_signals: [],
+        metadata: {},
+      });
 
       setInterviewId(data.id);
       console.log("Created new interview:", data.id);
@@ -140,17 +127,12 @@ export const useInterviewPersistence = () => {
     segment: TranscriptSegment
   ): Promise<void> => {
     try {
-      const { error } = await supabase
-        .from("transcript_segments")
-        .insert({
-          interview_id: interviewIdParam,
-          speaker: segment.speaker,
-          content: segment.content,
-          start_time_ms: segment.startTimeMs,
-          end_time_ms: segment.endTimeMs,
-        });
-
-      if (error) throw error;
+      await interviewsApi.addTranscript(interviewIdParam, {
+        speaker: segment.speaker,
+        content: segment.content,
+        start_time_ms: segment.startTimeMs,
+        end_time_ms: segment.endTimeMs,
+      });
       console.log("Saved transcript segment:", segment.speaker);
     } catch (err) {
       console.error("Failed to save transcript segment:", err);
@@ -168,18 +150,13 @@ export const useInterviewPersistence = () => {
     signals: AntiCheatSignal[]
   ): Promise<void> => {
     try {
-      const { error } = await supabase
-        .from("interviews")
-        .update({
-          anti_cheat_signals: signals.map(s => ({
-            type: s.type,
-            timestamp: s.timestamp.toISOString(),
-            duration: s.duration,
-          })),
-        })
-        .eq("id", interviewIdParam);
-
-      if (error) throw error;
+      await interviewsApi.update(interviewIdParam, {
+        anti_cheat_signals: signals.map(s => ({
+          type: s.type,
+          timestamp: s.timestamp.toISOString(),
+          duration: s.duration,
+        })),
+      });
       console.log("Updated anti-cheat signals:", signals.length);
     } catch (err) {
       console.error("Failed to update anti-cheat signals:", err);
@@ -205,34 +182,21 @@ export const useInterviewPersistence = () => {
     setIsLoading(true);
 
     try {
-      const { error } = await supabase
-        .from("interviews")
-        .update({
-          status: "completed",
-          ended_at: new Date().toISOString(),
-          duration_seconds: durationSeconds,
-          anti_cheat_signals: antiCheatSignals.map(s => ({
-            type: s.type,
-            timestamp: s.timestamp.toISOString(),
-            duration: s.duration,
-          })),
-        })
-        .eq("id", interviewIdParam);
-
-      if (error) throw error;
+      await interviewsApi.update(interviewIdParam, {
+        status: "completed",
+        ended_at: new Date().toISOString(),
+        duration_seconds: durationSeconds,
+        anti_cheat_signals: antiCheatSignals.map(s => ({
+          type: s.type,
+          timestamp: s.timestamp.toISOString(),
+          duration: s.duration,
+        })),
+      });
 
       // Update application status to scoring
-      const { data: interview } = await supabase
-        .from("interviews")
-        .select("application_id")
-        .eq("id", interviewIdParam)
-        .single();
-
-      if (interview) {
-        await supabase
-          .from("applications")
-          .update({ status: "scoring" })
-          .eq("id", interview.application_id);
+      const interview = await interviewsApi.getById(interviewIdParam);
+      if (interview?.application_id) {
+        await interviewsApi.updateApplication(interview.application_id, { status: "scoring" });
       }
 
       console.log("Interview completed:", interviewIdParam);
@@ -256,48 +220,32 @@ export const useInterviewPersistence = () => {
    */
   const getOrCreateDemoApplication = useCallback(async (): Promise<string | null> => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = await authApi.me();
       if (!user) {
         console.log("No authenticated user");
         return null;
       }
 
       // Check for existing application
-      const { data: existing } = await supabase
-        .from("applications")
-        .select("id")
-        .eq("candidate_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (existing) {
+      const existingApplications = await interviewsApi.listCandidateApplications(user.id);
+      const existing = existingApplications?.[0];
+      if (existing?.id) {
         return existing.id;
       }
 
       // For demo, we need a job role - check if any exist
-      const { data: roles } = await supabase
-        .from("job_roles")
-        .select("id")
-        .limit(1);
-
+      const roles = await rolesApi.listAll({ limit: 1 });
       if (!roles || roles.length === 0) {
         console.log("No job roles available for demo application");
         return null;
       }
 
       // Create demo application
-      const { data, error } = await supabase
-        .from("applications")
-        .insert({
-          candidate_id: user.id,
-          job_role_id: roles[0].id,
-          status: "invited",
-        })
-        .select("id")
-        .single();
-
-      if (error) throw error;
+      const data = await candidatesApi.createApplication({
+        candidate_id: user.id,
+        job_role_id: roles[0].id,
+        status: "invited",
+      });
       return data.id;
     } catch (err) {
       console.error("Failed to get/create demo application:", err);
