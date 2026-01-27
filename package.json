@@ -8,7 +8,9 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check:no-supabase": "python scripts/no_supabase.py",
+    "check": "npm run check:no-supabase"
   },
   "dependencies": {
     "@azure/communication-calling": "^1.40.1",
