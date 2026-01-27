@@ -404,40 +404,27 @@ graph TD
 
 ## Appendix: Configuration Files
 
-### vite.config.ts
+### vite.config.js
 
-```typescript
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import path from 'path'
+```js
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import path from "path";
 
 export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      "@": path.resolve(__dirname, "./src"),
     },
   },
   server: {
     port: 5173,
     open: true,
   },
-})
+});
 ```
 
-### tsconfig.json (paths)
-
-```json
-{
-  "compilerOptions": {
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["./src/*"]
-    }
-  }
-}
-```
-
-### tailwind.config.ts
+### tailwind.config.js
 
 Extends shadcn/ui defaults with custom design tokens. See `index.css` for CSS variable definitions.
