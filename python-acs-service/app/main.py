@@ -9,7 +9,6 @@ import logging
 
 from app.config import settings
 from app.api.routes import calls, recordings, health
-from app.services.supabase_client import supabase_service
 
 # Configure logging
 logging.basicConfig(
@@ -36,9 +35,11 @@ app = FastAPI(
 )
 
 # CORS middleware
+cors_origins = [settings.FRONTEND_ORIGIN] if settings.FRONTEND_ORIGIN else settings.ALLOWED_ORIGINS
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

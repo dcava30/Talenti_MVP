@@ -16,10 +16,7 @@ services:
       # Azure Storage
       - AZURE_STORAGE_CONNECTION_STRING=${AZURE_STORAGE_CONNECTION_STRING}
       - RECORDING_CONTAINER=interview-recordings
-      
-      # Supabase
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - SQLITE_DB_PATH=${SQLITE_DB_PATH:-./data/app.db}
       
       # Azure Service Bus
       - SERVICE_BUS_CONNECTION_STRING=${SERVICE_BUS_CONNECTION_STRING}
@@ -29,6 +26,7 @@ services:
       - LOG_LEVEL=INFO
       - ENVIRONMENT=development
       - ALLOWED_ORIGINS=*
+      - FRONTEND_ORIGIN=${FRONTEND_ORIGIN:-}
     volumes:
       - ./app:/app/app:ro  # Mount for development
     restart: unless-stopped

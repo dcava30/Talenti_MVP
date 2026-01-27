@@ -7,14 +7,13 @@ Python FastAPI service for Azure Communication Services (ACS) call automation an
 - **Call Management**: Create, answer, and manage VoIP calls
 - **Recording**: Start, pause, resume, and stop call recordings
 - **Storage Integration**: Automatic upload to Azure Blob Storage
-- **Supabase Sync**: Keep interview records updated
+- **SQLite Persistence**: Track interviews and recording metadata locally
 
 ## Prerequisites
 
 - Python 3.11+
 - Azure Communication Services resource
 - Azure Blob Storage account
-- Supabase project
 
 ## Quick Start
 
@@ -104,8 +103,7 @@ docker-compose up --build
 | `ACS_ENDPOINT` | ACS endpoint URL | Yes |
 | `ACS_CALLBACK_URL` | Webhook callback URL | Yes |
 | `AZURE_STORAGE_CONNECTION_STRING` | Blob storage connection | Yes |
-| `SUPABASE_URL` | Supabase project URL | Yes |
-| `SUPABASE_SERVICE_KEY` | Supabase service role key | Yes |
+| `SQLITE_DB_PATH` | SQLite database path | No (defaults to `./data/app.db`) |
 | `LOG_LEVEL` | Logging level (INFO, DEBUG) | No |
 
 ## Architecture
@@ -124,7 +122,7 @@ docker-compose up --build
                                │
                                ▼
                         ┌──────────────────┐
-                        │  Supabase        │
+                        │  SQLite          │
                         │  (interviews)    │
                         └──────────────────┘
 ```
