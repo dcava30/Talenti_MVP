@@ -3,11 +3,13 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/app.db"
-    jwt_secret: str = "change-me"
+    jwt_secret: str
     jwt_issuer: str = "talenti"
     jwt_audience: str = "talenti-users"
     jwt_access_ttl_minutes: int = 60
     jwt_refresh_ttl_minutes: int = 60 * 24 * 30
+    environment: str = "development"
+    allowed_origins: list[str] = []
 
     azure_storage_account: str = ""
     azure_storage_account_key: str = ""

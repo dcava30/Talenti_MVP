@@ -49,7 +49,7 @@ def login(
         "refresh_token",
         refresh,
         httponly=True,
-        secure=False,
+        secure=settings.environment.lower() == "production",
         samesite="lax",
     )
     return TokenResponse(access_token=access)

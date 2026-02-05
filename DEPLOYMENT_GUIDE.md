@@ -277,13 +277,6 @@ param imageTag string = 'latest'
 @description('Enable zone redundancy (prod only)')
 param zoneRedundant bool = environment == 'prod'
 
-@description('Supabase configuration')
-@secure()
-param supabaseUrl string
-
-@secure()
-param supabaseServiceKey string
-
 @description('Azure OpenAI configuration')
 @secure()
 param azureOpenAIEndpoint string
@@ -371,8 +364,6 @@ module keyVault 'modules/key-vault.bicep' = {
     location: location
     tags: tags
     secrets: [
-      { name: 'supabase-url', value: supabaseUrl }
-      { name: 'supabase-service-key', value: supabaseServiceKey }
       { name: 'azure-openai-endpoint', value: azureOpenAIEndpoint }
       { name: 'azure-openai-key', value: azureOpenAIKey }
       { name: 'azure-speech-key', value: azureSpeechKey }
@@ -450,8 +441,6 @@ module apiContainerApp 'modules/container-app.bicep' = {
     
     // Secret references from Key Vault
     secretRefs: [
-      { name: 'supabase-url', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/supabase-url' }
-      { name: 'supabase-service-key', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/supabase-service-key' }
       { name: 'azure-openai-endpoint', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/azure-openai-endpoint' }
       { name: 'azure-openai-key', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/azure-openai-key' }
       { name: 'azure-speech-key', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/azure-speech-key' }
@@ -514,8 +503,6 @@ module workerContainerApp 'modules/container-app.bicep' = {
     ]
     
     secretRefs: [
-      { name: 'supabase-url', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/supabase-url' }
-      { name: 'supabase-service-key', keyVaultUrl: '${keyVault.outputs.vaultUri}secrets/supabase-service-key' }
     ]
     
     ingressEnabled: false
@@ -1007,8 +994,6 @@ param imageTag = 'latest'
 param zoneRedundant = true
 
 // Secrets passed via GitHub Actions or Key Vault
-param supabaseUrl = readEnvironmentVariable('SUPABASE_URL')
-param supabaseServiceKey = readEnvironmentVariable('SUPABASE_SERVICE_KEY')
 param azureOpenAIEndpoint = readEnvironmentVariable('AZURE_OPENAI_ENDPOINT')
 param azureOpenAIKey = readEnvironmentVariable('AZURE_OPENAI_KEY')
 param azureSpeechKey = readEnvironmentVariable('AZURE_SPEECH_KEY')
@@ -1769,13 +1754,6 @@ AZURE_STORAGE_ACCOUNT_NAME=sttalentiprodaue
 RECORDING_CONTAINER=interview-recordings
 
 # ===========================================
-# REQUIRED - Supabase
-# ===========================================
-
-SUPABASE_URL=https://hmktvnmqcenhxhshwdwc.supabase.co
-SUPABASE_SERVICE_KEY=<service-role-key>
-SUPABASE_JWT_SECRET=<jwt-secret>
-
 # ===========================================
 # APPLICATION SETTINGS
 # ===========================================
@@ -1783,6 +1761,7 @@ SUPABASE_JWT_SECRET=<jwt-secret>
 ENVIRONMENT=prod
 LOG_LEVEL=INFO
 ALLOWED_ORIGINS=https://talenti.app,https://www.talenti.app
+JWT_SECRET=<jwt-secret>
 
 # Rate limiting
 RATE_LIMIT_REQUESTS=100
@@ -1812,8 +1791,6 @@ REDIS_PASSWORD=<optional>
 
 ```bash
 # Create secrets in Key Vault
-az keyvault secret set --vault-name kv-talenti-prod-aue --name supabase-url --value "$SUPABASE_URL"
-az keyvault secret set --vault-name kv-talenti-prod-aue --name supabase-service-key --value "$SUPABASE_SERVICE_KEY"
 az keyvault secret set --vault-name kv-talenti-prod-aue --name azure-openai-endpoint --value "$AZURE_OPENAI_ENDPOINT"
 az keyvault secret set --vault-name kv-talenti-prod-aue --name azure-openai-key --value "$AZURE_OPENAI_API_KEY"
 az keyvault secret set --vault-name kv-talenti-prod-aue --name azure-speech-key --value "$AZURE_SPEECH_KEY"
@@ -2376,7 +2353,7 @@ echo "Completed at: $(date -u)"
 | Component | RPO | RTO | Strategy |
 |-----------|-----|-----|----------|
 | API Service | 0 | 5 min | Multi-region Container Apps |
-| Database (Supabase) | 24 hrs | 1 hr | Point-in-time recovery |
+| Database (SQLite) | 24 hrs | 1 hr | File backup/restore |
 | Blob Storage | 0 | 15 min | RA-GRS replication |
 | Key Vault | 0 | 10 min | Soft-delete + geo-backup |
 | Container Registry | 0 | 5 min | Geo-replication |

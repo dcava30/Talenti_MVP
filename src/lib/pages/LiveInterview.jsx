@@ -397,30 +397,40 @@ const LiveInterview = () => {
     };
     const getAIResponse = async (conversationHistory) => {
         try {
-            const cagContext = context.job ? {
-                jobTitle: context.job.title,
-                jobDescription: context.job.description,
-                requirements: context.job.requirements,
-                interviewQuestions: context.job.interviewQuestions,
-                companyName: context.org?.name || "Company",
-                orgValues: context.org?.values || [],
-                candidateContext: context.candidate ? {
-                    skills: context.candidate.skills,
-                    experienceYears: context.candidate.experienceYears,
-                    recentRoles: context.candidate.recentRoles,
-                    educationLevel: context.candidate.educationLevel,
-                } : undefined,
-                competenciesCovered,
-                competenciesToCover: context.competenciesToCover,
-                currentQuestionIndex: currentQuestion,
-                totalQuestions,
-            } : {
-                jobTitle: "Software Engineer",
-                companyName: "TechCorp",
-                currentQuestionIndex: currentQuestion,
-                totalQuestions,
-            };
+            const cagContext = context.job
+                ? {
+                    job_title: context.job.title,
+                    job_description: context.job.description,
+                    requirements: context.job.requirements,
+                    interviewQuestions: context.job.interviewQuestions,
+                    companyName: context.org?.name || "Company",
+                    orgValues: context.org?.values || [],
+                    candidateContext: context.candidate
+                        ? {
+                            skills: context.candidate.skills,
+                            experienceYears: context.candidate.experienceYears,
+                            recentRoles: context.candidate.recentRoles,
+                            educationLevel: context.candidate.educationLevel,
+                        }
+                        : undefined,
+                    competenciesCovered,
+                    competenciesToCover: context.competenciesToCover,
+                    currentQuestionIndex: currentQuestion,
+                    totalQuestions,
+                }
+                : {
+                    job_title: "Software Engineer",
+                    companyName: "TechCorp",
+                    currentQuestionIndex: currentQuestion,
+                    totalQuestions,
+                };
             const data = await interviewsApi.aiInterviewer({
+                interview_id: (() => {
+                    if (!currentInterviewIdRef.current) {
+                        throw new Error("Interview is not initialized yet.");
+                    }
+                    return currentInterviewIdRef.current;
+                })(),
                 messages: conversationHistory.map(m => ({
                     role: m.role === "ai" ? "assistant" : "user",
                     content: m.content,
