@@ -2,7 +2,7 @@
 
 > **Version:** 1.0.0  
 > **Last Updated:** January 2026  
-> **Stack:** React 18 + TypeScript + Vite + Tailwind CSS
+> **Stack:** React 18 + JavaScript (JSX) + Vite + Tailwind CSS
 
 ## Overview
 
@@ -58,13 +58,13 @@ graph TD
 | Layer | Technology |
 |-------|------------|
 | Framework | React 18 |
-| Language | TypeScript 5 |
+| Language | JavaScript (JSX) |
 | Build | Vite |
 | Styling | Tailwind CSS + shadcn/ui |
 | State | React Query (TanStack Query) |
 | Forms | React Hook Form + Zod |
 | Routing | React Router v6 |
-| Backend | Supabase (Lovable Cloud) |
+| Backend | FastAPI + SQLite |
 
 ---
 
@@ -104,10 +104,7 @@ src/
 │   ├── useSpeechRecognition.ts
 │   └── useSpeechSynthesis.ts
 │
-├── integrations/        # External integrations
-│   └── supabase/
-│       ├── client.ts    # Supabase client
-│       └── types.ts     # Generated types
+├── api/                 # API clients for FastAPI
 │
 ├── lib/                 # Utility functions
 │   ├── auditLog.ts
@@ -136,10 +133,10 @@ src/
 │   ├── PracticeInterviewComplete.tsx
 │   └── RoleDetails.tsx
 │
-├── App.tsx              # Root component
+├── App.jsx              # Root component
 ├── App.css              # Global styles
 ├── index.css            # Tailwind + design tokens
-└── main.tsx             # Entry point
+└── main.jsx             # Entry point
 ```
 
 ---
@@ -148,37 +145,25 @@ src/
 
 ### Component File Structure
 
-```typescript
-// ComponentName.tsx
+```javascript
+// ComponentName.jsx
+import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { candidatesApi } from "@/api/candidates";
 
-// 1. Imports (external, then internal)
-import { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Button } from '@/components/ui/button';
-import { supabase } from '@/integrations/supabase/client';
-
-// 2. Types/Interfaces
-interface ComponentNameProps {
-  userId: string;
-  onComplete?: () => void;
-}
-
-// 3. Component definition
-export function ComponentName({ userId, onComplete }: ComponentNameProps) {
-  // 3a. Hooks (state, queries, effects)
+export function ComponentName({ userId, onComplete }) {
   const [isLoading, setIsLoading] = useState(false);
-  
+
   const { data, isLoading: queryLoading } = useQuery({
-    queryKey: ['data', userId],
-    queryFn: () => fetchData(userId),
+    queryKey: ["data", userId],
+    queryFn: () => candidatesApi.getProfile(userId),
   });
-  
-  // 3b. Event handlers
+
   const handleSubmit = async () => {
     // ...
   };
-  
-  // 3c. Render
+
   return (
     <div className="container mx-auto p-4">
       {/* JSX */}
@@ -189,23 +174,18 @@ export function ComponentName({ userId, onComplete }: ComponentNameProps) {
 
 ### Container vs Presentational Components
 
-```typescript
+```javascript
 // Container: handles data/logic
 function CandidateProfileContainer() {
   const { profile, isLoading, updateProfile } = useCandidateData();
-  
+
   if (isLoading) return <Skeleton />;
-  
+
   return <ProfileForm profile={profile} onUpdate={updateProfile} />;
 }
 
 // Presentational: handles UI
-interface ProfileFormProps {
-  profile: Profile;
-  onUpdate: (data: Partial<Profile>) => void;
-}
-
-function ProfileForm({ profile, onUpdate }: ProfileFormProps) {
+function ProfileForm({ profile, onUpdate }) {
   return (
     <form onSubmit={handleSubmit}>
       {/* Pure UI, no data fetching */}
@@ -256,36 +236,20 @@ const buttonVariants = cva(
 
 ### React Query for Server State
 
-```typescript
+```javascript
 // Query - fetching data
 const { data, isLoading, error, refetch } = useQuery({
-  queryKey: ['interviews', roleId],
-  queryFn: async () => {
-    const { data, error } = await supabase
-      .from('interviews')
-      .select('*')
-      .eq('job_role_id', roleId);
-    if (error) throw error;
-    return data;
-  },
+  queryKey: ["interviews", roleId],
+  queryFn: () => interviewsApi.listRoleApplications(roleId),
   staleTime: 5 * 60 * 1000, // 5 minutes
 });
 
 // Mutation - modifying data
 const { mutate, isPending } = useMutation({
-  mutationFn: async (newInterview: InterviewInsert) => {
-    const { data, error } = await supabase
-      .from('interviews')
-      .insert(newInterview)
-      .select()
-      .single();
-    if (error) throw error;
-    return data;
-  },
+  mutationFn: (payload) => interviewsApi.create(payload),
   onSuccess: () => {
-    // Invalidate and refetch
-    queryClient.invalidateQueries({ queryKey: ['interviews'] });
-    toast.success('Interview created');
+    queryClient.invalidateQueries({ queryKey: ["interviews"] });
+    toast.success("Interview created");
   },
   onError: (error) => {
     toast.error(error.message);
@@ -295,7 +259,7 @@ const { mutate, isPending } = useMutation({
 
 ### Local State Patterns
 
-```typescript
+```javascript
 // Simple state
 const [isOpen, setIsOpen] = useState(false);
 
@@ -480,20 +444,19 @@ function ProfileForm() {
 
 ### Form with File Upload
 
-```typescript
+```javascript
 const { register, handleSubmit } = useForm();
 
-const onSubmit = async (data: FormData) => {
+const onSubmit = async (data) => {
   const file = data.cv[0];
-  
-  const { error } = await supabase.storage
-    .from('candidate-cvs')
-    .upload(`${userId}/${file.name}`, file);
-    
-  if (error) throw error;
+  const { upload_url } = await storageApi.createUploadUrl({
+    file_name: file.name,
+    content_type: file.type,
+  });
+  await fetch(upload_url, { method: "PUT", body: file });
 };
 
-<input type="file" {...register('cv')} accept=".pdf,.doc,.docx" />
+<input type="file" {...register("cv")} accept=".pdf,.doc,.docx" />
 ```
 
 ---
@@ -502,7 +465,7 @@ const onSubmit = async (data: FormData) => {
 
 ### Design Token Usage
 
-```typescript
+```javascript
 // ✅ CORRECT - Use semantic tokens
 <div className="bg-background text-foreground">
   <Button className="bg-primary text-primary-foreground">
@@ -543,7 +506,7 @@ const onSubmit = async (data: FormData) => {
 
 ### Responsive Design
 
-```typescript
+```javascript
 // Mobile-first approach
 <div className="
   p-4           // Mobile: 16px padding
@@ -560,7 +523,7 @@ const onSubmit = async (data: FormData) => {
 
 ### Dark Mode Support
 
-```typescript
+```javascript
 // Automatic via CSS variables
 <div className="bg-background text-foreground">
   {/* Works in both light and dark mode */}
@@ -580,7 +543,7 @@ const onSubmit = async (data: FormData) => {
 
 ### useCandidateData
 
-```typescript
+```javascript
 const {
   profile,           // Current user's profile
   isLoading,         // Loading state
@@ -595,7 +558,7 @@ const {
 
 ### useOrgData
 
-```typescript
+```javascript
 const {
   organisation,      // Current org details
   roles,             // Job roles array
@@ -608,7 +571,7 @@ const {
 
 ### useInterviewContext
 
-```typescript
+```javascript
 const {
   interview,         // Current interview
   transcript,        // Live transcript segments
@@ -622,7 +585,7 @@ const {
 
 ### useAzureSpeech
 
-```typescript
+```javascript
 const {
   isListening,       // STT active
   transcript,        // Current STT result
@@ -637,84 +600,34 @@ const {
 
 ## API Integration
 
-### Supabase Client Usage
+### FastAPI Client Usage
 
-```typescript
-import { supabase } from '@/integrations/supabase/client';
-
-// Select with types
-const { data, error } = await supabase
-  .from('job_roles')
-  .select('id, title, status')
-  .eq('organisation_id', orgId)
-  .order('created_at', { ascending: false });
+```javascript
+// Select
+const roles = await rolesApi.listAll({ organisation_id: orgId });
 
 // Insert
-const { data, error } = await supabase
-  .from('applications')
-  .insert({ candidate_id: userId, job_role_id: roleId })
-  .select()
-  .single();
-
-// Update
-const { error } = await supabase
-  .from('candidate_profiles')
-  .update({ first_name: 'John' })
-  .eq('user_id', userId);
-
-// Delete
-const { error } = await supabase
-  .from('candidate_skills')
-  .delete()
-  .eq('id', skillId);
-```
-
-### Edge Function Calls
-
-```typescript
-// Call edge function
-const { data, error } = await supabase.functions.invoke('ai-interviewer', {
-  body: {
-    messages,
-    jobTitle,
-    currentQuestionIndex,
-  },
+const application = await candidatesApi.createApplication({
+  candidate_profile_id: profileId,
+  job_role_id: roleId,
 });
 
-// Handle specific errors
-if (error) {
-  if (error.message.includes('429')) {
-    toast.error('Too many requests. Please wait.');
-  } else if (error.message.includes('402')) {
-    toast.error('AI credits depleted.');
-  }
-}
+// Update
+await candidatesApi.updateProfile(userId, { first_name: "John" });
+
+// Delete
+await candidatesApi.deleteSkill(skillId);
 ```
 
-### Realtime Subscriptions
+### AI Interview Calls
 
-```typescript
-useEffect(() => {
-  const channel = supabase
-    .channel('interview-updates')
-    .on(
-      'postgres_changes',
-      {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'interviews',
-        filter: `id=eq.${interviewId}`,
-      },
-      (payload) => {
-        setInterview(payload.new);
-      }
-    )
-    .subscribe();
-    
-  return () => {
-    supabase.removeChannel(channel);
-  };
-}, [interviewId]);
+```javascript
+const response = await interviewsApi.aiInterviewer({
+  interview_id,
+  messages,
+  job_title,
+  job_description,
+});
 ```
 
 ---
@@ -723,7 +636,7 @@ useEffect(() => {
 
 ### Code Splitting
 
-```typescript
+```javascript
 // Lazy load heavy components
 const InterviewReport = lazy(() => import('@/pages/InterviewReport'));
 const VideoRenderer = lazy(() => import('@/components/VideoRenderer'));

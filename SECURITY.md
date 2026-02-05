@@ -32,15 +32,15 @@ This document outlines security measures, authentication flows, data protection 
 sequenceDiagram
     participant User
     participant Frontend
-    participant Supabase Auth
+    participant FastAPI Auth
     participant Database
     
     User->>Frontend: Enter credentials
-    Frontend->>Supabase Auth: signInWithPassword()
-    Supabase Auth->>Database: Validate credentials
-    Database-->>Supabase Auth: User record
-    Supabase Auth-->>Frontend: JWT + Refresh Token
-    Frontend->>Frontend: Store in localStorage
+    Frontend->>FastAPI Auth: /api/auth/login
+    FastAPI Auth->>Database: Validate credentials
+    Database-->>FastAPI Auth: User record
+    FastAPI Auth-->>Frontend: JWT + Refresh Token
+    Frontend->>Frontend: Store access token
     Frontend-->>User: Redirect to dashboard
 ```
 
@@ -63,25 +63,19 @@ sequenceDiagram
 }
 ```
 
-### Token Validation in Edge Functions
+### Token Validation in FastAPI
 
-```typescript
-// All authenticated endpoints use getClaims()
-const token = authHeader.replace('Bearer ', '');
-const { data: claimsData, error } = await supabase.auth.getClaims(token);
-
-if (error || !claimsData?.claims) {
-  return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
-}
-
-const userId = claimsData.claims.sub as string;
+```python
+token = auth_header.replace("Bearer ", "")
+payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+user_id = payload["sub"]
 ```
 
 ### Session Management
 
 - **Token Expiry**: 1 hour (access token)
 - **Refresh Token**: 7 days
-- **Auto-refresh**: Enabled via Supabase client
+- **Auto-refresh**: Managed by frontend client
 - **Storage**: localStorage (not recommended for high-security apps)
 
 ---
@@ -213,14 +207,14 @@ $$ LANGUAGE sql SECURITY DEFINER;
 
 | Data Type | At Rest | In Transit |
 |-----------|---------|------------|
-| Database | AES-256 (Supabase) | TLS 1.3 |
-| File Storage | AES-256 (Supabase) | TLS 1.3 |
+| Database | SQLite (disk encryption recommended) | TLS 1.3 |
+| File Storage | Azure Blob Storage (SSE) | TLS 1.3 |
 | Passwords | bcrypt (cost 10) | TLS 1.3 |
 | API Keys | Encrypted secrets | TLS 1.3 |
 
 ### Sensitive Data Handling
 
-```typescript
+```javascript
 // PII fields in candidate_profiles
 const PII_FIELDS = [
   'first_name',
@@ -250,7 +244,7 @@ const DEI_FIELDS = [
 
 ### Recording Retention
 
-```typescript
+```javascript
 // Default retention: 60 days
 // Configurable per-organisation
 const retentionDays = org.recording_retention_days || 60;
@@ -356,25 +350,22 @@ function checkRateLimit(identifier: string): { isLimited: boolean; resetAt: numb
 
 | Secret | Sensitivity | Rotation |
 |--------|-------------|----------|
-| `SUPABASE_SERVICE_ROLE_KEY` | Critical | Manual |
-| `LOVABLE_API_KEY` | High | Automatic |
-| `ACS_CONNECTION_STRING` | High | Manual |
+| `JWT_SECRET` | Critical | Manual |
+| `AZURE_ACS_CONNECTION_STRING` | High | Manual |
 | `AZURE_SPEECH_KEY` | High | Manual |
 | `RESEND_API_KEY` | Medium | Manual |
 | `ACS_WEBHOOK_SECRET` | High | On compromise |
 
 ### Secret Storage
 
-- **Production**: Supabase/Lovable Cloud secrets (encrypted)
+- **Production**: Secrets manager / key vault (encrypted)
 - **Development**: `.env` file (gitignored)
 - **Never**: Committed to repository
 
 ### Adding Secrets
 
-```typescript
-// Secrets are added via Lovable Cloud dashboard
-// Available as Deno.env.get('SECRET_NAME') in edge functions
-const apiKey = Deno.env.get('API_KEY');
+```javascript
+const apiKey = process.env.API_KEY;
 if (!apiKey) {
   throw new Error('Required secret not configured');
 }
@@ -411,9 +402,9 @@ flowchart TD
 
 ### Deletion Types
 
-```typescript
+```javascript
 // Full deletion - removes everything
-async function performFullDeletion(supabase, userId) {
+async function performFullDeletion(db, userId) {
   // Delete in FK order:
   // 1. transcript_segments
   // 2. score_dimensions  
@@ -432,8 +423,8 @@ async function performFullDeletion(supabase, userId) {
 }
 
 // Anonymization - keeps aggregate data
-async function anonymizeUserData(supabase, userId) {
-  await supabase.from('candidate_profiles').update({
+async function anonymizeUserData(db, userId) {
+  await db.candidate_profiles.update({
     first_name: 'Anonymized',
     last_name: 'User',
     email: `anonymized-${userId.slice(0,8)}@deleted.local`,

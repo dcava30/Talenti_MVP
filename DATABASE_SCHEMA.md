@@ -2,7 +2,7 @@
 
 > **Version:** 1.0.0  
 > **Last Updated:** January 2026  
-> **Database:** PostgreSQL (Supabase)
+> **Database:** SQLite
 
 ## Overview
 
@@ -129,7 +129,7 @@ Open positions/job listings created by organisations.
 **Requirements JSONB Structure:**
 ```json
 {
-  "skills": ["React", "TypeScript"],
+  "skills": ["React", "JavaScript"],
   "experience": ["5+ years frontend"],
   "qualifications": ["Bachelor's degree"],
   "responsibilities": ["Lead frontend team"]

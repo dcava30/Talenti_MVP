@@ -10,9 +10,9 @@
 
 ## Target architecture
 
-- Supabase is legacy and will be removed.
-- Backend will be FastAPI + SQLite.
-- Frontend will move to JS/JSX (no TypeScript).
+- FastAPI backend with SQLite.
+- React frontend (JavaScript/JSX).
+- Azure Cognitive Services integrations.
 
 ## How can I edit this code?
 
@@ -71,11 +71,12 @@ npm run dev
 This project is built with:
 
 - Vite
-- TypeScript
 - React
+- JavaScript (JSX)
 - shadcn-ui
 - Tailwind CSS
-- Lovable Cloud (Supabase)
+- FastAPI
+- SQLite
 - Azure Communication Services
 - Azure Speech Services
 
@@ -87,7 +88,7 @@ This project is built with:
 | [HANDOVER.md](HANDOVER.md) | Technical handover with complete codebase overview |
 | [ENV_SETUP.md](ENV_SETUP.md) | Environment setup and configuration guide |
 | [FRONTEND_GUIDE.md](FRONTEND_GUIDE.md) | React architecture, components, and patterns |
-| [API_REFERENCE.md](API_REFERENCE.md) | Edge Functions API documentation |
+| [API_REFERENCE.md](API_REFERENCE.md) | FastAPI API documentation |
 | [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) | Database tables, relationships, and ERD |
 | [SECURITY.md](SECURITY.md) | Authentication, RLS policies, and compliance |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines and code standards |

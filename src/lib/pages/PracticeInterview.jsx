@@ -43,6 +43,7 @@ const PracticeInterview = () => {
     const [messages, setMessages] = useState([]);
     const [silenceSeconds, setSilenceSeconds] = useState(0);
     const [practiceId, setPracticeId] = useState(null);
+    const practiceIdRef = useRef(null);
     const streamRef = useRef(null);
     const timerRef = useRef(null);
     const silenceTimerRef = useRef(null);
@@ -132,10 +133,11 @@ const PracticeInterview = () => {
                 });
                 if (practice) {
                     setPracticeId(practice.id);
+                    practiceIdRef.current = practice.id;
                 }
             }
             setStatus("greeting");
-            await getAIResponse([]);
+            await getAIResponse([], practiceIdRef.current);
         }
         catch (error) {
             console.error("Failed to initialize practice:", error);
@@ -147,14 +149,19 @@ const PracticeInterview = () => {
             });
         }
     };
-    const getAIResponse = async (conversationHistory) => {
+    const getAIResponse = async (conversationHistory, interviewId = practiceIdRef.current) => {
         try {
+            if (!interviewId) {
+                throw new Error("Practice interview is not initialized yet.");
+            }
             const data = await interviewsApi.aiInterviewer({
+                interview_id: interviewId,
                 messages: conversationHistory.map(m => ({
                     role: m.role === "ai" ? "assistant" : "user",
                     content: m.content,
                 })),
                 job_title: role.title,
+                job_description: role.description,
                 company_name: "Practice Company",
                 current_question_index: currentQuestion,
                 is_practice: true,
