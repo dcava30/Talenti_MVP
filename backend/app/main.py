@@ -8,12 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import (
     acs,
     ai,
-    applications,
-    audit_log,
     auth,
     candidates,
-    interview_scores,
-    interviews,
     invitations,
     orgs,
     requirements,
@@ -28,9 +24,6 @@ from app.core.config import settings
 
 
 app = FastAPI(title="Talenti API")
-if settings.environment.lower() == "production" and not settings.allowed_origins:
-    raise RuntimeError("ALLOWED_ORIGINS must be set in production.")
-
 if settings.allowed_origins:
     app.add_middleware(
         CORSMiddleware,
@@ -57,10 +50,6 @@ app.include_router(auth.router)
 app.include_router(ai.router)
 app.include_router(acs.router)
 app.include_router(speech.router)
-app.include_router(applications.router)
-app.include_router(interviews.router)
-app.include_router(interview_scores.router)
-app.include_router(audit_log.router)
 app.include_router(orgs.router)
 app.include_router(roles.router)
 app.include_router(candidates.router)
