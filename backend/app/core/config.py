@@ -1,3 +1,6 @@
+import json
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -27,6 +30,24 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_prefix = ""
+
+    @field_validator("allowed_origins", mode="before")
+    @classmethod
+    def parse_allowed_origins(cls, value: str | list[str]) -> list[str]:
+        if isinstance(value, list):
+            return value
+        if value is None:
+            return []
+        raw = str(value).strip()
+        if not raw:
+            return []
+        if raw.startswith("["):
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                return [item.strip() for item in raw.split(",") if item.strip()]
+            return [item for item in parsed if isinstance(item, str)]
+        return [item.strip() for item in raw.split(",") if item.strip()]
 
 
 settings = Settings()

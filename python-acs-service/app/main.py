@@ -23,6 +23,8 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     logger.info("Starting Talenti ACS Service...")
     logger.info(f"ACS Endpoint: {settings.ACS_ENDPOINT}")
+    if settings.ENVIRONMENT.lower() == "production" and not settings.JWT_SECRET:
+        raise RuntimeError("JWT_SECRET must be set in production environments.")
     yield
     logger.info("Shutting down Talenti ACS Service...")
 

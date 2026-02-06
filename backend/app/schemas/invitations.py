@@ -16,3 +16,14 @@ class InvitationResponse(BaseModel):
     status: str
     expires_at: datetime
     created_at: datetime
+
+
+class InvitationUpdate(BaseModel):
+    status: str | None = None
+
+
+class InvitationValidationResponse(BaseModel):
+    valid: bool
+    invitation: dict | None = None
+    application: dict | None = None
+    jobRole: dict | None = None

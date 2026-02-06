@@ -1,8 +1,10 @@
 """
 Configuration settings for the ACS service.
 """
+import json
 from typing import List
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,7 +40,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
 
     # Auth settings
-    JWT_SECRET: str = "change-me"
+    JWT_SECRET: str = ""
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60
 
@@ -51,6 +53,24 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=True,
     )
+
+    @field_validator("ALLOWED_ORIGINS", mode="before")
+    @classmethod
+    def parse_allowed_origins(cls, value: str | List[str]) -> List[str]:
+        if isinstance(value, list):
+            return value
+        if value is None:
+            return []
+        raw = str(value).strip()
+        if not raw:
+            return []
+        if raw.startswith("["):
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                return [item.strip() for item in raw.split(",") if item.strip()]
+            return [item for item in parsed if isinstance(item, str)]
+        return [item.strip() for item in raw.split(",") if item.strip()]
 
     @property
     def DATABASE_URL(self) -> str:

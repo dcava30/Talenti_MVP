@@ -162,21 +162,22 @@ const PracticeInterview = () => {
                 })),
                 job_title: role.title,
                 job_description: role.description,
-                company_name: "Practice Company",
-                current_question_index: currentQuestion,
-                is_practice: true,
             });
+            const responseText = data.reply || data.message;
+            if (!responseText) {
+                throw new Error("AI response missing content");
+            }
             const aiMessage = {
                 id: crypto.randomUUID(),
                 role: "ai",
-                content: data.reply || data.message,
+                content: responseText,
                 timestamp: new Date(),
             };
             setMessages(prev => [...prev, aiMessage]);
             setCurrentQuestion(prev => prev + 1);
             if (ttsSupported) {
                 setStatus("questioning");
-                speak(data.message);
+                speak(responseText);
             }
             else {
                 setStatus("listening");

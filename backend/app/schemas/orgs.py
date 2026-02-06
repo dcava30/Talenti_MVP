@@ -16,3 +16,32 @@ class OrganisationResponse(BaseModel):
     industry: str | None
     website: str | None
     created_at: datetime
+
+
+class OrganisationDetail(BaseModel):
+    id: str
+    name: str
+    description: str | None
+    industry: str | None
+    website: str | None
+    values_framework: str | None
+    recording_retention_days: int | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class OrgMembershipResponse(BaseModel):
+    id: str
+    role: str
+    organisation: OrganisationDetail
+
+
+class OrgRetentionUpdate(BaseModel):
+    recording_retention_days: int
+
+
+class OrgStatsResponse(BaseModel):
+    activeRoles: int
+    totalCandidates: int
+    completedInterviews: int
+    avgMatchScore: int | None
