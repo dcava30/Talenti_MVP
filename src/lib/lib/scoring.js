@@ -26,7 +26,7 @@ export const triggerInterviewScoring = async (interviewId) => {
             : (valuesFramework?.values || []);
         console.log("Scoring with custom rubric:", !!scoringRubric);
         console.log("Org values count:", orgValues?.length || 0);
-        // Call scoring edge function with enhanced context
+        // Call scoring API with enhanced context
         const apiResult = await scoringApi.scoreInterview({
             interview_id: interviewId,
             transcript: transcripts.map(t => ({

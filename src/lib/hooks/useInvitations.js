@@ -40,7 +40,7 @@ export function useInvitations() {
     /**
      * Sends an interview invitation email to a candidate.
      *
-     * Calls the backend edge function to generate an invitation token
+     * Calls the backend API to generate an invitation token
      * and send an email with the interview link.
      *
      * @param params - Invitation parameters

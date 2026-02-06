@@ -6,7 +6,7 @@
 
 ## Project Info
 
-**URL**: https://lovable.dev/projects/823a9c71-397c-4a49-9190-91f5f3f8cbaf
+Talenti is a FastAPI + SQLite backend with a React (Vite) frontend and Azure Cognitive Services integrations.
 
 ## Target architecture
 
@@ -18,15 +18,7 @@
 
 There are several ways of editing your application.
 
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/823a9c71-397c-4a49-9190-91f5f3f8cbaf) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
 **Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
 
 The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
 
@@ -42,7 +34,7 @@ cd <YOUR_PROJECT_NAME>
 # Step 3: Install the necessary dependencies.
 npm i
 
-# Step 4: Start the backend API (FastAPI).
+# Step 4: Start the backend API (FastAPI + SQLite).
 cd backend
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
@@ -90,7 +82,7 @@ This project is built with:
 | [FRONTEND_GUIDE.md](FRONTEND_GUIDE.md) | React architecture, components, and patterns |
 | [API_REFERENCE.md](API_REFERENCE.md) | FastAPI API documentation |
 | [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) | Database tables, relationships, and ERD |
-| [SECURITY.md](SECURITY.md) | Authentication, RLS policies, and compliance |
+| [SECURITY.md](SECURITY.md) | Authentication, JWT guidance, and compliance |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines and code standards |
 | [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) | Deployment and release procedures |
 | [MONITORING.md](MONITORING.md) | Logging, metrics, and observability |
@@ -100,17 +92,10 @@ This project is built with:
 | [ARCHITECTURE_DECISIONS.md](ARCHITECTURE_DECISIONS.md) | Technical decision records (ADRs) |
 | [TESTING_STRATEGY.md](TESTING_STRATEGY.md) | Testing approach and guidelines |
 | [SQLITE_MIGRATION.md](SQLITE_MIGRATION.md) | Guide for migrating to SQLite |
-| [PYTHON_REBUILD_GUIDE.md](PYTHON_REBUILD_GUIDE.md) | Python/FastAPI backend migration guide |
-| [PYTHON_MIGRATION_CHECKLIST.md](PYTHON_MIGRATION_CHECKLIST.md) | Migration progress tracking checklist |
+| [PYTHON_REBUILD_GUIDE.md](PYTHON_REBUILD_GUIDE.md) | Legacy migration guide (superseded by current FastAPI stack) |
+| [PYTHON_MIGRATION_CHECKLIST.md](PYTHON_MIGRATION_CHECKLIST.md) | Legacy migration checklist (no longer required) |
 
 ## How can I deploy this project?
 
-Simply open [Lovable](https://lovable.dev/projects/823a9c71-397c-4a49-9190-91f5f3f8cbaf) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+Deploy the FastAPI service and Vite frontend using your preferred infrastructure (container platform, VM, or PaaS).
+Ensure the backend has access to the SQLite database path and required Azure credentials.
