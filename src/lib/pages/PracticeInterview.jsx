@@ -162,9 +162,6 @@ const PracticeInterview = () => {
                 })),
                 job_title: role.title,
                 job_description: role.description,
-                company_name: "Practice Company",
-                current_question_index: currentQuestion,
-                is_practice: true,
             });
             const aiMessage = {
                 id: crypto.randomUUID(),

@@ -28,6 +28,11 @@ def interview_chat(
         system_prompt = "Conduct a structured interview and respond with the next question."
 
     if not (settings.azure_openai_endpoint and settings.azure_openai_api_key and settings.azure_openai_deployment):
+        if settings.environment.lower() == "production":
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Azure OpenAI not configured",
+            )
         last_message = payload.messages[-1].content
         fallback = f"Thanks for sharing. Could you expand on: {last_message[:120]}"
         return AiInterviewerResponse(reply=fallback, usage_tokens=None)
