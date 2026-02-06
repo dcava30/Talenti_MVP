@@ -397,32 +397,14 @@ const LiveInterview = () => {
     };
     const getAIResponse = async (conversationHistory) => {
         try {
-            const cagContext = context.job
+            const jobContext = context.job
                 ? {
                     job_title: context.job.title,
                     job_description: context.job.description,
-                    requirements: context.job.requirements,
-                    interviewQuestions: context.job.interviewQuestions,
-                    companyName: context.org?.name || "Company",
-                    orgValues: context.org?.values || [],
-                    candidateContext: context.candidate
-                        ? {
-                            skills: context.candidate.skills,
-                            experienceYears: context.candidate.experienceYears,
-                            recentRoles: context.candidate.recentRoles,
-                            educationLevel: context.candidate.educationLevel,
-                        }
-                        : undefined,
-                    competenciesCovered,
-                    competenciesToCover: context.competenciesToCover,
-                    currentQuestionIndex: currentQuestion,
-                    totalQuestions,
                 }
                 : {
                     job_title: "Software Engineer",
-                    companyName: "TechCorp",
-                    currentQuestionIndex: currentQuestion,
-                    totalQuestions,
+                    job_description: undefined,
                 };
             const data = await interviewsApi.aiInterviewer({
                 interview_id: (() => {
@@ -435,9 +417,12 @@ const LiveInterview = () => {
                     role: m.role === "ai" ? "assistant" : "user",
                     content: m.content,
                 })),
-                ...cagContext,
+                ...jobContext,
             });
-            const responseText = data.reply || data.message || "Could you tell me more about that?";
+            const responseText = data.reply || data.message;
+            if (!responseText) {
+                throw new Error("AI response missing content");
+            }
             const aiMessage = {
                 id: crypto.randomUUID(),
                 role: "ai",
