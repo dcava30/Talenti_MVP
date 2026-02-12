@@ -1,0 +1,118 @@
+version: '3.8'
+
+services:
+  # Main Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./app.db
+      - MODEL_SERVICE_1_URL=http://model-service-1:8001
+      - MODEL_SERVICE_2_URL=http://model-service-2:8002
+      - ACS_CONNECTION_STRING=${ACS_CONNECTION_STRING}
+      - AZURE_STORAGE_CONNECTION_STRING=${AZURE_STORAGE_CONNECTION_STRING}
+    volumes:
+      - ./backend/app:/app/app:ro
+      - backend-data:/app/data
+    depends_on:
+      - model-service-1
+      - model-service-2
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - talenti-network
+
+  # Model Service 1 (e.g., Sentiment/Communication Analysis)
+  model-service-1:
+    build:
+      context: ./model-service-1
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - MODEL_NAME=model-1
+      - LOG_LEVEL=INFO
+      - WORKERS=2
+    volumes:
+      - ./model-service-1/app:/app/app:ro
+      - model-1-cache:/app/model_cache
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s  # Models may take longer to load
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    networks:
+      - talenti-network
+
+  # Model Service 2 (e.g., Technical/Competency Scoring)
+  model-service-2:
+    build:
+      context: ./model-service-2
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8002"
+    environment:
+      - MODEL_NAME=model-2
+      - LOG_LEVEL=INFO
+      - WORKERS=2
+    volumes:
+      - ./model-service-2/app:/app/app:ro
+      - model-2-cache:/app/model_cache
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    networks:
+      - talenti-network
+
+  # Optional: Frontend (if you want to run everything together)
+  # frontend:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.frontend
+  #   ports:
+  #     - "5173:5173"
+  #   environment:
+  #     - VITE_API_BASE_URL=http://localhost:8000
+  #   volumes:
+  #     - ./src:/app/src:ro
+  #   networks:
+  #     - talenti-network
+
+networks:
+  talenti-network:
+    driver: bridge
+
+volumes:
+  backend-data:
+  model-1-cache:
+  model-2-cache:

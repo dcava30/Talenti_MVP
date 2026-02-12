@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     azure_openai_api_key: str = ""
     azure_openai_deployment: str = ""
 
+    # ML Model Services
+    model_service_1_url: str = "http://model-service-1:8001"
+    model_service_2_url: str = "http://model-service-2:8002"
+
     class Config:
         env_file = ".env"
         env_prefix = ""
