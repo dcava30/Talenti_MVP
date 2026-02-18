@@ -10,6 +10,10 @@ class ScoringRequest(BaseModel):
     interview_id: str
     transcript: list[TranscriptSegment]
     rubric: dict[str, float] | None = None
+    job_description: str | None = None
+    resume_text: str | None = None
+    role_title: str | None = None
+    seniority: str | None = None
 
 
 class ScoringDimension(BaseModel):

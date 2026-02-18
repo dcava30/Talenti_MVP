@@ -30,8 +30,8 @@ class MLClient:
         timeout: float = 30.0,
         max_retries: int = 3
     ):
-        self.model1_url = model1_url or settings.MODEL_SERVICE_1_URL
-        self.model2_url = model2_url or settings.MODEL_SERVICE_2_URL
+        self.model1_url = model1_url or settings.model_service_1_url
+        self.model2_url = model2_url or settings.model_service_2_url
         self.timeout = timeout
         self.max_retries = max_retries
 
@@ -101,7 +101,14 @@ class MLClient:
             payload
         )
 
-    async def predict_model2(self, transcript: list[dict[str, str]]) -> dict[str, Any]:
+    async def predict_model2(
+        self,
+        transcript: list[dict[str, str]],
+        job_description: str = "",
+        resume_text: str = "",
+        role_title: str | None = None,
+        seniority: str | None = None,
+    ) -> dict[str, Any]:
         """
         Call Model Service 2 for predictions.
 
@@ -111,16 +118,28 @@ class MLClient:
         Returns:
             Model 2 prediction results
         """
-        payload = {"transcript": transcript}
+        payload: dict[str, Any] = {
+            "job_description": job_description,
+            "resume_text": resume_text,
+            "transcript": transcript,
+        }
+        if role_title:
+            payload["role_title"] = role_title
+        if seniority:
+            payload["seniority"] = seniority
         return await self._make_request(
             self.model2_url,
-            "/predict",
+            "/predict/transcript",
             payload
         )
 
     async def get_combined_predictions(
         self,
-        transcript: list[dict[str, str]]
+        transcript: list[dict[str, str]],
+        job_description: str = "",
+        resume_text: str = "",
+        role_title: str | None = None,
+        seniority: str | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """
         Get predictions from both models concurrently.
@@ -134,7 +153,13 @@ class MLClient:
         try:
             results = await asyncio.gather(
                 self.predict_model1(transcript),
-                self.predict_model2(transcript),
+                self.predict_model2(
+                    transcript,
+                    job_description=job_description,
+                    resume_text=resume_text,
+                    role_title=role_title,
+                    seniority=seniority,
+                ),
                 return_exceptions=True
             )
 
