@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -7,6 +9,7 @@ from app.schemas.scoring import ScoringDimension, ScoringRequest, ScoringRespons
 from app.services.ml_client import MLServiceError, ml_client
 
 router = APIRouter(prefix="/api/v1/scoring", tags=["scoring"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/analyze", response_model=ScoringResponse)
@@ -18,10 +21,25 @@ async def score_interview(
     if not payload.transcript:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Transcript required")
 
-    transcript_data = [
-        {"speaker": segment.speaker, "content": segment.content}
-        for segment in payload.transcript
-    ]
+    try:
+        transcript_data = []
+        for idx, segment in enumerate(payload.transcript):
+            assert segment.speaker is not None, f"Transcript segment {idx} missing speaker"
+            assert segment.content is not None, f"Transcript segment {idx} missing content"
+            transcript_data.append({"speaker": str(segment.speaker), "content": str(segment.content)})
+        assert transcript_data, "Transcript normalization produced no segments"
+    except AssertionError as exc:
+        logger.error("Invalid transcript payload: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid transcript: {exc}",
+        ) from exc
+    except Exception as exc:
+        logger.error("Failed to normalize transcript payload: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process transcript",
+        ) from exc
 
     try:
         model1_result, model2_result = await ml_client.get_combined_predictions(
@@ -32,6 +50,29 @@ async def score_interview(
             seniority=payload.seniority,
         )
     except MLServiceError as exc:
+        logger.error("ML service error while scoring: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+    except AssertionError as exc:
+        logger.error("Assertion failed while requesting model predictions: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Invalid model request: {exc}",
+        ) from exc
+    except Exception as exc:
+        logger.error("Unexpected error while requesting model predictions: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Unexpected error while calling model services.",
+        ) from exc
+
+    try:
+        assert isinstance(model1_result, dict), "Culture model response was not a JSON object"
+        assert isinstance(model2_result, dict), "Skillset model response was not a JSON object"
+    except AssertionError as exc:
+        logger.error("Model response validation failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
@@ -54,11 +95,18 @@ async def score_interview(
             return dimensions, notes
 
         for name, data in scores.items():
-            if not isinstance(data, dict) or "score" not in data:
-                continue
             try:
+                assert isinstance(name, str) and name.strip(), "Invalid dimension name"
+                assert isinstance(data, dict), f"Invalid score payload for {name}"
+                assert "score" in data, f"Missing score for {name}"
                 score_value = int(round(float(data.get("score"))))
-            except (TypeError, ValueError):
+            except AssertionError as exc:
+                logger.warning("%s invalid score payload: %s", source, exc)
+                notes.append(f"{source} returned invalid score payload for {name or 'unknown'}.")
+                continue
+            except (TypeError, ValueError) as exc:
+                logger.warning("%s invalid score value for %s: %s", source, name, exc)
+                notes.append(f"{source} returned invalid score value for {name or 'unknown'}.")
                 continue
 
             rationale = data.get("rationale")
@@ -81,8 +129,8 @@ async def score_interview(
 
         return dimensions, notes
 
-    model1_dimensions, model1_notes = collect_dimensions(model1_result, "Model service 1")
-    model2_dimensions, model2_notes = collect_dimensions(model2_result, "Model service 2")
+    model1_dimensions, model1_notes = collect_dimensions(model1_result, "Culture model")
+    model2_dimensions, model2_notes = collect_dimensions(model2_result, "Skillset model")
 
     dimension_scores: dict[str, list[int]] = {}
     dimension_rationales: dict[str, list[str]] = {}
@@ -113,18 +161,41 @@ async def score_interview(
         )
 
     rubric = payload.rubric or {}
+    try:
+        assert isinstance(rubric, dict), "Rubric must be a dictionary of weights"
+    except AssertionError as exc:
+        logger.error("Invalid rubric payload: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
     total_weight = 0.0
     weighted_sum = 0.0
-    for dimension in dimensions:
-        weight = rubric.get(dimension.name, 1.0)
-        try:
-            weight_value = float(weight)
-        except (TypeError, ValueError):
-            weight_value = 1.0
-        if weight_value < 0:
-            weight_value = 0.0
-        total_weight += weight_value
-        weighted_sum += dimension.score * weight_value
+    try:
+        for dimension in dimensions:
+            assert 0 <= dimension.score <= 100, f"Dimension score out of range for {dimension.name}"
+            weight = rubric.get(dimension.name, 1.0)
+            try:
+                weight_value = float(weight)
+            except (TypeError, ValueError):
+                weight_value = 1.0
+            if weight_value < 0:
+                weight_value = 0.0
+            total_weight += weight_value
+            weighted_sum += dimension.score * weight_value
+    except AssertionError as exc:
+        logger.error("Invalid dimension score during weighting: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Invalid dimension score: {exc}",
+        ) from exc
+    except Exception as exc:
+        logger.error("Failed to compute weighted score: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to compute weighted score.",
+        ) from exc
 
     if total_weight <= 0:
         overall = int(round(sum(d.score for d in dimensions) / len(dimensions)))

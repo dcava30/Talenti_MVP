@@ -58,13 +58,38 @@ class MLClient:
             MLServiceError: If request fails after retries
         """
         try:
+            assert url, "Model service URL is not configured"
+            assert endpoint, "Model service endpoint is required"
+            assert isinstance(payload, dict), "Model payload must be a JSON object"
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.post(
                     f"{url}{endpoint}",
                     json=payload
                 )
                 response.raise_for_status()
-                return response.json()
+                try:
+                    data = response.json()
+                except ValueError as e:
+                    logger.error(
+                        "Invalid JSON response from %s: %s",
+                        url,
+                        response.text[:500],
+                    )
+                    raise MLServiceError("Model service returned invalid JSON") from e
+
+                if not isinstance(data, dict):
+                    logger.error(
+                        "Unexpected response type from %s: %s",
+                        url,
+                        type(data).__name__,
+                    )
+                    raise MLServiceError("Model service returned invalid response shape")
+
+                return data
+
+        except AssertionError as e:
+            logger.error("ML client assertion failed: %s", e)
+            raise MLServiceError(str(e)) from e
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error from {url}: {e.response.status_code} - {e.response.text}")
@@ -94,6 +119,7 @@ class MLClient:
         Returns:
             Model 1 prediction results
         """
+        assert isinstance(transcript, list), "Transcript must be a list for model 1"
         payload = {"transcript": transcript}
         return await self._make_request(
             self.model1_url,
@@ -118,6 +144,7 @@ class MLClient:
         Returns:
             Model 2 prediction results
         """
+        assert isinstance(transcript, list), "Transcript must be a list for model 2"
         payload: dict[str, Any] = {
             "job_description": job_description,
             "resume_text": resume_text,
@@ -170,10 +197,16 @@ class MLClient:
             if isinstance(model1_result, Exception):
                 logger.error(f"Model 1 failed: {str(model1_result)}")
                 model1_result = {"error": str(model1_result), "fallback": True}
+            elif not isinstance(model1_result, dict):
+                logger.error("Model 1 returned non-dict response: %s", type(model1_result).__name__)
+                model1_result = {"error": "Model 1 returned invalid response type", "fallback": True}
 
             if isinstance(model2_result, Exception):
                 logger.error(f"Model 2 failed: {str(model2_result)}")
                 model2_result = {"error": str(model2_result), "fallback": True}
+            elif not isinstance(model2_result, dict):
+                logger.error("Model 2 returned non-dict response: %s", type(model2_result).__name__)
+                model2_result = {"error": "Model 2 returned invalid response type", "fallback": True}
 
             return model1_result, model2_result
 
