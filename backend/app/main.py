@@ -10,6 +10,7 @@ from app.api import (
     ai,
     auth,
     candidates,
+    interviews,
     invitations,
     orgs,
     requirements,
@@ -59,4 +60,5 @@ app.include_router(shortlist.router)
 app.include_router(retention.router)
 app.include_router(invitations.router)
 app.include_router(invitations.v1_router)
+app.include_router(interviews.router)
 app.include_router(storage.router)
