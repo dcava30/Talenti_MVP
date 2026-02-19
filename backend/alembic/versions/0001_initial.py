@@ -40,8 +40,13 @@ def upgrade() -> None:
     op.create_table(
         "org_users",
         sa.Column("id", sa.String(), primary_key=True),
-        sa.Column("organisation_id", sa.String(), sa.ForeignKey("organisations.id"), nullable=False),
-        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id"), nullable=False),
+        sa.Column(
+            "organisation_id",
+            sa.String(),
+            sa.ForeignKey("organisations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("role", sa.String(), nullable=False, server_default="member"),
         sa.Column("created_at", sa.DateTime(), nullable=False),
     )
@@ -55,7 +60,12 @@ def upgrade() -> None:
     op.create_table(
         "job_roles",
         sa.Column("id", sa.String(), primary_key=True),
-        sa.Column("organisation_id", sa.String(), sa.ForeignKey("organisations.id"), nullable=False),
+        sa.Column(
+            "organisation_id",
+            sa.String(),
+            sa.ForeignKey("organisations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("title", sa.String(), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("department", sa.String(), nullable=True),
@@ -78,7 +88,7 @@ def upgrade() -> None:
     op.create_table(
         "candidate_profiles",
         sa.Column("id", sa.String(), primary_key=True),
-        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("first_name", sa.String(), nullable=True),
         sa.Column("last_name", sa.String(), nullable=True),
         sa.Column("email", sa.String(), nullable=True),
@@ -106,7 +116,7 @@ def upgrade() -> None:
     op.create_table(
         "candidate_skills",
         sa.Column("id", sa.String(), primary_key=True),
-        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("skill_name", sa.String(), nullable=False),
         sa.Column("skill_type", sa.String(), nullable=False),
         sa.Column("proficiency_level", sa.String(), nullable=True),
@@ -117,7 +127,7 @@ def upgrade() -> None:
     op.create_table(
         "education",
         sa.Column("id", sa.String(), primary_key=True),
-        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("institution", sa.String(), nullable=False),
         sa.Column("degree", sa.String(), nullable=False),
         sa.Column("field_of_study", sa.String(), nullable=True),
@@ -130,7 +140,7 @@ def upgrade() -> None:
     op.create_table(
         "employment_history",
         sa.Column("id", sa.String(), primary_key=True),
-        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("company", sa.String(), nullable=False),
         sa.Column("title", sa.String(), nullable=False),
         sa.Column("location", sa.String(), nullable=True),
@@ -143,7 +153,7 @@ def upgrade() -> None:
     op.create_table(
         "candidate_dei",
         sa.Column("id", sa.String(), primary_key=True),
-        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("gender", sa.String(), nullable=True),
         sa.Column("ethnicity", sa.String(), nullable=True),
         sa.Column("disability_status", sa.String(), nullable=True),
@@ -155,8 +165,18 @@ def upgrade() -> None:
     op.create_table(
         "applications",
         sa.Column("id", sa.String(), primary_key=True),
-        sa.Column("job_role_id", sa.String(), sa.ForeignKey("job_roles.id"), nullable=False),
-        sa.Column("candidate_profile_id", sa.String(), sa.ForeignKey("candidate_profiles.id"), nullable=False),
+        sa.Column(
+            "job_role_id",
+            sa.String(),
+            sa.ForeignKey("job_roles.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "candidate_profile_id",
+            sa.String(),
+            sa.ForeignKey("candidate_profiles.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("status", sa.String(), nullable=False, server_default="new"),
         sa.Column("source", sa.String(), nullable=True),
         sa.Column("cover_letter", sa.Text(), nullable=True),
@@ -167,7 +187,12 @@ def upgrade() -> None:
     op.create_table(
         "interviews",
         sa.Column("id", sa.String(), primary_key=True),
-        sa.Column("application_id", sa.String(), sa.ForeignKey("applications.id"), nullable=False),
+        sa.Column(
+            "application_id",
+            sa.String(),
+            sa.ForeignKey("applications.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("status", sa.String(), nullable=False, server_default="pending"),
         sa.Column("scheduled_at", sa.DateTime(), nullable=True),
         sa.Column("started_at", sa.DateTime(), nullable=True),
@@ -183,7 +208,12 @@ def upgrade() -> None:
     op.create_table(
         "transcript_segments",
         sa.Column("id", sa.String(), primary_key=True),
-        sa.Column("interview_id", sa.String(), sa.ForeignKey("interviews.id"), nullable=False),
+        sa.Column(
+            "interview_id",
+            sa.String(),
+            sa.ForeignKey("interviews.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("sequence", sa.Integer(), nullable=False),
         sa.Column("speaker", sa.String(), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),
@@ -193,7 +223,12 @@ def upgrade() -> None:
     op.create_table(
         "score_dimensions",
         sa.Column("id", sa.String(), primary_key=True),
-        sa.Column("interview_id", sa.String(), sa.ForeignKey("interviews.id"), nullable=False),
+        sa.Column(
+            "interview_id",
+            sa.String(),
+            sa.ForeignKey("interviews.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("score", sa.Integer(), nullable=False),
         sa.Column("rationale", sa.Text(), nullable=True),
@@ -203,7 +238,12 @@ def upgrade() -> None:
     op.create_table(
         "interview_scores",
         sa.Column("id", sa.String(), primary_key=True),
-        sa.Column("interview_id", sa.String(), sa.ForeignKey("interviews.id"), nullable=False),
+        sa.Column(
+            "interview_id",
+            sa.String(),
+            sa.ForeignKey("interviews.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("overall_score", sa.Integer(), nullable=False),
         sa.Column("summary", sa.Text(), nullable=True),
         sa.Column("recommendation", sa.String(), nullable=True),
@@ -214,7 +254,12 @@ def upgrade() -> None:
     op.create_table(
         "invitations",
         sa.Column("id", sa.String(), primary_key=True),
-        sa.Column("application_id", sa.String(), sa.ForeignKey("applications.id"), nullable=False),
+        sa.Column(
+            "application_id",
+            sa.String(),
+            sa.ForeignKey("applications.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("token", sa.String(), nullable=False),
         sa.Column("status", sa.String(), nullable=False, server_default="pending"),
         sa.Column("email_template", sa.String(), nullable=True),
@@ -229,7 +274,7 @@ def upgrade() -> None:
     op.create_table(
         "practice_interviews",
         sa.Column("id", sa.String(), primary_key=True),
-        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("sample_role_type", sa.String(), nullable=False),
         sa.Column("status", sa.String(), nullable=False, server_default="pending"),
         sa.Column("started_at", sa.DateTime(), nullable=True),
@@ -242,7 +287,7 @@ def upgrade() -> None:
     op.create_table(
         "user_roles",
         sa.Column("id", sa.String(), primary_key=True),
-        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("role", sa.String(), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),
     )
@@ -251,8 +296,13 @@ def upgrade() -> None:
     op.create_table(
         "audit_log",
         sa.Column("id", sa.String(), primary_key=True),
-        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id"), nullable=True),
-        sa.Column("organisation_id", sa.String(), sa.ForeignKey("organisations.id"), nullable=True),
+        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
+        sa.Column(
+            "organisation_id",
+            sa.String(),
+            sa.ForeignKey("organisations.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
         sa.Column("action", sa.String(), nullable=False),
         sa.Column("entity_type", sa.String(), nullable=False),
         sa.Column("entity_id", sa.String(), nullable=True),
@@ -267,7 +317,7 @@ def upgrade() -> None:
     op.create_table(
         "data_deletion_requests",
         sa.Column("id", sa.String(), primary_key=True),
-        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("request_type", sa.String(), nullable=False, server_default="full_deletion"),
         sa.Column("status", sa.String(), nullable=False, server_default="pending"),
         sa.Column("reason", sa.Text(), nullable=True),
@@ -280,8 +330,13 @@ def upgrade() -> None:
     op.create_table(
         "files",
         sa.Column("id", sa.String(), primary_key=True),
-        sa.Column("organisation_id", sa.String(), sa.ForeignKey("organisations.id"), nullable=True),
-        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id"), nullable=True),
+        sa.Column(
+            "organisation_id",
+            sa.String(),
+            sa.ForeignKey("organisations.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
         sa.Column("blob_path", sa.String(), nullable=False),
         sa.Column("content_type", sa.String(), nullable=True),
         sa.Column("metadata", sa.Text(), nullable=True),

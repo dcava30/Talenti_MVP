@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  acs-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # Azure Communication Services
+      - ACS_CONNECTION_STRING=${ACS_CONNECTION_STRING}
+      - ACS_ENDPOINT=${ACS_ENDPOINT}
+      - ACS_CALLBACK_URL=${ACS_CALLBACK_URL}
+      
+      # Azure Storage
+      - AZURE_STORAGE_CONNECTION_STRING=${AZURE_STORAGE_CONNECTION_STRING}
+      - RECORDING_CONTAINER=interview-recordings
+      - SQLITE_DB_PATH=${SQLITE_DB_PATH:-./data/app.db}
+      
+      # Azure Service Bus
+      - SERVICE_BUS_CONNECTION_STRING=${SERVICE_BUS_CONNECTION_STRING}
+      - SERVICE_BUS_QUEUE=acs-events
+      
+      # Application
+      - LOG_LEVEL=INFO
+      - ENVIRONMENT=development
+      - ALLOWED_ORIGINS=*
+      - FRONTEND_ORIGIN=${FRONTEND_ORIGIN:-}
+    volumes:
+      - ./app:/app/app:ro  # Mount for development
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health/live')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Optional: Azurite for local Azure Storage emulation
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite
+    ports:
+      - "10000:10000"  # Blob
+      - "10001:10001"  # Queue
+      - "10002:10002"  # Table
+    volumes:
+      - azurite-data:/data
+    command: azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0
+
+volumes:
+  azurite-data:

@@ -15,5 +15,5 @@ class File(Base):
     user_id: Mapped[str | None] = mapped_column(String, ForeignKey("users.id"), nullable=True)
     blob_path: Mapped[str] = mapped_column(String, unique=True)
     content_type: Mapped[str | None] = mapped_column(String, nullable=True)
-    metadata: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[str | None] = mapped_column("metadata", Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

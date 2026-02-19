@@ -1,15 +1,44 @@
-from fastapi import FastAPI
+from pathlib import Path
 
-from app.api import auth, invitations, orgs, roles, storage
-from app.db import Base, engine
+from alembic import command
+from alembic.config import Config
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.api import (
+    acs,
+    ai,
+    auth,
+    candidates,
+    invitations,
+    orgs,
+    requirements,
+    retention,
+    roles,
+    scoring,
+    shortlist,
+    speech,
+    storage,
+)
+from app.core.config import settings
 
 
 app = FastAPI(title="Talenti API")
+if settings.allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 @app.on_event("startup")
 def on_startup() -> None:
-    Base.metadata.create_all(bind=engine)
+    alembic_config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    alembic_config.set_main_option("sqlalchemy.url", settings.database_url)
+    command.upgrade(alembic_config, "head")
 
 
 @app.get("/health")
@@ -18,7 +47,16 @@ def health() -> dict:
 
 
 app.include_router(auth.router)
+app.include_router(ai.router)
+app.include_router(acs.router)
+app.include_router(speech.router)
 app.include_router(orgs.router)
 app.include_router(roles.router)
+app.include_router(candidates.router)
+app.include_router(requirements.router)
+app.include_router(scoring.router)
+app.include_router(shortlist.router)
+app.include_router(retention.router)
 app.include_router(invitations.router)
+app.include_router(invitations.v1_router)
 app.include_router(storage.router)
