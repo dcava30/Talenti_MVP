@@ -10,7 +10,12 @@ from fastapi.testclient import TestClient
 
 def create_client(tmp_path: Path) -> TestClient:
     pytest.importorskip("email_validator")
-    sys.path.append(str(Path(__file__).resolve().parents[1]))
+    backend_root = str(Path(__file__).resolve().parents[1])
+    if backend_root not in sys.path:
+        sys.path.insert(0, backend_root)
+    for module_name in list(sys.modules):
+        if module_name == "app" or module_name.startswith("app."):
+            del sys.modules[module_name]
     os.environ["DATABASE_URL"] = f"sqlite:///{tmp_path}/test.db"
     os.environ["JWT_SECRET"] = "test-secret"
     os.environ["ALLOWED_ORIGINS"] = '["http://localhost"]'

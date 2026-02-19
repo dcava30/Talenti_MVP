@@ -109,7 +109,45 @@ class MLClient:
             logger.error(f"Unexpected error calling {url}: {str(e)}")
             raise MLServiceError(f"Unexpected error: {str(e)}")
 
-    async def predict_model1(self, transcript: list[dict[str, str]]) -> dict[str, Any]:
+    def _build_model1_payload(
+        self,
+        transcript: list[dict[str, str]],
+        candidate_id: str | None = None,
+        role_id: str | None = None,
+        department_id: str | None = None,
+        interview_id: str | None = None,
+        operating_environment: dict[str, Any] | None = None,
+        taxonomy: dict[str, Any] | None = None,
+        trace: bool | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"transcript": transcript}
+        if candidate_id:
+            payload["candidate_id"] = candidate_id
+        if role_id:
+            payload["role_id"] = role_id
+        if department_id:
+            payload["department_id"] = department_id
+        if interview_id:
+            payload["interview_id"] = interview_id
+        if operating_environment:
+            payload["operating_environment"] = operating_environment
+        if taxonomy:
+            payload["taxonomy"] = taxonomy
+        if trace is not None:
+            payload["trace"] = bool(trace)
+        return payload
+
+    async def predict_model1(
+        self,
+        transcript: list[dict[str, str]],
+        candidate_id: str | None = None,
+        role_id: str | None = None,
+        department_id: str | None = None,
+        interview_id: str | None = None,
+        operating_environment: dict[str, Any] | None = None,
+        taxonomy: dict[str, Any] | None = None,
+        trace: bool | None = None,
+    ) -> dict[str, Any]:
         """
         Call Model Service 1 for predictions.
 
@@ -120,7 +158,16 @@ class MLClient:
             Model 1 prediction results
         """
         assert isinstance(transcript, list), "Transcript must be a list for model 1"
-        payload = {"transcript": transcript}
+        payload = self._build_model1_payload(
+            transcript,
+            candidate_id=candidate_id,
+            role_id=role_id,
+            department_id=department_id,
+            interview_id=interview_id,
+            operating_environment=operating_environment,
+            taxonomy=taxonomy,
+            trace=trace,
+        )
         return await self._make_request(
             self.model1_url,
             "/predict",
@@ -167,6 +214,13 @@ class MLClient:
         resume_text: str = "",
         role_title: str | None = None,
         seniority: str | None = None,
+        candidate_id: str | None = None,
+        role_id: str | None = None,
+        department_id: str | None = None,
+        interview_id: str | None = None,
+        operating_environment: dict[str, Any] | None = None,
+        taxonomy: dict[str, Any] | None = None,
+        trace: bool | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """
         Get predictions from both models concurrently.
@@ -179,7 +233,16 @@ class MLClient:
         """
         try:
             results = await asyncio.gather(
-                self.predict_model1(transcript),
+                self.predict_model1(
+                    transcript,
+                    candidate_id=candidate_id,
+                    role_id=role_id,
+                    department_id=department_id,
+                    interview_id=interview_id,
+                    operating_environment=operating_environment,
+                    taxonomy=taxonomy,
+                    trace=trace,
+                ),
                 self.predict_model2(
                     transcript,
                     job_description=job_description,

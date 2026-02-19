@@ -19,6 +19,7 @@ export const triggerInterviewScoring = async (interviewId) => {
         const organisation = jobRole?.organisation || jobRole?.organisations;
         const requirements = jobRole?.requirements;
         const scoringRubric = jobRole?.scoring_rubric;
+        const applicationId = interview?.application_id || application?.id;
         // Parse org values
         const valuesFramework = organisation?.values_framework;
         const orgValues = Array.isArray(valuesFramework)
@@ -34,6 +35,10 @@ export const triggerInterviewScoring = async (interviewId) => {
                 content: t.content,
                 start_time_ms: t.start_time_ms,
             })),
+            org_id: organisation?.id,
+            role_id: jobRole?.id,
+            department_id: jobRole?.department,
+            application_id: applicationId,
             job_title: jobRole?.title || "Unknown Position",
             job_description: jobRole?.description,
             requirements: requirements ? {

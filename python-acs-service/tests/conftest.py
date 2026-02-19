@@ -18,6 +18,9 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[TestCli
     service_root = Path(__file__).resolve().parents[1]
     if str(service_root) not in sys.path:
         sys.path.insert(0, str(service_root))
+    for module_name in list(sys.modules):
+        if module_name == "app" or module_name.startswith("app."):
+            del sys.modules[module_name]
 
     db_path = tmp_path / "test.db"
     monkeypatch.setenv("SQLITE_DB_PATH", str(db_path))

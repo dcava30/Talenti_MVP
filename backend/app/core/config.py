@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_prefix = ""
+        extra = "ignore"
 
     @field_validator("allowed_origins", mode="before")
     @classmethod
