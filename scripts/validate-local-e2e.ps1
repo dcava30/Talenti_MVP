@@ -71,7 +71,6 @@ MODEL_SERVICE_1_URL=http://localhost:$Model1Port
 MODEL_SERVICE_2_URL=http://localhost:$Model2Port
 "@
 Set-Content -Path (Join-Path $RepoRoot ".env") -Encoding ASCII -Value $envContent
-Set-Content -Path (Join-Path $RepoRoot "backend\\.env") -Encoding ASCII -Value $envContent
 
 Write-Section "Set up backend venv"
 $backendPath = Join-Path $RepoRoot "backend"

@@ -1,7 +1,11 @@
 import json
+from pathlib import Path
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+ENV_FILE = REPO_ROOT / ".env"
 
 
 class Settings(BaseSettings):
@@ -31,10 +35,11 @@ class Settings(BaseSettings):
     model_service_1_url: str = "http://model-service-1:8001"
     model_service_2_url: str = "http://model-service-2:8002"
 
-    class Config:
-        env_file = ".env"
-        env_prefix = ""
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_file=str(ENV_FILE),
+        env_prefix="",
+        extra="ignore",
+    )
 
     @field_validator("allowed_origins", mode="before")
     @classmethod

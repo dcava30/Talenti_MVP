@@ -4,14 +4,14 @@ export const organisationsApi = {
         return http.post("/api/orgs", payload);
     },
     getCurrentMembership() {
-        return http.get("/api/v1/orgs/current");
+        return http.get("/api/orgs/current");
     },
     updateRetention(organisationId, retentionDays) {
-        return http.patch(`/api/v1/orgs/${organisationId}/retention`, {
+        return http.patch(`/api/orgs/${organisationId}/retention`, {
             recording_retention_days: retentionDays,
         });
     },
     getStats(organisationId) {
-        return http.get(`/api/v1/orgs/${organisationId}/stats`);
+        return http.get(`/api/orgs/${organisationId}/stats`);
     },
 };

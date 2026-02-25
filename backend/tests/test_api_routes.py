@@ -47,6 +47,9 @@ def test_protected_routes_exist(tmp_path: Path) -> None:
     response = client.get("/api/v1/audit-log")
     assert response.status_code == 401
 
+    response = client.patch("/api/v1/interview-scores/score-1", json={})
+    assert response.status_code == 401
+
     response = client.post("/api/v1/interviews", json={"application_id": "app-1"})
     assert response.status_code == 401
 

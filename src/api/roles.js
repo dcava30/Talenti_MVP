@@ -4,7 +4,7 @@ export const rolesApi = {
         return http.post("/api/roles", payload);
     },
     listAll(params) {
-        return http.get("/api/v1/roles", params);
+        return http.get("/api/roles", params);
     },
     listByOrganisation(organisationId) {
         return http.get("/api/roles", { organisation_id: organisationId });

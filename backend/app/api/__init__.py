@@ -1,8 +1,11 @@
 from app.api import (
     acs,
     ai,
+    applications,
+    audit_log,
     auth,
     candidates,
+    interview_scores,
     invitations,
     orgs,
     requirements,
@@ -17,8 +20,11 @@ from app.api import (
 __all__ = [
     "acs",
     "ai",
+    "applications",
+    "audit_log",
     "auth",
     "candidates",
+    "interview_scores",
     "invitations",
     "orgs",
     "requirements",
