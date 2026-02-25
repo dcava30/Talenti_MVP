@@ -8,8 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import (
     acs,
     ai,
+    applications,
+    audit_log,
     auth,
     candidates,
+    interview_scores,
     interviews,
     invitations,
     orgs,
@@ -58,7 +61,10 @@ app.include_router(requirements.router)
 app.include_router(scoring.router)
 app.include_router(shortlist.router)
 app.include_router(retention.router)
+app.include_router(applications.router)
+app.include_router(audit_log.router)
 app.include_router(invitations.router)
 app.include_router(invitations.v1_router)
 app.include_router(interviews.router)
+app.include_router(interview_scores.router)
 app.include_router(storage.router)

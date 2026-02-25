@@ -122,3 +122,28 @@ def test_taxonomy_loaded_from_org_context(tmp_path: Path) -> None:
     env, taxonomy = load_org_culture_context(org)
     assert taxonomy["taxonomy_id"] == "org_taxonomy_v1"
     assert env["control_vs_autonomy"] == "full_ownership"
+
+
+def test_org_creation_seeds_default_values_framework(tmp_path: Path) -> None:
+    client = create_client(tmp_path)
+    from app.db import SessionLocal
+    from app.models import Organisation
+
+    with SessionLocal() as db:
+        _, token = _create_user_and_token(db)
+
+    response = client.post(
+        "/api/orgs",
+        json={"name": "Default Values Org"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    org_id = response.json()["id"]
+
+    with SessionLocal() as db:
+        org = db.get(Organisation, org_id)
+        assert org is not None
+        assert org.values_framework is not None
+        values = json.loads(org.values_framework)
+        assert "operating_environment" in values
+        assert "taxonomy" in values

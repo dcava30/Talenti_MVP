@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 from pydantic import BaseModel
 
 
@@ -7,6 +8,7 @@ class OrganisationCreate(BaseModel):
     description: str | None = None
     industry: str | None = None
     website: str | None = None
+    values_framework: dict[str, Any] | str | None = None
 
 
 class OrganisationResponse(BaseModel):

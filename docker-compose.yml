@@ -9,11 +9,14 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=sqlite:///./app.db
+      - DATABASE_URL=sqlite:///./data/app.db
+      - JWT_SECRET=${JWT_SECRET:-dev-docker-secret}
       - MODEL_SERVICE_1_URL=http://model-service-1:8001
       - MODEL_SERVICE_2_URL=http://model-service-2:8002
-      - ACS_CONNECTION_STRING=${ACS_CONNECTION_STRING}
-      - AZURE_STORAGE_CONNECTION_STRING=${AZURE_STORAGE_CONNECTION_STRING}
+      - AZURE_ACS_CONNECTION_STRING=${AZURE_ACS_CONNECTION_STRING}
+      - AZURE_STORAGE_ACCOUNT=${AZURE_STORAGE_ACCOUNT}
+      - AZURE_STORAGE_ACCOUNT_KEY=${AZURE_STORAGE_ACCOUNT_KEY}
+      - AZURE_STORAGE_CONTAINER=${AZURE_STORAGE_CONTAINER}
     volumes:
       - ./backend/app:/app/app:ro
       - backend-data:/app/data

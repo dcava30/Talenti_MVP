@@ -9,31 +9,38 @@ Talenti runs with a FastAPI backend, SQLite database, and Azure service integrat
 
 ## Backend Setup (FastAPI + SQLite)
 
-1. Copy the example environment file:
+1. Copy the example environment file to the repository root:
 
-```bash
-cp .env.example .env
+```powershell
+Copy-Item .env.example .env
 ```
 
-2. Update `.env` with your values. At minimum:
+2. Update root `.env` with your values. At minimum:
 
 - `DATABASE_URL` (SQLite file path)
 - `JWT_SECRET`
-- Azure credentials (ACS, Speech, OpenAI, Blob Storage)
+- `MODEL_SERVICE_1_URL` and `MODEL_SERVICE_2_URL`
+- Azure credentials (ACS, Speech, OpenAI, Blob Storage) for cloud-backed features
 
 3. Start the API:
 
-```bash
+```powershell
 cd backend
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ## Frontend Setup
 
-```bash
+```powershell
 npm install
-export VITE_API_BASE_URL=http://localhost:8000
+$env:VITE_API_BASE_URL="http://localhost:8000"
 npm run dev
+```
+
+## One-Command Local Startup (Windows)
+
+```powershell
+.\scripts\start-local.ps1
 ```
 
 ## Storage Configuration

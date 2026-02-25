@@ -34,13 +34,33 @@ cd <YOUR_PROJECT_NAME>
 # Step 3: Install the necessary dependencies.
 npm i
 
-# Step 4: Start the backend API (FastAPI + SQLite).
+# Step 4: Create local environment configuration at repo root.
+cp .env.example .env
+
+# Step 5: Start the backend API (FastAPI + SQLite).
 cd backend
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# Step 5: Start the frontend development server with auto-reloading and an instant preview.
+# Step 6: Start the frontend development server with auto-reloading and an instant preview.
 cd ..
 export VITE_API_BASE_URL=http://localhost:8000
+npm run dev
+```
+
+Or on Windows, bootstrap and start all local services with one command:
+
+```powershell
+.\scripts\start-local.ps1
+```
+
+Windows (manual startup) equivalents:
+
+```powershell
+Copy-Item .env.example .env
+cd backend
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+cd ..
+$env:VITE_API_BASE_URL="http://localhost:8000"
 npm run dev
 ```
 

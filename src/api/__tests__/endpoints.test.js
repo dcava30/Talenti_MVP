@@ -14,6 +14,8 @@ const { http, request } = await import("../http");
 const { interviewsApi } = await import("../interviews");
 const { candidatesApi } = await import("../candidates");
 const { auditApi } = await import("../audit");
+const { organisationsApi } = await import("../organisations");
+const { rolesApi } = await import("../roles");
 
 describe("API endpoints", () => {
     it("targets the AI interview endpoint", () => {
@@ -53,5 +55,23 @@ describe("API endpoints", () => {
             method: "POST",
             body: expect.any(FormData),
         });
+    });
+
+    it("targets organisation endpoints", () => {
+        organisationsApi.getCurrentMembership();
+        expect(http.get).toHaveBeenCalledWith("/api/orgs/current");
+
+        organisationsApi.updateRetention("org-1", 45);
+        expect(http.patch).toHaveBeenCalledWith("/api/orgs/org-1/retention", {
+            recording_retention_days: 45,
+        });
+
+        organisationsApi.getStats("org-1");
+        expect(http.get).toHaveBeenCalledWith("/api/orgs/org-1/stats");
+    });
+
+    it("targets role listing endpoint", () => {
+        rolesApi.listAll({ limit: 1 });
+        expect(http.get).toHaveBeenCalledWith("/api/roles", { limit: 1 });
     });
 });
