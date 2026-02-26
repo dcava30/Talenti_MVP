@@ -1,0 +1,201 @@
+Talenti Azure Setup Guide (DEV, UAT, PROD)
+==========================================
+
+Purpose
+-------
+This checklist is for deploying the Talenti stack to Azure across three environments:
+- DEV
+- UAT
+- PROD
+
+Use one environment-specific deployment for each stage, then promote the same image versions from DEV -> UAT -> PROD.
+
+
+1) Environment Strategy
+-----------------------
+Recommended:
+- Separate resource group per environment:
+  - rg-talenti-dev
+  - rg-talenti-uat
+  - rg-talenti-prod
+- Optionally separate subscription for PROD.
+- Keep naming consistent across all environments.
+
+
+2) Azure Resources To Create (Per Environment)
+----------------------------------------------
+Core hosting and runtime:
+- Azure Container Apps Environment
+- Azure Container Apps:
+  - backend
+  - model-service-1
+  - model-service-2
+  - python-acs-service (optional, only if using ACS call automation/recording paths)
+- Azure Container Registry (shared or per environment)
+
+Data and secrets:
+- Azure Storage Account
+  - Blob container(s) for uploads/recordings
+  - Azure Files share for SQLite persistence
+- Azure Key Vault for secrets/config values
+
+AI and communication dependencies:
+- Azure Communication Services
+- Azure AI Speech resource
+- Azure OpenAI resource + model deployment(s)
+
+Observability:
+- Log Analytics Workspace
+- Application Insights
+
+Frontend hosting:
+- Azure Static Web Apps (or equivalent static hosting)
+
+
+3) Container App Deployment Topology
+------------------------------------
+Deploy these services as separate container apps:
+- backend (FastAPI)
+- model-service-1
+- model-service-2
+- optional python-acs-service
+
+Configure backend app settings to point to model service URLs:
+- MODEL_SERVICE_1_URL=https://<model-service-1-url>
+- MODEL_SERVICE_2_URL=https://<model-service-2-url>
+
+Health endpoints to use in probes:
+- backend: /health
+- model-service-1: /health
+- model-service-2: /health
+- python-acs-service: /health/live and /health/ready
+
+
+4) Required App Settings / Secrets
+----------------------------------
+Set these for backend (from .env.example and backend config):
+- DATABASE_URL
+- JWT_SECRET
+- ENVIRONMENT
+- ALLOWED_ORIGINS
+- MODEL_SERVICE_1_URL
+- MODEL_SERVICE_2_URL
+- AZURE_ACS_CONNECTION_STRING
+- AZURE_SPEECH_KEY
+- AZURE_SPEECH_REGION
+- AZURE_OPENAI_ENDPOINT
+- AZURE_OPENAI_API_KEY
+- AZURE_OPENAI_DEPLOYMENT
+- AZURE_STORAGE_ACCOUNT
+- AZURE_STORAGE_ACCOUNT_KEY
+- AZURE_STORAGE_CONTAINER
+
+Set these for frontend build/runtime:
+- VITE_API_BASE_URL
+
+Set these for python-acs-service (if used):
+- ACS_CONNECTION_STRING
+- ACS_ENDPOINT
+- ACS_CALLBACK_URL
+- AZURE_STORAGE_CONNECTION_STRING
+- RECORDING_CONTAINER
+- SERVICE_BUS_CONNECTION_STRING (if queue workflow enabled)
+- SERVICE_BUS_QUEUE
+- FRONTEND_ORIGIN
+- ALLOWED_ORIGINS
+- ENVIRONMENT
+- JWT_SECRET
+- SQLITE_DB_PATH
+
+Important:
+- Store secrets in Key Vault.
+- Inject into Container Apps via secret references, not plain text.
+
+
+5) SQLite Note (Important for UAT/PROD)
+---------------------------------------
+Current app uses SQLite.
+For this to work in Azure:
+- Mount Azure Files to backend container at the SQLite path (for example /app/data).
+- Keep backend replica count at 1 to avoid SQLite lock and consistency issues.
+
+If you need scale-out in UAT/PROD, migrate from SQLite to a managed database first.
+
+
+6) Frontend Setup
+-----------------
+For each environment:
+- Deploy a frontend instance (or named environment) with the correct VITE_API_BASE_URL.
+- Ensure CORS alignment:
+  - Frontend URL must be in backend ALLOWED_ORIGINS.
+
+Example:
+- DEV frontend -> DEV backend URL
+- UAT frontend -> UAT backend URL
+- PROD frontend -> PROD backend URL
+
+
+7) CI/CD Promotion Flow
+-----------------------
+Recommended flow:
+1. Commit/merge to develop -> build images -> deploy DEV automatically.
+2. Run tests/smoke checks -> manual approval -> deploy UAT.
+3. UAT signoff -> manual approval -> deploy PROD.
+4. Promote same image tags between environments (do not rebuild differently per stage).
+
+Security recommendation:
+- Use GitHub OIDC federation to Azure for deployments (avoid long-lived client secrets).
+
+
+8) Validation Checklist Per Environment
+---------------------------------------
+After deployment:
+1. Confirm all container apps are healthy.
+2. Check backend /health endpoint.
+3. Verify backend can call model-service-1 and model-service-2.
+4. Verify auth works (register/login/token refresh).
+5. Verify Blob upload URL generation works.
+6. Verify Speech token issuance works.
+7. Verify ACS token issuance/webhook handshake (if ACS features enabled).
+8. Verify Azure OpenAI scoring path works.
+9. Confirm frontend can call backend APIs end-to-end.
+10. Confirm logs/metrics arrive in Log Analytics/App Insights.
+
+
+9) Environment Matrix Template
+------------------------------
+Copy this section and fill values for each stage.
+
+[DEV]
+- Frontend URL:
+- Backend URL:
+- Model Service 1 URL:
+- Model Service 2 URL:
+- ACS Resource:
+- Speech Resource:
+- OpenAI Resource + Deployment:
+- Storage Account / Container:
+- Key Vault:
+
+[UAT]
+- Frontend URL:
+- Backend URL:
+- Model Service 1 URL:
+- Model Service 2 URL:
+- ACS Resource:
+- Speech Resource:
+- OpenAI Resource + Deployment:
+- Storage Account / Container:
+- Key Vault:
+
+[PROD]
+- Frontend URL:
+- Backend URL:
+- Model Service 1 URL:
+- Model Service 2 URL:
+- ACS Resource:
+- Speech Resource:
+- OpenAI Resource + Deployment:
+- Storage Account / Container:
+- Key Vault:
+
