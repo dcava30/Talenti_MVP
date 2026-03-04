@@ -162,7 +162,11 @@ async def score_interview(
                 assert isinstance(name, str) and name.strip(), "Invalid dimension name"
                 assert isinstance(data, dict), f"Invalid score payload for {name}"
                 assert "score" in data, f"Missing score for {name}"
-                score_value = int(round(float(data.get("score"))))
+                raw_score = float(data.get("score"))
+                # Model services can return either 0..1 or 0..100 scores.
+                if 0.0 <= raw_score <= 1.0:
+                    raw_score *= 100.0
+                score_value = int(round(raw_score))
             except AssertionError as exc:
                 logger.warning("%s invalid score payload: %s", source, exc)
                 notes.append(f"{source} returned invalid score payload for {name or 'unknown'}.")

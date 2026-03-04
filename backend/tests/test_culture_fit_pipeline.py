@@ -147,3 +147,75 @@ def test_org_creation_seeds_default_values_framework(tmp_path: Path) -> None:
         values = json.loads(org.values_framework)
         assert "operating_environment" in values
         assert "taxonomy" in values
+
+
+def test_scoring_normalizes_model_score_ranges(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client = create_client(tmp_path)
+    from app.api import scoring as scoring_api
+    from app.db import SessionLocal
+
+    async def fake_predictions(*args, **kwargs):
+        return (
+            {
+                "scores": {
+                    "autonomy": {
+                        "score": 80,
+                        "rationale": "Culture model score.",
+                    }
+                },
+                "summary": "Culture model summary.",
+            },
+            {
+                "scores": {
+                    "autonomy": {
+                        "score": 0.82,
+                        "rationale": "Skillset model normalized score.",
+                    }
+                },
+                "summary": "Skillset model summary.",
+            },
+        )
+
+    monkeypatch.setattr(scoring_api.ml_client, "get_combined_predictions", fake_predictions)
+
+    with SessionLocal() as db:
+        _, token = _create_user_and_token(db)
+
+    payload = {
+        "interview_id": "int-2",
+        "transcript": [{"speaker": "candidate", "content": "I take ownership and drive decisions."}],
+        "operating_environment": {
+            "control_vs_autonomy": "full_ownership",
+            "outcome_vs_process": "results_first",
+            "conflict_style": "healthy_debate",
+            "decision_reality": "speed_led",
+            "ambiguity_load": "ambiguous",
+            "high_performance_archetype": "strong_owner",
+            "dimension_weights": {"autonomy": 1.0},
+            "fatal_risks": [],
+            "coachable_risks": [],
+        },
+        "taxonomy": {
+            "taxonomy_id": "test_taxonomy",
+            "version": "1.0.0",
+            "signals": [
+                {
+                    "signal_id": "ownership_signal",
+                    "dimension": "autonomy",
+                    "description": "Ownership behavior in responses.",
+                    "score_map": {"strong": 3, "moderate": 2, "weak": 0, "not_observed": 0},
+                    "evidence_hints": ["ownership", "own"],
+                }
+            ],
+        },
+    }
+
+    response = client.post(
+        "/api/v1/scoring/analyze",
+        json=payload,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    dimensions = {dim["name"]: dim["score"] for dim in data["dimensions"]}
+    assert dimensions["autonomy"] == 81
