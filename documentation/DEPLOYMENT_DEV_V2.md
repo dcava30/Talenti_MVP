@@ -49,7 +49,26 @@
 ## CI/CD
 
 - `infra-dev.yml`: deploys Bicep infra with OIDC.
-- `deploy-dev.yml`: builds/pushes images, runs backend migrations once, deploys internal services then backend, deploys frontend.
+- `deploy-dev.yml`:
+  - Builds/pushes backend and ACS worker images from this repo.
+  - Consumes pinned model images from GitHub environment `dev` variables:
+    - `DEV_MODEL1_IMAGE_REF`
+    - `DEV_MODEL2_IMAGE_REF`
+  - Fails fast if model refs are missing, malformed, or unresolved in ACR.
+  - Runs backend migrations once, deploys internal services then backend, deploys frontend.
+
+## Pinned Model Promotion Runbook
+
+1. In model repo pipelines, retrieve immutable digest refs for successful dev images:
+   - `acrtalentidev.azurecr.io/talenti/model-service-1@sha256:<64-hex>`
+   - `acrtalentidev.azurecr.io/talenti/model-service-2@sha256:<64-hex>`
+2. In GitHub -> main repo -> Settings -> Environments -> `dev`, set variables:
+   - `DEV_MODEL1_IMAGE_REF=<model1 digest ref>`
+   - `DEV_MODEL2_IMAGE_REF=<model2 digest ref>`
+3. Trigger `deploy-dev` workflow (manual or matching push).
+4. Verify deployment:
+   - Backend health endpoint returns 200.
+   - Container Apps `ca-model1-dev` and `ca-model2-dev` revisions reference the pinned digest images.
 
 ## Migration
 
