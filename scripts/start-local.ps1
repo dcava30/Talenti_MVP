@@ -3,6 +3,7 @@ param(
     [int]$BackendPort = 8000,
     [int]$Model1Port = 8001,
     [int]$Model2Port = 8002,
+    [int]$AcsWorkerPort = 8010,
     [int]$FrontendPort = 5173,
     [switch]$Detach
 )
@@ -111,6 +112,7 @@ if (-not (Test-Path $envPath)) {
 }
 
 $jwtSecret = "dev-" + ([Guid]::NewGuid().ToString("N"))
+$acsWorkerSecret = "acs-" + ([Guid]::NewGuid().ToString("N"))
 Set-Or-AppendEnvKey -EnvPath $envPath -Key "VITE_API_BASE_URL" -Value "http://localhost:$BackendPort"
 Set-Or-AppendEnvKey -EnvPath $envPath -Key "DATABASE_URL" -Value "sqlite:///./data/app.db"
 Set-Or-AppendEnvKey -EnvPath $envPath -Key "JWT_SECRET" -Value $jwtSecret
@@ -118,6 +120,13 @@ Set-Or-AppendEnvKey -EnvPath $envPath -Key "ENVIRONMENT" -Value "development"
 Set-Or-AppendEnvKey -EnvPath $envPath -Key "ALLOWED_ORIGINS" -Value "[""http://localhost:$FrontendPort""]"
 Set-Or-AppendEnvKey -EnvPath $envPath -Key "MODEL_SERVICE_1_URL" -Value "http://localhost:$Model1Port"
 Set-Or-AppendEnvKey -EnvPath $envPath -Key "MODEL_SERVICE_2_URL" -Value "http://localhost:$Model2Port"
+Set-Or-AppendEnvKey -EnvPath $envPath -Key "ACS_WORKER_URL" -Value "http://localhost:$AcsWorkerPort"
+Set-Or-AppendEnvKey -EnvPath $envPath -Key "ACS_WORKER_SHARED_SECRET" -Value $acsWorkerSecret
+Set-Or-AppendEnvKey -EnvPath $envPath -Key "PUBLIC_BASE_URL" -Value "http://localhost:$BackendPort"
+
+$env:ACS_WORKER_SHARED_SECRET = $acsWorkerSecret
+$env:BACKEND_INTERNAL_URL = "http://localhost:$BackendPort"
+$env:ACS_CALLBACK_URL = "http://localhost:$BackendPort/api/v1/acs/webhook"
 
 Write-Section "Bootstrap backend dependencies"
 $backendPath = Join-Path $repoRootResolved "backend"
@@ -141,6 +150,12 @@ $backendDeps = @(
     "openai>=1.35.0"
 )
 Invoke-Checked $backendPython (@("-m", "pip", "install") + $backendDeps)
+
+Write-Section "Bootstrap acs-worker dependencies"
+$acsWorkerPath = Join-Path $repoRootResolved "python-acs-service"
+$acsWorkerPython = Ensure-Venv (Join-Path $acsWorkerPath ".venv")
+Invoke-Checked $acsWorkerPython @("-m", "pip", "install", "--upgrade", "pip")
+Invoke-Checked $acsWorkerPython @("-m", "pip", "install", "-r", "requirements.txt") $acsWorkerPath
 
 Write-Section "Bootstrap model-service-1 dependencies"
 $ms1Path = Join-Path $repoRootResolved "model-service-1"
@@ -174,6 +189,10 @@ try {
     $backendProc = Start-Process -FilePath $backendPython -ArgumentList "-m","uvicorn","app.main:app","--host","127.0.0.1","--port",$BackendPort -WorkingDirectory $backendPath -RedirectStandardOutput (Join-Path $logsDir "backend.out.log") -RedirectStandardError (Join-Path $logsDir "backend.err.log") -PassThru
     $processes += $backendProc
 
+    Write-Section "Start acs-worker"
+    $acsWorkerProc = Start-Process -FilePath $acsWorkerPython -ArgumentList "-m","uvicorn","app.main:app","--host","127.0.0.1","--port",$AcsWorkerPort -WorkingDirectory $acsWorkerPath -RedirectStandardOutput (Join-Path $logsDir "acs-worker.out.log") -RedirectStandardError (Join-Path $logsDir "acs-worker.err.log") -PassThru
+    $processes += $acsWorkerProc
+
     Write-Section "Start frontend"
     $frontendProc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c","npm","run","dev","--","--host","127.0.0.1","--port",$FrontendPort -WorkingDirectory $repoRootResolved -RedirectStandardOutput (Join-Path $logsDir "frontend.out.log") -RedirectStandardError (Join-Path $logsDir "frontend.err.log") -PassThru
     $processes += $frontendProc
@@ -182,6 +201,7 @@ try {
     Wait-ForUrl "http://localhost:$Model1Port/health" | Out-Null
     Wait-ForUrl "http://localhost:$Model2Port/health" | Out-Null
     Wait-ForUrl "http://localhost:$BackendPort/health" | Out-Null
+    Wait-ForUrl "http://localhost:$AcsWorkerPort/health/live" | Out-Null
     Wait-ForUrl "http://localhost:$FrontendPort" | Out-Null
 
     Write-Host "Local stack is running."

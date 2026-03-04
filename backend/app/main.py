@@ -1,7 +1,3 @@
-from pathlib import Path
-
-from alembic import command
-from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -11,6 +7,7 @@ from app.api import (
     applications,
     audit_log,
     auth,
+    call_automation,
     candidates,
     interview_scores,
     interviews,
@@ -37,14 +34,6 @@ if settings.allowed_origins:
         allow_headers=["*"],
     )
 
-
-@app.on_event("startup")
-def on_startup() -> None:
-    alembic_config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
-    alembic_config.set_main_option("sqlalchemy.url", settings.database_url)
-    command.upgrade(alembic_config, "head")
-
-
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
@@ -53,6 +42,7 @@ def health() -> dict:
 app.include_router(auth.router)
 app.include_router(ai.router)
 app.include_router(acs.router)
+app.include_router(call_automation.router)
 app.include_router(speech.router)
 app.include_router(orgs.router)
 app.include_router(roles.router)

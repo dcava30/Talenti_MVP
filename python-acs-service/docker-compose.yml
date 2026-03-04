@@ -16,11 +16,8 @@ services:
       # Azure Storage
       - AZURE_STORAGE_CONNECTION_STRING=${AZURE_STORAGE_CONNECTION_STRING}
       - RECORDING_CONTAINER=interview-recordings
-      - SQLITE_DB_PATH=${SQLITE_DB_PATH:-./data/app.db}
-      
-      # Azure Service Bus
-      - SERVICE_BUS_CONNECTION_STRING=${SERVICE_BUS_CONNECTION_STRING}
-      - SERVICE_BUS_QUEUE=acs-events
+      - BACKEND_INTERNAL_URL=${BACKEND_INTERNAL_URL:-http://backend:8000}
+      - ACS_WORKER_SHARED_SECRET=${ACS_WORKER_SHARED_SECRET}
       
       # Application
       - LOG_LEVEL=INFO

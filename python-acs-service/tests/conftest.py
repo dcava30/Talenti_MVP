@@ -26,6 +26,8 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[TestCli
     monkeypatch.setenv("SQLITE_DB_PATH", str(db_path))
     monkeypatch.setenv("JWT_SECRET", "test-secret")
     monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("ACS_WORKER_SHARED_SECRET", "test-worker-secret")
+    monkeypatch.setenv("BACKEND_INTERNAL_URL", "http://backend:8000")
 
     from app import config as config_module
 

@@ -18,6 +18,16 @@ class InterviewUpdate(BaseModel):
     started_at: datetime | None = None
     ended_at: datetime | None = None
     duration_seconds: int | None = None
+    call_connection_id: str | None = None
+    server_call_id: str | None = None
+    recording_id: str | None = None
+    recording_started: bool | None = None
+    recording_processed: bool | None = None
+    recording_status: str | None = None
+    recording_error: str | None = None
+    recording_started_at: datetime | None = None
+    recording_stopped_at: datetime | None = None
+    recording_processed_at: datetime | None = None
     recording_url: str | None = None
     transcript_status: str | None = None
     summary: str | None = None
@@ -32,6 +42,16 @@ class InterviewResponse(BaseModel):
     started_at: datetime | None
     ended_at: datetime | None
     duration_seconds: int | None
+    call_connection_id: str | None
+    server_call_id: str | None
+    recording_id: str | None
+    recording_started: bool
+    recording_processed: bool
+    recording_status: str | None
+    recording_error: str | None
+    recording_started_at: datetime | None
+    recording_stopped_at: datetime | None
+    recording_processed_at: datetime | None
     recording_url: str | None
     transcript_status: str | None
     summary: str | None

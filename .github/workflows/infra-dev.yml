@@ -1,0 +1,51 @@
+name: infra-dev
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [develop]
+    paths:
+      - "infra/**"
+      - ".github/workflows/infra-dev.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-infra:
+    runs-on: ubuntu-latest
+    env:
+      AZURE_LOCATION: australiaeast
+      AZURE_RESOURCE_GROUP: rg-talenti-dev-aue
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Ensure resource group
+        run: az group create --name "$AZURE_RESOURCE_GROUP" --location "$AZURE_LOCATION"
+
+      - name: Deploy bicep
+        run: |
+          az deployment group create \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --template-file infra/dev/main.bicep \
+            --parameters @infra/dev/parameters.dev.json
+
+      - name: Assign AcrPull and Key Vault Secrets User roles
+        run: |
+          ACR_ID=$(az acr show --name acrtalentidev --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
+          KV_ID=$(az keyvault show --name kv-talenti-dev-aue --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
+          for APP in ca-backend-dev ca-model1-dev ca-model2-dev ca-acs-worker-dev; do
+            PRINCIPAL_ID=$(az containerapp show --name "$APP" --resource-group "$AZURE_RESOURCE_GROUP" --query identity.principalId -o tsv)
+            if [ -n "$PRINCIPAL_ID" ]; then
+              az role assignment create --assignee-object-id "$PRINCIPAL_ID" --assignee-principal-type ServicePrincipal --role AcrPull --scope "$ACR_ID" || true
+              az role assignment create --assignee-object-id "$PRINCIPAL_ID" --assignee-principal-type ServicePrincipal --role "Key Vault Secrets User" --scope "$KV_ID" || true
+            fi
+          done

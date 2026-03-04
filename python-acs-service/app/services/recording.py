@@ -4,6 +4,7 @@ Recording management service
 from typing import Optional, Dict, Any, List, Tuple, AsyncIterator
 import logging
 from datetime import datetime
+import httpx
 
 from app.config import settings
 from app.models.recording import (
@@ -13,8 +14,6 @@ from app.models.recording import (
     RecordingState,
     RecordingStatus
 )
-from app.db.session import SessionLocal
-from app.repositories.interviews import InterviewRepository
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +88,34 @@ class RecordingService:
             RecordingFormatType.MP4: recording_format.MP4,
         }
         return mapping.get(format_type, recording_format.WAV)
+
+    async def _notify_backend(
+        self,
+        *,
+        interview_id: str,
+        recording_id: str,
+        status_value: str,
+        recording_url: str | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        if not settings.BACKEND_INTERNAL_URL:
+            return
+        endpoint = f"{settings.BACKEND_INTERNAL_URL.rstrip('/')}/api/v1/acs/worker-events"
+        payload = {
+            "interview_id": interview_id,
+            "recording_id": recording_id,
+            "status": status_value,
+            "recording_url": recording_url,
+            "error_message": error_message,
+            "processed_at": datetime.utcnow().isoformat(),
+        }
+        headers = {"X-ACS-Worker-Secret": settings.ACS_WORKER_SHARED_SECRET}
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.post(endpoint, json=payload, headers=headers)
+            response.raise_for_status()
+        except Exception as exc:
+            logger.error("Failed to notify backend for recording %s: %s", recording_id, exc)
     
     async def start_recording(
         self,
@@ -125,16 +152,11 @@ class RecordingService:
             "started_at": datetime.utcnow()
         }
         
-        # Update interview record
-        with SessionLocal() as session:
-            repository = InterviewRepository(session)
-            updated = repository.update_recording(
-                interview_id=interview_id,
-                recording_id=recording_id,
-                recording_started=True,
-            )
-            if not updated:
-                logger.warning("Failed to update interview %s recording start state", interview_id)
+        await self._notify_backend(
+            interview_id=interview_id,
+            recording_id=recording_id,
+            status_value="recording",
+        )
         
         return {
             "recording_id": recording_id,
@@ -166,6 +188,11 @@ class RecordingService:
         if recording_id in self._recordings:
             self._recordings[recording_id]["state"] = RecordingState.STOPPED
             self._recordings[recording_id]["stopped_at"] = datetime.utcnow()
+            await self._notify_backend(
+                interview_id=self._recordings[recording_id]["interview_id"],
+                recording_id=recording_id,
+                status_value="processing",
+            )
         
         logger.info(f"Recording {recording_id} stopped")
         return RecordingState.STOPPED
@@ -225,16 +252,12 @@ class RecordingService:
             recording["file_size_bytes"] = len(content)
             recording["processed_at"] = datetime.utcnow()
             
-            # Update interview record in SQLite
-            with SessionLocal() as session:
-                repository = InterviewRepository(session)
-                updated = repository.update_recording(
-                    interview_id=interview_id,
-                    recording_processed=True,
-                    recording_url=blob_url,
-                )
-                if not updated:
-                    logger.warning("Failed to update interview %s recording status", interview_id)
+            await self._notify_backend(
+                interview_id=interview_id,
+                recording_id=recording_id,
+                status_value="completed",
+                recording_url=blob_url,
+            )
             
             logger.info(f"Recording {recording_id} processed and uploaded to {blob_url}")
             
@@ -242,6 +265,12 @@ class RecordingService:
             logger.error(f"Failed to process recording {recording_id}: {e}")
             recording["status"] = RecordingStatus.FAILED
             recording["error_message"] = str(e)
+            await self._notify_backend(
+                interview_id=recording.get("interview_id", ""),
+                recording_id=recording_id,
+                status_value="failed",
+                error_message=str(e),
+            )
     
     async def download_recording(
         self,

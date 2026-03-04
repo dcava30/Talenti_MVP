@@ -1,17 +1,11 @@
-"""Speech token endpoint tests."""
+"""Internal recordings endpoint tests."""
 from fastapi.testclient import TestClient
 
 
-def _get_token(client: TestClient) -> str:
-    response = client.post("/auth/login", json={"username": "speech@example.com", "password": "password123"})
-    return response.json()["access_token"]
-
-
-def test_speech_token_returns_mocked_in_dev(client: TestClient) -> None:
-    """Speech token endpoint returns mocked token in dev when config missing."""
-    token = _get_token(client)
-    response = client.get("/speech/token", headers={"Authorization": f"Bearer {token}"})
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["mocked"] is True
-    assert payload["token"]
+def test_internal_recordings_require_shared_secret(client: TestClient) -> None:
+    """Recording routes are internal-only and require a shared secret."""
+    response = client.post(
+        "/internal/recordings/start",
+        json={"interview_id": "int-1", "server_call_id": "srv-1"},
+    )
+    assert response.status_code == 401

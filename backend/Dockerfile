@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     "fastapi>=0.111.0" \
     "uvicorn[standard]>=0.30.0" \
     "sqlalchemy>=2.0.30" \
+    "psycopg[binary]>=3.2.0" \
     "alembic>=1.13.1" \
     "pydantic>=2.8.2" \
     "pydantic-settings>=2.4.0" \

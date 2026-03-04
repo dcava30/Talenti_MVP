@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     model_service_1_url: str = "http://model-service-1:8001"
     model_service_2_url: str = "http://model-service-2:8002"
 
+    # Internal ACS worker integration
+    acs_worker_url: str = ""
+    acs_worker_shared_secret: str = ""
+    public_base_url: str = ""
+
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE),
         env_prefix="",

@@ -1,0 +1,110 @@
+name: deploy-dev
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [develop]
+    paths:
+      - "backend/**"
+      - "python-acs-service/**"
+      - "model-service-1/**"
+      - "model-service-2/**"
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy-dev.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      AZURE_RESOURCE_GROUP: rg-talenti-dev-aue
+      ACR_NAME: acrtalentidev
+      BACKEND_APP: ca-backend-dev
+      MODEL1_APP: ca-model1-dev
+      MODEL2_APP: ca-model2-dev
+      ACS_WORKER_APP: ca-acs-worker-dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR login
+        run: az acr login --name "$ACR_NAME"
+
+      - name: Build and push backend image
+        run: |
+          BACKEND_IMAGE="$ACR_NAME.azurecr.io/talenti/backend:${GITHUB_SHA}"
+          docker build -t "$BACKEND_IMAGE" backend
+          docker push "$BACKEND_IMAGE"
+          echo "BACKEND_IMAGE=$BACKEND_IMAGE" >> $GITHUB_ENV
+
+      - name: Build and push model-service-1 image
+        run: |
+          MODEL1_IMAGE="$ACR_NAME.azurecr.io/talenti/model-service-1:${GITHUB_SHA}"
+          docker build -t "$MODEL1_IMAGE" model-service-1
+          docker push "$MODEL1_IMAGE"
+          echo "MODEL1_IMAGE=$MODEL1_IMAGE" >> $GITHUB_ENV
+
+      - name: Build and push model-service-2 image
+        run: |
+          MODEL2_IMAGE="$ACR_NAME.azurecr.io/talenti/model-service-2:${GITHUB_SHA}"
+          docker build -t "$MODEL2_IMAGE" model-service-2
+          docker push "$MODEL2_IMAGE"
+          echo "MODEL2_IMAGE=$MODEL2_IMAGE" >> $GITHUB_ENV
+
+      - name: Build and push acs-worker image
+        run: |
+          ACS_IMAGE="$ACR_NAME.azurecr.io/talenti/acs-worker:${GITHUB_SHA}"
+          docker build -t "$ACS_IMAGE" python-acs-service
+          docker push "$ACS_IMAGE"
+          echo "ACS_IMAGE=$ACS_IMAGE" >> $GITHUB_ENV
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run backend migrations (single job)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e backend
+          export DATABASE_URL="${{ secrets.BACKEND_DATABASE_URL }}"
+          export JWT_SECRET="${{ secrets.JWT_SECRET }}"
+          python backend/scripts/run_migrations.py
+
+      - name: Deploy internal services
+        run: |
+          az containerapp update --name "$MODEL1_APP" --resource-group "$AZURE_RESOURCE_GROUP" --image "$MODEL1_IMAGE"
+          az containerapp update --name "$MODEL2_APP" --resource-group "$AZURE_RESOURCE_GROUP" --image "$MODEL2_IMAGE"
+          az containerapp update --name "$ACS_WORKER_APP" --resource-group "$AZURE_RESOURCE_GROUP" --image "$ACS_IMAGE"
+
+      - name: Deploy backend
+        run: az containerapp update --name "$BACKEND_APP" --resource-group "$AZURE_RESOURCE_GROUP" --image "$BACKEND_IMAGE"
+
+      - name: Build frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Deploy frontend to Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: "upload"
+          app_location: "/"
+          output_location: "dist"
+
+      - name: Smoke check backend health
+        run: |
+          curl -f "${{ secrets.DEV_BACKEND_HEALTH_URL }}"

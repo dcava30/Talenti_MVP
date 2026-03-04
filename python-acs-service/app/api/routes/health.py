@@ -1,7 +1,8 @@
 """
 Health check endpoints
 """
-from fastapi import APIRouter, Response
+from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 from datetime import datetime
 import logging
 
@@ -27,19 +28,18 @@ async def readiness_check():
     checks = {
         "acs_configured": bool(settings.ACS_CONNECTION_STRING),
         "storage_configured": bool(settings.AZURE_STORAGE_CONNECTION_STRING),
-        "database_configured": bool(settings.DATABASE_URL),
+        "backend_callback_configured": bool(settings.BACKEND_INTERNAL_URL),
     }
     
     all_ready = all(checks.values())
     
-    return Response(
-        content=str({
+    return JSONResponse(
+        content={
             "ready": all_ready,
             "checks": checks,
-            "timestamp": datetime.utcnow().isoformat()
-        }),
+            "timestamp": datetime.utcnow().isoformat(),
+        },
         status_code=200 if all_ready else 503,
-        media_type="application/json"
     )
 
 
