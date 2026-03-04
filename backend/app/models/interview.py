@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -17,6 +17,16 @@ class Interview(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    call_connection_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    server_call_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    recording_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    recording_started: Mapped[bool] = mapped_column(Boolean, default=False)
+    recording_processed: Mapped[bool] = mapped_column(Boolean, default=False)
+    recording_status: Mapped[str | None] = mapped_column(String, nullable=True)
+    recording_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recording_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    recording_stopped_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    recording_processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     recording_url: Mapped[str | None] = mapped_column(String, nullable=True)
     transcript_status: Mapped[str | None] = mapped_column(String, nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)

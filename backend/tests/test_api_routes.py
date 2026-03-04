@@ -54,6 +54,12 @@ def test_protected_routes_exist(tmp_path: Path) -> None:
     assert response.status_code == 401
 
     response = client.post(
+        "/api/v1/call-automation/calls",
+        json={"interview_id": "int-1", "target_identity": "8:acs:user"},
+    )
+    assert response.status_code == 401
+
+    response = client.post(
         "/api/v1/interview/chat",
         json={"interview_id": "int-1", "messages": [{"role": "user", "content": "Hi"}]},
     )

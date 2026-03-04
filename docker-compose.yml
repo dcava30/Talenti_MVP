@@ -13,6 +13,9 @@ services:
       - JWT_SECRET=${JWT_SECRET:-dev-docker-secret}
       - MODEL_SERVICE_1_URL=http://model-service-1:8001
       - MODEL_SERVICE_2_URL=http://model-service-2:8002
+      - ACS_WORKER_URL=http://acs-worker:8000
+      - ACS_WORKER_SHARED_SECRET=${ACS_WORKER_SHARED_SECRET:-dev-acs-worker-secret}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://localhost:8000}
       - AZURE_ACS_CONNECTION_STRING=${AZURE_ACS_CONNECTION_STRING}
       - AZURE_STORAGE_ACCOUNT=${AZURE_STORAGE_ACCOUNT}
       - AZURE_STORAGE_ACCOUNT_KEY=${AZURE_STORAGE_ACCOUNT_KEY}
@@ -23,6 +26,7 @@ services:
     depends_on:
       - model-service-1
       - model-service-2
+      - acs-worker
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -94,6 +98,30 @@ services:
         reservations:
           cpus: '1'
           memory: 2G
+    networks:
+      - talenti-network
+
+  # Internal ACS worker service (no public ingress in cloud topology)
+  acs-worker:
+    build:
+      context: ./python-acs-service
+      dockerfile: Dockerfile
+    environment:
+      - ACS_CONNECTION_STRING=${AZURE_ACS_CONNECTION_STRING}
+      - AZURE_STORAGE_CONNECTION_STRING=${AZURE_STORAGE_CONNECTION_STRING}
+      - RECORDING_CONTAINER=${RECORDING_CONTAINER:-recordings}
+      - BACKEND_INTERNAL_URL=http://backend:8000
+      - ACS_WORKER_SHARED_SECRET=${ACS_WORKER_SHARED_SECRET:-dev-acs-worker-secret}
+      - ACS_CALLBACK_URL=${PUBLIC_BASE_URL:-http://localhost:8000}/api/v1/acs/webhook
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health/live')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     networks:
       - talenti-network
 

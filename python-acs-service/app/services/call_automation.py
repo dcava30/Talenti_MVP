@@ -74,6 +74,8 @@ class CallAutomationService:
         """
         correlation_id = str(uuid.uuid4())
         callback = callback_url or settings.ACS_CALLBACK_URL
+        if not callback:
+            raise ValueError("callback_url is required")
         
         target = self._parse_identity(target_identity)
         _, call_invite_class, _, phone_number, _, _, _ = _load_acs_clients()
