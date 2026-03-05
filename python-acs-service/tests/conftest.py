@@ -13,8 +13,8 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture()
-def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
-    """Provide a configured test client with an isolated SQLite database."""
+def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
+    """Provide a configured test client with an isolated PostgreSQL schema."""
     service_root = Path(__file__).resolve().parents[1]
     if str(service_root) not in sys.path:
         sys.path.insert(0, str(service_root))
@@ -22,8 +22,11 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[TestCli
         if module_name == "app" or module_name.startswith("app."):
             del sys.modules[module_name]
 
-    db_path = tmp_path / "test.db"
-    monkeypatch.setenv("SQLITE_DB_PATH", str(db_path))
+    test_database_url = os.environ.get(
+        "TEST_DATABASE_URL",
+        "postgresql+psycopg://postgres:postgres@localhost:5432/talenti_acs_test",
+    )
+    monkeypatch.setenv("DATABASE_URL", test_database_url)
     monkeypatch.setenv("JWT_SECRET", "test-secret")
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("ACS_WORKER_SHARED_SECRET", "test-worker-secret")
@@ -40,6 +43,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[TestCli
     from app.db.base import Base
     import app.models  # noqa: F401
 
+    Base.metadata.drop_all(bind=session_module.engine)
     Base.metadata.create_all(bind=session_module.engine)
 
     import app.main as main_module

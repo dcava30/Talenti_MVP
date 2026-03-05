@@ -5,6 +5,13 @@ param(
     [int]$Model2Port = 8002,
     [int]$AcsWorkerPort = 8010,
     [int]$FrontendPort = 5173,
+    [ValidateSet("compose", "external")]
+    [string]$DatabaseMode = "compose",
+    [string]$ExternalDatabaseUrl = "",
+    [int]$PostgresPort = 5432,
+    [string]$PostgresUser = "postgres",
+    [string]$PostgresPassword = "postgres",
+    [string]$PostgresDb = "talenti",
     [switch]$Detach
 )
 
@@ -55,6 +62,29 @@ function Invoke-Checked {
     }
 }
 
+function Wait-ForComposePostgres {
+    param(
+        [string]$Workdir,
+        [string]$User,
+        [string]$Database,
+        [int]$TimeoutSec = 180
+    )
+    $start = Get-Date
+    while ((Get-Date) - $start -lt [TimeSpan]::FromSeconds($TimeoutSec)) {
+        Push-Location $Workdir
+        try {
+            & docker compose exec -T postgres pg_isready -U $User -d $Database *> $null
+            if ($LASTEXITCODE -eq 0) {
+                return
+            }
+        } finally {
+            Pop-Location
+        }
+        Start-Sleep -Seconds 2
+    }
+    throw "Timed out waiting for local PostgreSQL readiness."
+}
+
 function Ensure-Venv {
     param([string]$VenvPath)
     if (-not (Test-Path $VenvPath)) {
@@ -98,6 +128,16 @@ function Set-Or-AppendEnvKey {
     Set-Content -Path $EnvPath -Value $lines -Encoding ASCII
 }
 
+function Resolve-DatabaseUrl {
+    if ($DatabaseMode -eq "external") {
+        if (-not $ExternalDatabaseUrl) {
+            throw "External mode requires -ExternalDatabaseUrl."
+        }
+        return $ExternalDatabaseUrl
+    }
+    return "postgresql+psycopg://${PostgresUser}:$PostgresPassword@localhost:$PostgresPort/$PostgresDb"
+}
+
 Write-Section "Prepare environment"
 $repoRootResolved = (Resolve-Path $RepoRoot).Path
 $envPath = Join-Path $repoRootResolved ".env"
@@ -111,10 +151,21 @@ if (-not (Test-Path $envPath)) {
     }
 }
 
+$databaseUrl = Resolve-DatabaseUrl
+if ($DatabaseMode -eq "compose") {
+    Write-Section "Start local PostgreSQL"
+    $env:POSTGRES_USER = $PostgresUser
+    $env:POSTGRES_PASSWORD = $PostgresPassword
+    $env:POSTGRES_DB = $PostgresDb
+    Invoke-Checked "docker" @("compose", "up", "-d", "postgres") $repoRootResolved
+    Wait-ForComposePostgres -Workdir $repoRootResolved -User $PostgresUser -Database $PostgresDb
+}
+
 $jwtSecret = "dev-" + ([Guid]::NewGuid().ToString("N"))
 $acsWorkerSecret = "acs-" + ([Guid]::NewGuid().ToString("N"))
 Set-Or-AppendEnvKey -EnvPath $envPath -Key "VITE_API_BASE_URL" -Value "http://localhost:$BackendPort"
-Set-Or-AppendEnvKey -EnvPath $envPath -Key "DATABASE_URL" -Value "sqlite:///./data/app.db"
+Set-Or-AppendEnvKey -EnvPath $envPath -Key "DATABASE_URL" -Value $databaseUrl
+Set-Or-AppendEnvKey -EnvPath $envPath -Key "BACKEND_DATABASE_URL" -Value $databaseUrl
 Set-Or-AppendEnvKey -EnvPath $envPath -Key "JWT_SECRET" -Value $jwtSecret
 Set-Or-AppendEnvKey -EnvPath $envPath -Key "ENVIRONMENT" -Value "development"
 Set-Or-AppendEnvKey -EnvPath $envPath -Key "ALLOWED_ORIGINS" -Value "[""http://localhost:$FrontendPort""]"
@@ -124,6 +175,7 @@ Set-Or-AppendEnvKey -EnvPath $envPath -Key "ACS_WORKER_URL" -Value "http://local
 Set-Or-AppendEnvKey -EnvPath $envPath -Key "ACS_WORKER_SHARED_SECRET" -Value $acsWorkerSecret
 Set-Or-AppendEnvKey -EnvPath $envPath -Key "PUBLIC_BASE_URL" -Value "http://localhost:$BackendPort"
 
+$env:DATABASE_URL = $databaseUrl
 $env:ACS_WORKER_SHARED_SECRET = $acsWorkerSecret
 $env:BACKEND_INTERNAL_URL = "http://localhost:$BackendPort"
 $env:ACS_CALLBACK_URL = "http://localhost:$BackendPort/api/v1/acs/webhook"
@@ -136,6 +188,7 @@ $backendDeps = @(
     "fastapi>=0.111.0",
     "uvicorn[standard]>=0.30.0",
     "sqlalchemy>=2.0.30",
+    "psycopg[binary]>=3.2.0",
     "alembic>=1.13.1",
     "pydantic>=2.8.2",
     "pydantic-settings>=2.4.0",
@@ -227,6 +280,14 @@ try {
                 } catch {
                     Write-Host "Failed to stop process $($proc.Id): $_"
                 }
+            }
+        }
+        if ($DatabaseMode -eq "compose") {
+            try {
+                Write-Section "Stop local PostgreSQL"
+                Invoke-Checked "docker" @("compose", "stop", "postgres") $repoRootResolved
+            } catch {
+                Write-Host "Failed to stop local PostgreSQL: $_"
             }
         }
     }

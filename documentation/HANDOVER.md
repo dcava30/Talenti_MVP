@@ -1,11 +1,11 @@
 # Talenti Handover
 
-This handover describes the current Talenti platform architecture: **React frontend + FastAPI backend + SQLite** with Azure service integrations.
+This handover describes the current Talenti platform architecture: **React frontend + FastAPI backend + PostgreSQL** with Azure service integrations.
 
 ## 1. System Overview
 
 - **Frontend:** React (Vite) + Tailwind CSS
-- **Backend:** FastAPI (Python) + SQLite
+- **Backend:** FastAPI (Python) + PostgreSQL
 - **Auth:** JWT issued and validated by FastAPI
 - **Storage:** Azure Blob Storage
 - **AI + Comms:** Azure OpenAI, Azure Communication Services, Azure Speech
@@ -35,7 +35,7 @@ The backend handles:
 
 Copy `.env.example` to `.env` and configure:
 
-- `DATABASE_URL=sqlite:///./data/app.db`
+- `DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/talenti`
 - `JWT_SECRET` and optional JWT settings
 - Azure credentials for ACS, Speech, OpenAI, and Blob Storage
 
@@ -55,7 +55,7 @@ npm run dev
 
 ## 6. Deployment Notes
 
-- Ensure the SQLite database path is writable on the server.
+- Ensure the PostgreSQL instance is reachable from the server.
 - Configure all Azure environment variables.
 - Use a secure JWT secret in production.
 
@@ -66,3 +66,5 @@ npm run dev
 - **Storage issues:** verify Azure Blob credentials and container name.
 - **AI issues:** verify Azure OpenAI credentials and deployment name.
 - **Speech issues:** verify Azure Speech key/region.
+
+

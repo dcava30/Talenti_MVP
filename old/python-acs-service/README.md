@@ -7,7 +7,7 @@ Python FastAPI service for Azure Communication Services (ACS) call automation an
 - **Call Management**: Create, answer, and manage VoIP calls
 - **Recording**: Start, pause, resume, and stop call recordings
 - **Storage Integration**: Automatic upload to Azure Blob Storage
-- **SQLite Persistence**: Track interviews and recording metadata locally
+- **PostgreSQL Persistence**: Track interviews and recording metadata locally
 
 ## Prerequisites
 
@@ -103,30 +103,33 @@ docker-compose up --build
 | `ACS_ENDPOINT` | ACS endpoint URL | Yes |
 | `ACS_CALLBACK_URL` | Webhook callback URL | Yes |
 | `AZURE_STORAGE_CONNECTION_STRING` | Blob storage connection | Yes |
-| `SQLITE_DB_PATH` | SQLite database path | No (defaults to `./data/app.db`) |
+| `DATABASE_URL` | PostgreSQL DSN | No (defaults to `postgresql+psycopg://postgres:postgres@localhost:5432/talenti`) |
 | `LOG_LEVEL` | Logging level (INFO, DEBUG) | No |
 
 ## Architecture
 
 ```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────┐
-│  Lovable Edge   │────▶│  ACS Service     │────▶│  Azure ACS  │
-│  Functions      │     │  (This Service)  │     │             │
-└─────────────────┘     └──────────────────┘     └─────────────┘
-                               │
-                               ▼
-                        ┌──────────────────┐
-                        │  Azure Blob      │
-                        │  Storage         │
-                        └──────────────────┘
-                               │
-                               ▼
-                        ┌──────────────────┐
-                        │  SQLite          │
-                        │  (interviews)    │
-                        └──────────────────┘
+-     -     -
+-  Lovable Edge   -  ACS Service     -  Azure ACS  -
+-  Functions      -     -  (This Service)  -     -             -
+-     -     -
+                               -
+                               -
+                        -
+                        -  Azure Blob      -
+                        -  Storage         -
+                        -
+                               -
+                               -
+                        -
+                        -  PostgreSQL          -
+                        -  (interviews)    -
+                        -
 ```
 
 ## License
 
 Proprietary - Talenti
+
+
+

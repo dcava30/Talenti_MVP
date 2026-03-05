@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -22,9 +24,16 @@ from app.api import (
     storage,
 )
 from app.core.config import settings
+from app.core.migrations import run_startup_migrations
 
 
-app = FastAPI(title="Talenti API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    run_startup_migrations()
+    yield
+
+
+app = FastAPI(title="Talenti API", lifespan=lifespan)
 if settings.allowed_origins:
     app.add_middleware(
         CORSMiddleware,

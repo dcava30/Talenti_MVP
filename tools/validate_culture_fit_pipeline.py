@@ -18,7 +18,10 @@ def _clear_app_modules() -> None:
 
 def _load_backend_modules():
     os.environ.setdefault("JWT_SECRET", "test-secret")
-    os.environ.setdefault("DATABASE_URL", "sqlite:///./data/app.db")
+    os.environ.setdefault(
+        "DATABASE_URL",
+        "postgresql+psycopg://postgres:postgres@localhost:5432/talenti",
+    )
     backend_root = str(ROOT / "backend")
     if backend_root not in sys.path:
         sys.path.insert(0, backend_root)

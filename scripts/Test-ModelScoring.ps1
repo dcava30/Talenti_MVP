@@ -113,7 +113,7 @@ services:
         $env:MODEL_SERVICE_2_URL = $Model2Url
         $env:JWT_SECRET = $JwtSecret
         if (-not $env:DATABASE_URL) {
-            $env:DATABASE_URL = "sqlite:///./data/app.db"
+            $env:DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/talenti"
         }
 
         $model1Proc = Start-Process -FilePath "python" -ArgumentList @(

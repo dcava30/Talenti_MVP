@@ -7,8 +7,6 @@ on:
     paths:
       - "backend/**"
       - "python-acs-service/**"
-      - "model-service-1/**"
-      - "model-service-2/**"
       - "src/**"
       - "package.json"
       - "package-lock.json"
@@ -21,6 +19,7 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: dev
     env:
       AZURE_RESOURCE_GROUP: rg-talenti-dev-aue
       ACR_NAME: acrtalentidev
@@ -28,6 +27,8 @@ jobs:
       MODEL1_APP: ca-model1-dev
       MODEL2_APP: ca-model2-dev
       ACS_WORKER_APP: ca-acs-worker-dev
+      MODEL1_IMAGE: ${{ vars.DEV_MODEL1_IMAGE_REF }}
+      MODEL2_IMAGE: ${{ vars.DEV_MODEL2_IMAGE_REF }}
     steps:
       - uses: actions/checkout@v4
 
@@ -35,18 +36,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
-      - name: Run model service tests
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r model-service-1/requirements.txt
-          python -m pip install -r model-service-2/requirements.txt
-          pushd model-service-1
-          python -m pytest -q tests
-          popd
-          pushd model-service-2
-          python -m pytest -q tests --ignore=tests/test_api_example.py
-          popd
 
       - name: Azure login (OIDC)
         uses: azure/login@v2
@@ -58,26 +47,37 @@ jobs:
       - name: ACR login
         run: az acr login --name "$ACR_NAME"
 
+      - name: Validate pinned model image digests
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${MODEL1_IMAGE:-}" || -z "${MODEL2_IMAGE:-}" ]]; then
+            echo "DEV_MODEL1_IMAGE_REF and DEV_MODEL2_IMAGE_REF must be set in the 'dev' environment variables."
+            exit 1
+          fi
+
+          model1_pattern='^acrtalentidev\.azurecr\.io/talenti/model-service-1@sha256:[a-f0-9]{64}$'
+          model2_pattern='^acrtalentidev\.azurecr\.io/talenti/model-service-2@sha256:[a-f0-9]{64}$'
+
+          if ! [[ "$MODEL1_IMAGE" =~ $model1_pattern ]]; then
+            echo "MODEL1_IMAGE is invalid: $MODEL1_IMAGE"
+            exit 1
+          fi
+
+          if ! [[ "$MODEL2_IMAGE" =~ $model2_pattern ]]; then
+            echo "MODEL2_IMAGE is invalid: $MODEL2_IMAGE"
+            exit 1
+          fi
+
+          docker manifest inspect "$MODEL1_IMAGE" > /dev/null
+          docker manifest inspect "$MODEL2_IMAGE" > /dev/null
+
       - name: Build and push backend image
         run: |
           BACKEND_IMAGE="$ACR_NAME.azurecr.io/talenti/backend:${GITHUB_SHA}"
           docker build -t "$BACKEND_IMAGE" backend
           docker push "$BACKEND_IMAGE"
           echo "BACKEND_IMAGE=$BACKEND_IMAGE" >> $GITHUB_ENV
-
-      - name: Build and push model-service-1 image
-        run: |
-          MODEL1_IMAGE="$ACR_NAME.azurecr.io/talenti/model-service-1:${GITHUB_SHA}"
-          docker build -t "$MODEL1_IMAGE" model-service-1
-          docker push "$MODEL1_IMAGE"
-          echo "MODEL1_IMAGE=$MODEL1_IMAGE" >> $GITHUB_ENV
-
-      - name: Build and push model-service-2 image
-        run: |
-          MODEL2_IMAGE="$ACR_NAME.azurecr.io/talenti/model-service-2:${GITHUB_SHA}"
-          docker build -t "$MODEL2_IMAGE" model-service-2
-          docker push "$MODEL2_IMAGE"
-          echo "MODEL2_IMAGE=$MODEL2_IMAGE" >> $GITHUB_ENV
 
       - name: Build and push acs-worker image
         run: |

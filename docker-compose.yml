@@ -1,6 +1,24 @@
-version: '3.8'
-
 services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-talenti}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-talenti}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - talenti-network
+
   # Main Backend API
   backend:
     build:
@@ -9,7 +27,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=sqlite:///./data/app.db
+      - DATABASE_URL=${BACKEND_DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/talenti}
       - JWT_SECRET=${JWT_SECRET:-dev-docker-secret}
       - MODEL_SERVICE_1_URL=http://model-service-1:8001
       - MODEL_SERVICE_2_URL=http://model-service-2:8002
@@ -22,11 +40,15 @@ services:
       - AZURE_STORAGE_CONTAINER=${AZURE_STORAGE_CONTAINER}
     volumes:
       - ./backend/app:/app/app:ro
-      - backend-data:/app/data
     depends_on:
-      - model-service-1
-      - model-service-2
-      - acs-worker
+      postgres:
+        condition: service_healthy
+      model-service-1:
+        condition: service_started
+      model-service-2:
+        condition: service_started
+      acs-worker:
+        condition: service_started
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -144,6 +166,6 @@ networks:
     driver: bridge
 
 volumes:
-  backend-data:
+  postgres-data:
   model-1-cache:
   model-2-cache:

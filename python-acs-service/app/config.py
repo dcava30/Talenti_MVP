@@ -11,8 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
-    # Legacy fallback (worker profile does not use DB, kept for compatibility/tests)
-    SQLITE_DB_PATH: str = "./data/app.db"
+    DATABASE_URL: str = "postgresql+psycopg://postgres:postgres@localhost:5432/talenti"
 
     # Azure Communication Services
     ACS_CONNECTION_STRING: str = ""
@@ -57,11 +56,5 @@ class Settings(BaseSettings):
                 return [item.strip() for item in raw.split(",") if item.strip()]
             return [item for item in parsed if isinstance(item, str)]
         return [item.strip() for item in raw.split(",") if item.strip()]
-
-    @property
-    def DATABASE_URL(self) -> str:
-        if self.SQLITE_DB_PATH.startswith("sqlite"):
-            return self.SQLITE_DB_PATH
-        return f"sqlite:///{self.SQLITE_DB_PATH}"
 
 settings = Settings()

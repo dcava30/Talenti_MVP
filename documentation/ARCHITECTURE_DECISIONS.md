@@ -1,12 +1,12 @@
 # Architecture Decisions
 
-This document captures the current architecture for Talenti. The system is a FastAPI + SQLite backend with a React frontend and Azure service integrations.
+This document captures the current architecture for Talenti. The system is a FastAPI + PostgreSQL backend with a React frontend and Azure service integrations.
 
-## ADR-001: FastAPI + SQLite Backend
+## ADR-001: FastAPI + PostgreSQL Backend
 
 **Status:** Accepted
 
-**Decision:** Use FastAPI for the backend API layer and SQLite as the primary datastore.
+**Decision:** Use FastAPI for the backend API layer and PostgreSQL as the primary datastore.
 
 **Rationale:**
 - Simple, lightweight local development experience.
@@ -42,3 +42,4 @@ This document captures the current architecture for Talenti. The system is a Fas
 **Rationale:**
 - Clear versioning for API endpoints.
 - Compatible with existing frontend API clients.
+
