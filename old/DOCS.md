@@ -1,16 +1,16 @@
 # Talenti Documentation Index
 
-> **Quick Reference Guide** — Find the right documentation for your needs.
+> **Quick Reference Guide** - Find the right documentation for your needs.
 
 ---
 
-## 📚 Documentation Overview
+## - Documentation Overview
 
 This project contains comprehensive documentation organized by audience and purpose. Use this guide to navigate to the right resource.
 
 ---
 
-## 🎯 Quick Navigation
+## - Quick Navigation
 
 | I want to... | Go to |
 |--------------|-------|
@@ -33,7 +33,7 @@ This project contains comprehensive documentation organized by audience and purp
 
 ---
 
-## 📖 Documentation Details
+## - Documentation Details
 
 ### Project Overview
 **File:** `README.md`
@@ -246,12 +246,12 @@ Testing approach and guidelines. Contains:
 
 ---
 
-## 🔧 Specialized Documentation
+## - Specialized Documentation
 
-### SQLite Migration
-**File:** `SQLITE_MIGRATION.md`
+### PostgreSQL Migration
+**File:** `POSTGRESQL_MIGRATION.md`
 
-Guide for migrating from Supabase/PostgreSQL to SQLite. Contains:
+Guide for migrating from Supabase/PostgreSQL to PostgreSQL. Contains:
 - Type mappings
 - Schema conversion
 - RLS to application-layer security
@@ -314,64 +314,64 @@ Documentation for the optional Python backend service. Contains:
 
 ---
 
-## 📁 File Location Summary
+## - File Location Summary
 
 ```
 /
-├── README.md                 # Project overview
-├── DOCS.md                   # This file - documentation index
-├── HANDOVER.md               # Technical handover
-├── ENV_SETUP.md              # Environment setup
-├── FRONTEND_GUIDE.md         # Frontend architecture
-├── API_REFERENCE.md          # API documentation
-├── DATABASE_SCHEMA.md        # Database documentation
-├── SECURITY.md               # Security documentation
-├── CONTRIBUTING.md           # Contribution guidelines
-├── DEPLOYMENT_GUIDE.md       # Deployment instructions
-├── MONITORING.md             # Monitoring guide
-├── DISASTER_RECOVERY.md      # DR procedures
-├── USER_GUIDE.md             # End-user documentation
-├── CHANGELOG.md              # Version history
-├── ARCHITECTURE_DECISIONS.md # ADRs
-├── TESTING_STRATEGY.md       # Testing approach
-├── SQLITE_MIGRATION.md       # SQLite migration guide
-├── AZURE_SDK_EXAMPLES.md     # Azure code examples
-├── PYTHON_REBUILD_GUIDE.md   # Python/FastAPI migration
-├── PYTHON_MIGRATION_CHECKLIST.md # Migration tracking
-└── python-acs-service/
-    └── README.md             # Python service docs
+- README.md                 # Project overview
+- DOCS.md                   # This file - documentation index
+- HANDOVER.md               # Technical handover
+- ENV_SETUP.md              # Environment setup
+- FRONTEND_GUIDE.md         # Frontend architecture
+- API_REFERENCE.md          # API documentation
+- DATABASE_SCHEMA.md        # Database documentation
+- SECURITY.md               # Security documentation
+- CONTRIBUTING.md           # Contribution guidelines
+- DEPLOYMENT_GUIDE.md       # Deployment instructions
+- MONITORING.md             # Monitoring guide
+- DISASTER_RECOVERY.md      # DR procedures
+- USER_GUIDE.md             # End-user documentation
+- CHANGELOG.md              # Version history
+- ARCHITECTURE_DECISIONS.md # ADRs
+- TESTING_STRATEGY.md       # Testing approach
+- POSTGRESQL_MIGRATION.md       # PostgreSQL migration guide
+- AZURE_SDK_EXAMPLES.md     # Azure code examples
+- PYTHON_REBUILD_GUIDE.md   # Python/FastAPI migration
+- PYTHON_MIGRATION_CHECKLIST.md # Migration tracking
+- python-acs-service/
+    - README.md             # Python service docs
 ```
 
 ---
 
-## 🚀 Getting Started Paths
+## - Getting Started Paths
 
 ### New Developer
-1. `README.md` → Project overview
-2. `ENV_SETUP.md` → Set up your environment
-3. `HANDOVER.md` → Understand the codebase
-4. `FRONTEND_GUIDE.md` → Learn the patterns
-5. `CONTRIBUTING.md` → Start contributing
+1. `README.md` - Project overview
+2. `ENV_SETUP.md` - Set up your environment
+3. `HANDOVER.md` - Understand the codebase
+4. `FRONTEND_GUIDE.md` - Learn the patterns
+5. `CONTRIBUTING.md` - Start contributing
 
 ### DevOps Engineer
-1. `DEPLOYMENT_GUIDE.md` → Deployment process
-2. `ENV_SETUP.md` → Configuration
-3. `MONITORING.md` → Observability
-4. `DISASTER_RECOVERY.md` → Incident response
+1. `DEPLOYMENT_GUIDE.md` - Deployment process
+2. `ENV_SETUP.md` - Configuration
+3. `MONITORING.md` - Observability
+4. `DISASTER_RECOVERY.md` - Incident response
 
 ### Security Auditor
-1. `SECURITY.md` → Security overview
-2. `DATABASE_SCHEMA.md` → Data model & RLS
-3. `API_REFERENCE.md` → Endpoint security
+1. `SECURITY.md` - Security overview
+2. `DATABASE_SCHEMA.md` - Data model & RLS
+3. `API_REFERENCE.md` - Endpoint security
 
 ### Product Manager / Stakeholder
-1. `README.md` → Project overview
-2. `USER_GUIDE.md` → User experience
-3. `CHANGELOG.md` → Feature history
+1. `README.md` - Project overview
+2. `USER_GUIDE.md` - User experience
+3. `CHANGELOG.md` - Feature history
 
 ---
 
-## 📝 Documentation Maintenance
+## - Documentation Maintenance
 
 - All documentation is in **Markdown** format
 - Diagrams use **Mermaid** syntax (renders in GitHub/GitLab)
@@ -382,3 +382,6 @@ Documentation for the optional Python backend service. Contains:
 ---
 
 *Last updated: January 2025*
+
+
+

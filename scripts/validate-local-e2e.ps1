@@ -3,7 +3,14 @@ param(
     [int]$BackendPort = 8000,
     [int]$Model1Port = 8001,
     [int]$Model2Port = 8002,
-    [int]$FrontendPort = 5173
+    [int]$FrontendPort = 5173,
+    [ValidateSet("compose", "external")]
+    [string]$DatabaseMode = "compose",
+    [string]$ExternalDatabaseUrl = "",
+    [int]$PostgresPort = 5432,
+    [string]$PostgresUser = "postgres",
+    [string]$PostgresPassword = "postgres",
+    [string]$PostgresDb = "talenti"
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,14 +39,47 @@ function Wait-ForUrl {
     throw "Timed out waiting for $Url"
 }
 
+function Wait-ForComposePostgres {
+    param(
+        [string]$Workdir,
+        [string]$User,
+        [string]$Database,
+        [int]$TimeoutSec = 180
+    )
+    $start = Get-Date
+    while ((Get-Date) - $start -lt [TimeSpan]::FromSeconds($TimeoutSec)) {
+        Push-Location $Workdir
+        try {
+            & docker compose exec -T postgres pg_isready -U $User -d $Database *> $null
+            if ($LASTEXITCODE -eq 0) {
+                return
+            }
+        } finally {
+            Pop-Location
+        }
+        Start-Sleep -Seconds 2
+    }
+    throw "Timed out waiting for local PostgreSQL readiness."
+}
+
 function Invoke-Checked {
     param(
         [string]$Exe,
-        [string[]]$Args
+        [string[]]$Args,
+        [string]$Workdir = ""
     )
-    & $Exe @Args
-    if ($LASTEXITCODE -ne 0) {
-        throw "Command failed: $Exe $($Args -join ' ')"
+    if ($Workdir) {
+        Push-Location $Workdir
+    }
+    try {
+        & $Exe @Args
+        if ($LASTEXITCODE -ne 0) {
+            throw "Command failed: $Exe $($Args -join ' ')"
+        }
+    } finally {
+        if ($Workdir) {
+            Pop-Location
+        }
     }
 }
 
@@ -56,30 +96,54 @@ function Ensure-Venv {
     return $pythonExe
 }
 
+function Resolve-DatabaseUrl {
+    if ($DatabaseMode -eq "external") {
+        if (-not $ExternalDatabaseUrl) {
+            throw "External mode requires -ExternalDatabaseUrl."
+        }
+        return $ExternalDatabaseUrl
+    }
+    return "postgresql+psycopg://${PostgresUser}:$PostgresPassword@localhost:$PostgresPort/$PostgresDb"
+}
+
 Write-Section "Prepare env"
-$logsDir = Join-Path $RepoRoot "logs\\local-e2e"
+$repoRootResolved = (Resolve-Path $RepoRoot).Path
+$logsDir = Join-Path $repoRootResolved "logs\\local-e2e"
 New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
+
+$databaseUrl = Resolve-DatabaseUrl
+if ($DatabaseMode -eq "compose") {
+    Write-Section "Start local PostgreSQL"
+    $env:POSTGRES_USER = $PostgresUser
+    $env:POSTGRES_PASSWORD = $PostgresPassword
+    $env:POSTGRES_DB = $PostgresDb
+    Invoke-Checked "docker" @("compose", "up", "-d", "postgres") $repoRootResolved
+    Wait-ForComposePostgres -Workdir $repoRootResolved -User $PostgresUser -Database $PostgresDb
+}
 
 $jwt = "dev-" + ([guid]::NewGuid().ToString("N"))
 $envContent = @"
 VITE_API_BASE_URL=http://localhost:$BackendPort
-DATABASE_URL=sqlite:///./data/app.db
+DATABASE_URL=$databaseUrl
+BACKEND_DATABASE_URL=$databaseUrl
 JWT_SECRET=$jwt
 ENVIRONMENT=development
 ALLOWED_ORIGINS=[""http://localhost:$FrontendPort""]
 MODEL_SERVICE_1_URL=http://localhost:$Model1Port
 MODEL_SERVICE_2_URL=http://localhost:$Model2Port
 "@
-Set-Content -Path (Join-Path $RepoRoot ".env") -Encoding ASCII -Value $envContent
+Set-Content -Path (Join-Path $repoRootResolved ".env") -Encoding ASCII -Value $envContent
+$env:DATABASE_URL = $databaseUrl
 
 Write-Section "Set up backend venv"
-$backendPath = Join-Path $RepoRoot "backend"
+$backendPath = Join-Path $repoRootResolved "backend"
 $backendPython = Ensure-Venv (Join-Path $backendPath ".venv")
 Invoke-Checked $backendPython @("-m", "pip", "install", "--upgrade", "pip")
 $backendDeps = @(
     "fastapi>=0.111.0",
     "uvicorn[standard]>=0.30.0",
     "sqlalchemy>=2.0.30",
+    "psycopg[binary]>=3.2.0",
     "alembic>=1.13.1",
     "pydantic>=2.8.2",
     "pydantic-settings>=2.4.0",
@@ -96,7 +160,7 @@ $backendDeps = @(
 Invoke-Checked $backendPython (@("-m", "pip", "install") + $backendDeps)
 
 Write-Section "Set up model-service-1 venv"
-$ms1Path = Join-Path $RepoRoot "model-service-1"
+$ms1Path = Join-Path $repoRootResolved "model-service-1"
 $ms1Python = Ensure-Venv (Join-Path $ms1Path ".venv")
 Invoke-Checked $ms1Python @("-m", "pip", "install", "--upgrade", "pip")
 Push-Location $ms1Path
@@ -104,7 +168,7 @@ Invoke-Checked $ms1Python @("-m", "pip", "install", "-r", "requirements.txt")
 Pop-Location
 
 Write-Section "Set up model-service-2 venv"
-$ms2Path = Join-Path $RepoRoot "model-service-2"
+$ms2Path = Join-Path $repoRootResolved "model-service-2"
 $ms2Python = Ensure-Venv (Join-Path $ms2Path ".venv")
 Invoke-Checked $ms2Python @("-m", "pip", "install", "--upgrade", "pip")
 Push-Location $ms2Path
@@ -112,7 +176,7 @@ Invoke-Checked $ms2Python @("-m", "pip", "install", "-r", "requirements.txt")
 Pop-Location
 
 Write-Section "Install frontend dependencies"
-Push-Location $RepoRoot
+Push-Location $repoRootResolved
 Invoke-Checked "cmd.exe" @("/c", "npm", "install")
 Pop-Location
 
@@ -138,7 +202,7 @@ try {
     Write-Section "Start frontend"
     $frontendOut = Join-Path $logsDir "frontend.out.log"
     $frontendErr = Join-Path $logsDir "frontend.err.log"
-    $frontendProc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c","npm","run","dev","--","--host","127.0.0.1","--port",$FrontendPort -WorkingDirectory $RepoRoot -RedirectStandardOutput $frontendOut -RedirectStandardError $frontendErr -PassThru
+    $frontendProc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c","npm","run","dev","--","--host","127.0.0.1","--port",$FrontendPort -WorkingDirectory $repoRootResolved -RedirectStandardOutput $frontendOut -RedirectStandardError $frontendErr -PassThru
     $processes += $frontendProc
 
     Write-Section "Wait for health checks"
@@ -175,8 +239,8 @@ try {
     } | ConvertTo-Json
     $org = Invoke-RestMethod -Method Post -Uri "$base/api/orgs" -Headers $headers -Body $orgPayload
 
-    $jdPath = Join-Path $RepoRoot "model-service-2\\ML engineer JD.txt"
-    $resumePath = Join-Path $RepoRoot "model-service-2\\resume.txt"
+    $jdPath = Join-Path $repoRootResolved "model-service-2\\ML engineer JD.txt"
+    $resumePath = Join-Path $repoRootResolved "model-service-2\\resume.txt"
     $jobDescription = Get-Content -Raw $jdPath
     $resumeText = Get-Content -Raw $resumePath
 
@@ -289,6 +353,13 @@ try {
             } catch {
                 Write-Host "Failed to stop process $($proc.Id): $_"
             }
+        }
+    }
+    if ($DatabaseMode -eq "compose") {
+        try {
+            Invoke-Checked "docker" @("compose", "stop", "postgres") $repoRootResolved
+        } catch {
+            Write-Host "Failed to stop local PostgreSQL: $_"
         }
     }
 }

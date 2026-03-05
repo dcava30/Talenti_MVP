@@ -1,13 +1,13 @@
 # Environment Setup
 
-Talenti runs with a FastAPI backend, SQLite database, and Azure service integrations.
+Talenti runs with a FastAPI backend, PostgreSQL database, and Azure service integrations.
 
 ## Prerequisites
 
 - Python 3.11+
 - Node.js 18+
 
-## Backend Setup (FastAPI + SQLite)
+## Backend Setup (FastAPI + PostgreSQL)
 
 1. Copy the example environment file to the repository root:
 
@@ -17,7 +17,7 @@ Copy-Item .env.example .env
 
 2. Update root `.env` with your values. At minimum:
 
-- `DATABASE_URL` (SQLite file path)
+- `DATABASE_URL` (PostgreSQL DSN)
 - `JWT_SECRET`
 - `MODEL_SERVICE_1_URL` and `MODEL_SERVICE_2_URL`
 - Azure credentials (ACS, Speech, OpenAI, Blob Storage) for cloud-backed features
@@ -43,6 +43,19 @@ npm run dev
 .\scripts\start-local.ps1
 ```
 
+External PostgreSQL mode:
+
+```powershell
+.\scripts\start-local.ps1 -DatabaseMode external -ExternalDatabaseUrl "postgresql+psycopg://user:pass@host:5432/dbname"
+```
+
+Docker Compose external override:
+
+```powershell
+$env:BACKEND_DATABASE_URL="postgresql+psycopg://user:pass@host:5432/dbname"
+docker compose -f docker-compose.yml -f docker-compose.external-db.yml up -d
+```
+
 ## Storage Configuration
 
 Uploads are stored in Azure Blob Storage. Set:
@@ -57,3 +70,5 @@ Auth is handled by FastAPI using JWTs and a local user table. Set:
 
 - `JWT_SECRET`
 - Optional: `JWT_ISSUER`, `JWT_AUDIENCE`, and TTL values.
+
+

@@ -72,5 +72,5 @@
 
 ## Migration
 
-- Backend no longer runs Alembic at startup.
-- Use: `python backend/scripts/run_migrations.py` in deployment pipeline.
+- Backend runs Alembic `upgrade head` automatically at startup and fails fast on migration errors.
+- Keep `python backend/scripts/run_migrations.py` in the deployment pipeline as a pre-deploy safety check.

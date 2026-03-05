@@ -1,16 +1,16 @@
 # Talenti AI Interview Platform
 
-> **📚 [View Full Documentation Index →](DOCS.md)** — Find setup guides, API references, security docs, and more.
+> [View Full Documentation Index](old/DOCS.md) - Find setup guides, API references, security docs, and more.
 
 ---
 
 ## Project Info
 
-Talenti is a FastAPI + SQLite backend with a React (Vite) frontend and Azure Cognitive Services integrations.
+Talenti is a FastAPI + PostgreSQL backend with a React (Vite) frontend and Azure Cognitive Services integrations.
 
 ## Target architecture
 
-- FastAPI backend with SQLite.
+- FastAPI backend with PostgreSQL.
 - React frontend (JavaScript/JSX).
 - Azure Cognitive Services integrations.
 
@@ -37,7 +37,7 @@ npm i
 # Step 4: Create local environment configuration at repo root.
 cp .env.example .env
 
-# Step 5: Start the backend API (FastAPI + SQLite).
+# Step 5: Start the backend API (FastAPI + PostgreSQL).
 cd backend
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
@@ -51,6 +51,12 @@ Or on Windows, bootstrap and start all local services with one command:
 
 ```powershell
 .\scripts\start-local.ps1
+```
+
+To use an external PostgreSQL instance:
+
+```powershell
+.\scripts\start-local.ps1 -DatabaseMode external -ExternalDatabaseUrl "postgresql+psycopg://user:pass@host:5432/dbname"
 ```
 
 Windows (manual startup) equivalents:
@@ -88,34 +94,34 @@ This project is built with:
 - shadcn-ui
 - Tailwind CSS
 - FastAPI
-- SQLite
+- PostgreSQL
 - Azure Communication Services
 - Azure Speech Services
 
-## 📖 Documentation
+## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [DOCS.md](DOCS.md) | **Master index** — Start here to find all documentation |
-| [HANDOVER.md](HANDOVER.md) | Technical handover with complete codebase overview |
-| [ENV_SETUP.md](ENV_SETUP.md) | Environment setup and configuration guide |
-| [FRONTEND_GUIDE.md](FRONTEND_GUIDE.md) | React architecture, components, and patterns |
-| [API_REFERENCE.md](API_REFERENCE.md) | FastAPI API documentation |
-| [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) | Database tables, relationships, and ERD |
-| [SECURITY.md](SECURITY.md) | Authentication, JWT guidance, and compliance |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines and code standards |
-| [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) | Deployment and release procedures |
-| [MONITORING.md](MONITORING.md) | Logging, metrics, and observability |
-| [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md) | Backup and incident response procedures |
-| [USER_GUIDE.md](USER_GUIDE.md) | End-user documentation for the platform |
-| [CHANGELOG.md](CHANGELOG.md) | Version history and release notes |
-| [ARCHITECTURE_DECISIONS.md](ARCHITECTURE_DECISIONS.md) | Technical decision records (ADRs) |
-| [TESTING_STRATEGY.md](TESTING_STRATEGY.md) | Testing approach and guidelines |
-| [SQLITE_MIGRATION.md](SQLITE_MIGRATION.md) | Guide for migrating to SQLite |
-| [PYTHON_REBUILD_GUIDE.md](PYTHON_REBUILD_GUIDE.md) | Legacy migration guide (superseded by current FastAPI stack) |
-| [PYTHON_MIGRATION_CHECKLIST.md](PYTHON_MIGRATION_CHECKLIST.md) | Legacy migration checklist (no longer required) |
+| [DOCS.md](old/DOCS.md) | Master index of current and legacy docs |
+| [HANDOVER.md](documentation/HANDOVER.md) | Technical handover and architecture overview |
+| [ENV_SETUP.md](documentation/ENV_SETUP.md) | Environment setup and local configuration |
+| [FRONTEND_GUIDE.md](documentation/FRONTEND_GUIDE.md) | React architecture and implementation guide |
+| [API_REFERENCE.md](documentation/API_REFERENCE.md) | FastAPI endpoint reference |
+| [DATABASE_SCHEMA.md](documentation/DATABASE_SCHEMA.md) | PostgreSQL tables and relationships |
+| [MONITORING.md](documentation/MONITORING.md) | Logging, metrics, and observability guidance |
+| [ARCHITECTURE_DECISIONS.md](documentation/ARCHITECTURE_DECISIONS.md) | Architecture decision records |
+| [POSTGRESQL_MIGRATION.md](documentation/POSTGRESQL_MIGRATION.md) | PostgreSQL migration notes |
+| [DEPLOYMENT_DEV_V2.md](documentation/DEPLOYMENT_DEV_V2.md) | Dev deployment topology and runbook |
+| [AZURE_DEV_UAT_PROD_SETUP.txt](documentation/AZURE_DEV_UAT_PROD_SETUP.txt) | Azure environment setup notes |
+| [PYTHON_REBUILD_GUIDE.md](documentation/PYTHON_REBUILD_GUIDE.md) | Historical migration reference |
+| [PYTHON_MIGRATION_CHECKLIST.md](documentation/PYTHON_MIGRATION_CHECKLIST.md) | Historical migration checklist |
+| [PYTHON_MIGRATION_PROMPT.md](documentation/PYTHON_MIGRATION_PROMPT.md) | Historical migration prompt |
+| [USER_GUIDE.md](documentation/USER_GUIDE.md) | End-user workflow guide |
 
 ## How can I deploy this project?
 
 Deploy the FastAPI service and Vite frontend using your preferred infrastructure (container platform, VM, or PaaS).
-Ensure the backend has access to the SQLite database path and required Azure credentials.
+Ensure the backend has access to the PostgreSQL DSN and required Azure credentials.
+
+
+

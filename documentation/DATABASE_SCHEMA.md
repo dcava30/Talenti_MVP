@@ -2,7 +2,7 @@
 
 > **Version:** 1.0.0  
 > **Last Updated:** January 2026  
-> **Database:** SQLite
+> **Database:** PostgreSQL
 
 ## Overview
 
@@ -97,7 +97,7 @@ Team members belonging to an organisation.
 - `org_users_org_user_unique` (organisation_id, user_id) UNIQUE
 
 **Foreign Keys:**
-- `org_users_organisation_id_fkey` → organisations(id)
+- `org_users_organisation_id_fkey` - organisations(id)
 
 ---
 
@@ -149,7 +149,7 @@ Open positions/job listings created by organisations.
 - `job_roles_organisation_id_idx` (organisation_id)
 
 **Foreign Keys:**
-- `job_roles_organisation_id_fkey` → organisations(id)
+- `job_roles_organisation_id_fkey` - organisations(id)
 
 ---
 
@@ -300,7 +300,7 @@ Job applications from candidates.
 - `applications_candidate_id_idx` (candidate_id)
 
 **Foreign Keys:**
-- `applications_job_role_id_fkey` → job_roles(id)
+- `applications_job_role_id_fkey` - job_roles(id)
 
 ---
 
@@ -337,7 +337,7 @@ Interview sessions.
 - `interviews_application_id_idx` (application_id)
 
 **Foreign Keys:**
-- `interviews_application_id_fkey` → applications(id)
+- `interviews_application_id_fkey` - applications(id)
 
 ---
 
@@ -362,7 +362,7 @@ Interview transcript broken into speaker segments.
 - `transcript_segments_start_time_idx` (start_time_ms)
 
 **Foreign Keys:**
-- `transcript_segments_interview_id_fkey` → interviews(id)
+- `transcript_segments_interview_id_fkey` - interviews(id)
 
 ---
 
@@ -393,7 +393,7 @@ Summary scoring for completed interviews.
 - `interview_scores_interview_id_idx` (interview_id) UNIQUE
 
 **Foreign Keys:**
-- `interview_scores_interview_id_fkey` → interviews(id)
+- `interview_scores_interview_id_fkey` - interviews(id)
 
 ---
 
@@ -427,7 +427,7 @@ Individual dimension scores for interviews.
 - `score_dimensions_interview_id_idx` (interview_id)
 
 **Foreign Keys:**
-- `score_dimensions_interview_id_fkey` → interviews(id)
+- `score_dimensions_interview_id_fkey` - interviews(id)
 
 ---
 
@@ -453,7 +453,7 @@ Interview invitations sent to candidates.
 - `invitations_application_id_idx` (application_id)
 
 **Foreign Keys:**
-- `invitations_application_id_fkey` → applications(id)
+- `invitations_application_id_fkey` - applications(id)
 
 ---
 
@@ -515,7 +515,7 @@ Audit trail for security and compliance.
 - `audit_log_created_at_idx` (created_at)
 
 **Foreign Keys:**
-- `audit_log_organisation_id_fkey` → organisations(id)
+- `audit_log_organisation_id_fkey` - organisations(id)
 
 ---
 
@@ -737,3 +737,5 @@ flowchart TD
     K --> M
     L --> M
 ```
+
+

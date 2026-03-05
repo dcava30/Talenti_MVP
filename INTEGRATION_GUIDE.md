@@ -105,9 +105,9 @@ echo "model-service-2/" >> .gitignore
 
 The following files have already been created/updated in your main repository:
 
-1. **`docker-compose.yml`** ✅ - Orchestrates all services
-2. **`backend/app/services/ml_client.py`** ✅ - ML service client
-3. **`backend/app/core/config.py`** ✅ - Added model service URLs
+1. **`docker-compose.yml`** - - Orchestrates all services
+2. **`backend/app/services/ml_client.py`** - - ML service client
+3. **`backend/app/core/config.py`** - - Added model service URLs
 
 ### Step 5: Update Backend Scoring API
 
@@ -138,7 +138,7 @@ Create or update `.env` file in the backend directory:
 
 ```env
 # Existing variables
-DATABASE_URL=sqlite:///./data/app.db
+DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/talenti
 JWT_SECRET=your-secret-key
 
 # Model service URLs (for local development)
@@ -349,28 +349,28 @@ docker-compose logs -tf model-service-1
 ## Architecture Diagram
 
 ```
-┌─────────────┐
-│   Frontend  │
-│   (React)   │
-└──────┬──────┘
-       │ HTTP
-       ▼
-┌─────────────────────────────────┐
-│   Backend (FastAPI)             │
-│   - /api/v1/scoring/analyze     │
-│   - ML Client Service           │
-└──────┬──────────────────┬───────┘
-       │                  │
-       │ HTTP             │ HTTP
-       ▼                  ▼
-┌──────────────┐   ┌──────────────┐
-│ Model Svc 1  │   │ Model Svc 2  │
-│ Port: 8001   │   │ Port: 8002   │
-│              │   │              │
-│ - Soft skills│   │ - Technical  │
-│ - Comms      │   │ - Problem    │
-│ - Culture    │   │   Solving    │
-└──────────────┘   └──────────────┘
+-
+-   Frontend  -
+-   (React)   -
+-
+       - HTTP
+       -
+-
+-   Backend (FastAPI)             -
+-   - /api/v1/scoring/analyze     -
+-   - ML Client Service           -
+-
+       -                  -
+       - HTTP             - HTTP
+       -                  -
+-   -
+- Model Svc 1  -   - Model Svc 2  -
+- Port: 8001   -   - Port: 8002   -
+-              -   -              -
+- - Soft skills-   - - Technical  -
+- - Comms      -   - - Problem    -
+- - Culture    -   -   Solving    -
+-   -
 ```
 
 ---
@@ -393,3 +393,5 @@ If you encounter issues:
 2. Verify health endpoints: `curl http://localhost:800X/health`
 3. Test services individually before integration
 4. Review the README.md in each model service repository
+
+

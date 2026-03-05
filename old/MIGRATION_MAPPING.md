@@ -1,6 +1,6 @@
 # Migration Plan + Mapping
 
-## Edge Function → FastAPI Route Mapping
+## Edge Function - FastAPI Route Mapping
 
 | Supabase Edge Function | FastAPI Route | Inputs / Outputs | Auth Rules | Tables | Frontend Call Sites |
 | --- | --- | --- | --- | --- | --- |
@@ -16,9 +16,9 @@
 | `create-organisation` | `POST /api/orgs` | Input: org details. Output: org record. | Auth required. | `organisations`, `org_users`, `user_roles` | `src/hooks/useCreateOrganisation.ts` |
 | `data-retention-cleanup` | `POST /api/v1/data-retention/cleanup` | Input: retention days. Output: cleanup report. | Admin-only (service). | `interviews`, `applications`, `candidate_profiles`, `data_deletion_requests` | N/A (scheduled job) |
 
-## Supabase Table → SQLite Table Mapping
+## Supabase Table - PostgreSQL Table Mapping
 
-| Supabase Table | SQLite Table | Key Types / Indexes | Notes |
+| Supabase Table | PostgreSQL Table | Key Types / Indexes | Notes |
 | --- | --- | --- | --- |
 | `auth.users` | `users` | `id TEXT PK`, `email TEXT UNIQUE`, `password_hash TEXT` | Replace Supabase Auth with local user table + JWT.
 | `organisations` | `organisations` | `id TEXT PK` | JSONB columns stored as `TEXT`.
@@ -40,3 +40,5 @@
 | `audit_log` | `audit_log` | `organisation_id TEXT`, `created_at` index | JSON before/after stored as `TEXT`.
 | `data_deletion_requests` | `data_deletion_requests` | `user_id TEXT` | Track GDPR requests.
 | `files` | `files` | `blob_path TEXT UNIQUE` | Azure Blob metadata, replaces Supabase Storage.
+
+

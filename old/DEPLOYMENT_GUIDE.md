@@ -105,38 +105,38 @@ AZURE_SPEECH_REGION
 ### 2.1 Architecture Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            Azure Resource Group                              │
-│                          (rg-talenti-prod-aue)                               │
-│                                                                              │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                    Container Apps Environment                         │   │
-│  │                    (cae-talenti-prod-aue)                            │   │
-│  │                                                                       │   │
-│  │   ┌─────────────────┐    ┌─────────────────┐    ┌────────────────┐  │   │
-│  │   │  API Container  │    │  Worker Container│    │ Redis Sidecar │  │   │
-│  │   │  (ca-api-prod)  │    │  (ca-worker-prod)│    │  (Dapr State) │  │   │
-│  │   │                 │    │                  │    │               │  │   │
-│  │   │  FastAPI:8000   │    │  Celery Workers  │    │  Port: 6379   │  │   │
-│  │   │  Replicas: 2-10 │    │  Replicas: 1-5   │    │               │  │   │
-│  │   └────────┬────────┘    └────────┬─────────┘    └───────────────┘  │   │
-│  │            │                      │                                  │   │
-│  │   ┌────────┴──────────────────────┴─────────┐                       │   │
-│  │   │          Internal Virtual Network        │                       │   │
-│  │   │          (10.0.0.0/16)                  │                       │   │
-│  │   └──────────────────────────────────────────┘                       │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
-│                                                                              │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
-│  │   Key Vault  │  │     ACR      │  │ Log Analytics│  │ App Insights │    │
-│  │ (kv-talenti) │  │(acrtalenti)  │  │ (law-talenti)│  │(appi-talenti)│    │
-│  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘    │
-│                                                                              │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
-│  │ Azure OpenAI │  │ Azure Speech │  │   Azure ACS  │  │ Blob Storage │    │
-│  │(oai-talenti) │  │(speech-tal)  │  │ (acs-talenti)│  │ (sttalenti)  │    │
-│  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘    │
-└─────────────────────────────────────────────────────────────────────────────┘
+-
+-                            Azure Resource Group                              -
+-                          (rg-talenti-prod-aue)                               -
+-                                                                              -
+-  -   -
+-  -                    Container Apps Environment                         -   -
+-  -                    (cae-talenti-prod-aue)                            -   -
+-  -                                                                       -   -
+-  -   -    -    -  -   -
+-  -   -  API Container  -    -  Worker Container-    - Redis Sidecar -  -   -
+-  -   -  (ca-api-prod)  -    -  (ca-worker-prod)-    -  (Dapr State) -  -   -
+-  -   -                 -    -                  -    -               -  -   -
+-  -   -  FastAPI:8000   -    -  Celery Workers  -    -  Port: 6379   -  -   -
+-  -   -  Replicas: 2-10 -    -  Replicas: 1-5   -    -               -  -   -
+-  -   -    -    -  -   -
+-  -            -                      -                                  -   -
+-  -   -                       -   -
+-  -   -          Internal Virtual Network        -                       -   -
+-  -   -          (10.0.0.0/16)                  -                       -   -
+-  -   -                       -   -
+-  -   -
+-                                                                              -
+-  -  -  -  -    -
+-  -   Key Vault  -  -     ACR      -  - Log Analytics-  - App Insights -    -
+-  - (kv-talenti) -  -(acrtalenti)  -  - (law-talenti)-  -(appi-talenti)-    -
+-  -  -  -  -    -
+-                                                                              -
+-  -  -  -  -    -
+-  - Azure OpenAI -  - Azure Speech -  -   Azure ACS  -  - Blob Storage -    -
+-  -(oai-talenti) -  -(speech-tal)  -  - (acs-talenti)-  - (sttalenti)  -    -
+-  -  -  -  -    -
+-
 ```
 
 ### 2.2 Resource Naming Convention
@@ -227,26 +227,26 @@ az containerapp show \
 
 ```
 infra/
-├── main.bicep                    # Main deployment orchestrator
-├── parameters/
-│   ├── dev.bicepparam           # Development parameters
-│   ├── staging.bicepparam       # Staging parameters
-│   └── prod.bicepparam          # Production parameters
-├── modules/
-│   ├── container-registry.bicep  # ACR module
-│   ├── container-apps-env.bicep  # Container Apps Environment
-│   ├── container-app.bicep       # Container App definition
-│   ├── key-vault.bicep          # Key Vault with secrets
-│   ├── log-analytics.bicep      # Logging infrastructure
-│   ├── app-insights.bicep       # Application Insights
-│   ├── storage.bicep            # Blob Storage
-│   ├── cognitive-services.bicep # Azure OpenAI + Speech
-│   ├── communication.bicep      # Azure Communication Services
-│   └── networking.bicep         # VNet and NSGs
-└── scripts/
-    ├── deploy.sh                # Deployment script
-    ├── validate.sh              # Template validation
-    └── destroy.sh               # Resource cleanup
+- main.bicep                    # Main deployment orchestrator
+- parameters/
+-   - dev.bicepparam           # Development parameters
+-   - staging.bicepparam       # Staging parameters
+-   - prod.bicepparam          # Production parameters
+- modules/
+-   - container-registry.bicep  # ACR module
+-   - container-apps-env.bicep  # Container Apps Environment
+-   - container-app.bicep       # Container App definition
+-   - key-vault.bicep          # Key Vault with secrets
+-   - log-analytics.bicep      # Logging infrastructure
+-   - app-insights.bicep       # Application Insights
+-   - storage.bicep            # Blob Storage
+-   - cognitive-services.bicep # Azure OpenAI + Speech
+-   - communication.bicep      # Azure Communication Services
+-   - networking.bicep         # VNet and NSGs
+- scripts/
+    - deploy.sh                # Deployment script
+    - validate.sh              # Template validation
+    - destroy.sh               # Resource cleanup
 ```
 
 ### 4.2 Main Orchestrator (main.bicep)
@@ -1008,19 +1008,19 @@ param acsConnectionString = readEnvironmentVariable('ACS_CONNECTION_STRING')
 
 ```
 .github/
-├── workflows/
-│   ├── ci.yml                    # Continuous Integration
-│   ├── cd-dev.yml                # Deploy to Development
-│   ├── cd-staging.yml            # Deploy to Staging
-│   ├── cd-prod.yml               # Deploy to Production
-│   ├── infrastructure.yml        # Infrastructure deployment
-│   └── security-scan.yml         # Security scanning
-├── actions/
-│   ├── build-push/
-│   │   └── action.yml           # Reusable build action
-│   └── deploy-container-app/
-│       └── action.yml           # Reusable deploy action
-└── CODEOWNERS
+- workflows/
+-   - ci.yml                    # Continuous Integration
+-   - cd-dev.yml                # Deploy to Development
+-   - cd-staging.yml            # Deploy to Staging
+-   - cd-prod.yml               # Deploy to Production
+-   - infrastructure.yml        # Infrastructure deployment
+-   - security-scan.yml         # Security scanning
+- actions/
+-   - build-push/
+-   -   - action.yml           # Reusable build action
+-   - deploy-container-app/
+-       - action.yml           # Reusable deploy action
+- CODEOWNERS
 ```
 
 ### 5.2 CI Workflow
@@ -1546,7 +1546,7 @@ jobs:
 
       - name: Notify rollback
         run: |
-          echo "## ⚠️ Rollback Performed" >> $GITHUB_STEP_SUMMARY
+          echo "## - Rollback Performed" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Deployment failed and was automatically rolled back." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -1568,13 +1568,13 @@ jobs:
         with:
           payload: |
             {
-              "text": "${{ needs.deploy.result == 'success' && '✅' || '❌' }} Production Deployment ${{ needs.deploy.result }}",
+              "text": "${{ needs.deploy.result == 'success' && '-' || '-' }} Production Deployment ${{ needs.deploy.result }}",
               "blocks": [
                 {
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "*Production Deployment ${{ needs.deploy.result }}*\n\n• *Triggered by:* ${{ github.actor }}\n• *Commit:* `${{ github.sha }}`\n• *Workflow:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
+                    "text": "*Production Deployment ${{ needs.deploy.result }}*\n\n- *Triggered by:* ${{ github.actor }}\n- *Commit:* `${{ github.sha }}`\n- *Workflow:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
                   }
                 }
               ]
@@ -2353,7 +2353,7 @@ echo "Completed at: $(date -u)"
 | Component | RPO | RTO | Strategy |
 |-----------|-----|-----|----------|
 | API Service | 0 | 5 min | Multi-region Container Apps |
-| Database (SQLite) | 24 hrs | 1 hr | File backup/restore |
+| Database (PostgreSQL) | 24 hrs | 1 hr | File backup/restore |
 | Blob Storage | 0 | 15 min | RA-GRS replication |
 | Key Vault | 0 | 10 min | Soft-delete + geo-backup |
 | Container Registry | 0 | 5 min | Geo-replication |
@@ -2589,3 +2589,5 @@ sha256sum -c infra-checksums.txt
 
 *Last Updated: January 2026*
 *Document Version: 1.0.0*
+
+

@@ -1,0 +1,4 @@
+services:
+  backend:
+    environment:
+      - DATABASE_URL=${BACKEND_DATABASE_URL:?BACKEND_DATABASE_URL must be set for external mode}

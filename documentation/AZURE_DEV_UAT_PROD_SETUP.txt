@@ -36,7 +36,7 @@ Core hosting and runtime:
 Data and secrets:
 - Azure Storage Account
   - Blob container(s) for uploads/recordings
-  - Azure Files share for SQLite persistence
+  - Managed PostgreSQL Flexible Server for persistence
 - Azure Key Vault for secrets/config values
 
 AI and communication dependencies:
@@ -105,21 +105,21 @@ Set these for python-acs-service (if used):
 - ALLOWED_ORIGINS
 - ENVIRONMENT
 - JWT_SECRET
-- SQLITE_DB_PATH
+- DATABASE_URL
 
 Important:
 - Store secrets in Key Vault.
 - Inject into Container Apps via secret references, not plain text.
 
 
-5) SQLite Note (Important for UAT/PROD)
+5) PostgreSQL Note (Important for UAT/PROD)
 ---------------------------------------
-Current app uses SQLite.
+Current app uses PostgreSQL.
 For this to work in Azure:
-- Mount Azure Files to backend container at the SQLite path (for example /app/data).
-- Keep backend replica count at 1 to avoid SQLite lock and consistency issues.
+- Configure backend `DATABASE_URL` to point to Azure Database for PostgreSQL.
+- Backend can scale horizontally when PostgreSQL connection pooling and migrations are configured correctly.
 
-If you need scale-out in UAT/PROD, migrate from SQLite to a managed database first.
+For scale-out in UAT/PROD, use Azure Database for PostgreSQL Flexible Server with connection pooling.
 
 
 6) Frontend Setup
@@ -198,4 +198,6 @@ Copy this section and fill values for each stage.
 - OpenAI Resource + Deployment:
 - Storage Account / Container:
 - Key Vault:
+
+
 

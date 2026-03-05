@@ -1,13 +1,14 @@
+import sys
 from pathlib import Path
-
-from alembic import command
-from alembic.config import Config
 
 
 def main() -> None:
     backend_root = Path(__file__).resolve().parents[1]
-    alembic_config = Config(str(backend_root / "alembic.ini"))
-    command.upgrade(alembic_config, "head")
+    if str(backend_root) not in sys.path:
+        sys.path.insert(0, str(backend_root))
+    from app.core.migrations import run_startup_migrations
+
+    run_startup_migrations()
 
 
 if __name__ == "__main__":

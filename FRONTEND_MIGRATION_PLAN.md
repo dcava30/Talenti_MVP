@@ -1,7 +1,7 @@
-# Frontend Migration Plan (React → FastAPI + Azure + SQLite)
+# Frontend Migration Plan (React - FastAPI + Azure + PostgreSQL)
 
 ## Purpose
-Provide a concrete migration plan for the React UI under `src/lib/` to align with the FastAPI backend, Azure Cognitive Services integrations, and a Python + SQLite data layer. This plan assumes the existing `apiClient` and `authClient` remain the canonical integration points. 
+Provide a concrete migration plan for the React UI under `src/lib/` to align with the FastAPI backend, Azure Cognitive Services integrations, and a Python + PostgreSQL data layer. This plan assumes the existing `apiClient` and `authClient` remain the canonical integration points. 
 
 ## Current Frontend Layout (Active UI Paths)
 - `src/lib/App.tsx`, `src/lib/main.tsx`
@@ -71,13 +71,13 @@ Use this as a coverage checklist to ensure FastAPI exposes every UI dependency c
 - **Profile** (`ProfileManagement`): org/user profile update.
 - **Invites** (`SendInvitationDialog`): invitation create.
 
-### Integration Guarantees (Frontend ↔ Backend Contract)
+### Integration Guarantees (Frontend - Backend Contract)
 - **Consistency**: align request/response payload shapes with existing UI expectations.
 - **Errors**: standardize error envelopes and HTTP status codes for UI to render messages consistently.
 - **Pagination & Filters**: define for list endpoints (audit logs, candidates, invitations, interviews).
 - **Real-time/Streaming**: document SSE/WebSocket usage for interview streaming or transcript updates.
 - **File/Blob Uploads**: if avatars/media/transcripts require upload, define multipart endpoints.
-- **CORS & Auth**: allow the UI origin, ensure token refresh doesn’t break client boot.
+- **CORS & Auth**: allow the UI origin, ensure token refresh doesn-t break client boot.
 
 ## Backend API Contracts (Frontend-Visible)
 ### Auth
@@ -147,9 +147,9 @@ GET  /api/interviews/:id/report
 PATCH /api/interviews/:id
 ```
 
-## SQLite Data Layer Expectations
+## PostgreSQL Data Layer Expectations
 - Preserve existing payload shapes and field names to minimize frontend churn (snake_case where applicable).
-- Use SQLite + SQLAlchemy for core entities: `candidates`, `invitations`, `roles`, `interviews`, `interview_responses`, `reports`.
+- Use PostgreSQL + SQLAlchemy for core entities: `candidates`, `invitations`, `roles`, `interviews`, `interview_responses`, `reports`.
 - Pydantic response models should mirror the payloads expected by existing hooks/pages.
 
 ## Sequenced Migration Plan
@@ -162,7 +162,9 @@ PATCH /api/interviews/:id
 
 ## Open Items / Confirmations Needed
 - **API base path**: confirm `/api` vs `/api/v1`.
-- **SQLite usage**: confirm if SQLite is production or local-dev only.
+- **PostgreSQL usage**: confirm if PostgreSQL is production or local-dev only.
 - **Auth token storage**: decide in-memory vs secure cookie.
 - **WebRTC/ACS**: confirm client requirements vs backend-generated tokens.
 - **AI scoring & transcript streaming**: finalize response formats to keep UI stable.
+
+

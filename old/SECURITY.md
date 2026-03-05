@@ -207,7 +207,7 @@ $$ LANGUAGE sql SECURITY DEFINER;
 
 | Data Type | At Rest | In Transit |
 |-----------|---------|------------|
-| Database | SQLite (disk encryption recommended) | TLS 1.3 |
+| Database | PostgreSQL (disk encryption recommended) | TLS 1.3 |
 | File Storage | Azure Blob Storage (SSE) | TLS 1.3 |
 | Passwords | bcrypt (cost 10) | TLS 1.3 |
 | API Keys | Encrypted secrets | TLS 1.3 |
@@ -525,3 +525,4 @@ CREATE TABLE audit_log (
 - Invitation sends
 - Data deletion requests
 - Organisation settings changes
+

@@ -9,7 +9,7 @@ ENV_FILE = REPO_ROOT / ".env"
 
 
 class Settings(BaseSettings):
-    database_url: str = "sqlite:///./data/app.db"
+    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/talenti"
     jwt_secret: str
     jwt_issuer: str = "talenti"
     jwt_audience: str = "talenti-users"

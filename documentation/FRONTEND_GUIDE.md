@@ -64,7 +64,7 @@ graph TD
 | State | React Query (TanStack Query) |
 | Forms | React Hook Form + Zod |
 | Routing | React Router v6 |
-| Backend | FastAPI + SQLite |
+| Backend | FastAPI + PostgreSQL |
 
 ---
 
@@ -72,71 +72,71 @@ graph TD
 
 ```
 src/
-├── components/           # Reusable components
-│   ├── ui/              # shadcn/ui primitives
-│   │   ├── button.tsx
-│   │   ├── card.tsx
-│   │   ├── dialog.tsx
-│   │   └── ...
-│   ├── AuditTrailViewer.tsx
-│   ├── CallControls.tsx
-│   ├── CandidateComparison.tsx
-│   ├── ProfileManagement.tsx
-│   ├── SendInvitationDialog.tsx
-│   ├── ShortlistView.tsx
-│   └── VideoRenderer.tsx
-│
-├── hooks/               # Custom React hooks
-│   ├── use-mobile.tsx   # Responsive detection
-│   ├── use-toast.ts     # Toast notifications
-│   ├── useAcsCall.ts    # Azure Communication Services
-│   ├── useAcsToken.ts   # ACS token management
-│   ├── useAuditLog.ts   # Audit logging
-│   ├── useAzureAvatar.ts # Azure avatar rendering
-│   ├── useAzureSpeech.ts # Speech services
-│   ├── useCandidateData.ts # Candidate CRUD
-│   ├── useDeletionRequests.ts
-│   ├── useInterviewContext.ts
-│   ├── useInterviewPersistence.ts
-│   ├── useInvitations.ts
-│   ├── useOrgData.ts
-│   ├── useShortlist.ts
-│   ├── useSpeechRecognition.ts
-│   └── useSpeechSynthesis.ts
-│
-├── api/                 # API clients for FastAPI
-│
-├── lib/                 # Utility functions
-│   ├── auditLog.ts
-│   ├── generateInterviewReport.ts
-│   ├── scoring.ts
-│   └── utils.ts         # cn(), formatters
-│
-├── pages/               # Route components
-│   ├── Auth.tsx
-│   ├── CandidateInterview.tsx
-│   ├── CandidatePortal.tsx
-│   ├── CandidateProfile.tsx
-│   ├── EditRoleRubric.tsx
-│   ├── Index.tsx
-│   ├── InterviewComplete.tsx
-│   ├── InterviewLobby.tsx
-│   ├── InterviewReport.tsx
-│   ├── InviteValidation.tsx
-│   ├── LiveInterview.tsx
-│   ├── NewRole.tsx
-│   ├── NotFound.tsx
-│   ├── OrgDashboard.tsx
-│   ├── OrgOnboarding.tsx
-│   ├── OrgSettings.tsx
-│   ├── PracticeInterview.tsx
-│   ├── PracticeInterviewComplete.tsx
-│   └── RoleDetails.tsx
-│
-├── App.jsx              # Root component
-├── App.css              # Global styles
-├── index.css            # Tailwind + design tokens
-└── main.jsx             # Entry point
+- components/           # Reusable components
+-   - ui/              # shadcn/ui primitives
+-   -   - button.tsx
+-   -   - card.tsx
+-   -   - dialog.tsx
+-   -   - ...
+-   - AuditTrailViewer.tsx
+-   - CallControls.tsx
+-   - CandidateComparison.tsx
+-   - ProfileManagement.tsx
+-   - SendInvitationDialog.tsx
+-   - ShortlistView.tsx
+-   - VideoRenderer.tsx
+-
+- hooks/               # Custom React hooks
+-   - use-mobile.tsx   # Responsive detection
+-   - use-toast.ts     # Toast notifications
+-   - useAcsCall.ts    # Azure Communication Services
+-   - useAcsToken.ts   # ACS token management
+-   - useAuditLog.ts   # Audit logging
+-   - useAzureAvatar.ts # Azure avatar rendering
+-   - useAzureSpeech.ts # Speech services
+-   - useCandidateData.ts # Candidate CRUD
+-   - useDeletionRequests.ts
+-   - useInterviewContext.ts
+-   - useInterviewPersistence.ts
+-   - useInvitations.ts
+-   - useOrgData.ts
+-   - useShortlist.ts
+-   - useSpeechRecognition.ts
+-   - useSpeechSynthesis.ts
+-
+- api/                 # API clients for FastAPI
+-
+- lib/                 # Utility functions
+-   - auditLog.ts
+-   - generateInterviewReport.ts
+-   - scoring.ts
+-   - utils.ts         # cn(), formatters
+-
+- pages/               # Route components
+-   - Auth.tsx
+-   - CandidateInterview.tsx
+-   - CandidatePortal.tsx
+-   - CandidateProfile.tsx
+-   - EditRoleRubric.tsx
+-   - Index.tsx
+-   - InterviewComplete.tsx
+-   - InterviewLobby.tsx
+-   - InterviewReport.tsx
+-   - InviteValidation.tsx
+-   - LiveInterview.tsx
+-   - NewRole.tsx
+-   - NotFound.tsx
+-   - OrgDashboard.tsx
+-   - OrgOnboarding.tsx
+-   - OrgSettings.tsx
+-   - PracticeInterview.tsx
+-   - PracticeInterviewComplete.tsx
+-   - RoleDetails.tsx
+-
+- App.jsx              # Root component
+- App.css              # Global styles
+- index.css            # Tailwind + design tokens
+- main.jsx             # Entry point
 ```
 
 ---
@@ -466,14 +466,14 @@ const onSubmit = async (data) => {
 ### Design Token Usage
 
 ```javascript
-// ✅ CORRECT - Use semantic tokens
+// - CORRECT - Use semantic tokens
 <div className="bg-background text-foreground">
   <Button className="bg-primary text-primary-foreground">
     Submit
   </Button>
 </div>
 
-// ❌ WRONG - Direct colors
+// - WRONG - Direct colors
 <div className="bg-white text-black">
   <Button className="bg-orange-500 text-white">
     Submit
@@ -776,3 +776,5 @@ graph TD
     LiveInterview --> CallControls
     LiveInterview --> TranscriptDisplay
 ```
+
+

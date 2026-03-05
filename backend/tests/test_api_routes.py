@@ -1,25 +1,20 @@
 import importlib
-import os
 import sys
-from pathlib import Path
 
 import pytest
 
 from fastapi.testclient import TestClient
+from conftest import backend_root, clear_app_modules, prepare_test_environment, reset_database_with_migrations
 
 
-def create_client(tmp_path: Path) -> TestClient:
+def create_client() -> TestClient:
     pytest.importorskip("email_validator")
-    backend_root = str(Path(__file__).resolve().parents[1])
-    if backend_root not in sys.path:
-        sys.path.insert(0, backend_root)
-    for module_name in list(sys.modules):
-        if module_name == "app" or module_name.startswith("app."):
-            del sys.modules[module_name]
-    os.environ["DATABASE_URL"] = f"sqlite:///{tmp_path}/test.db"
-    os.environ["JWT_SECRET"] = "test-secret"
-    os.environ["ALLOWED_ORIGINS"] = '["http://localhost"]'
-    os.environ["ENVIRONMENT"] = "test"
+    backend_path = str(backend_root())
+    if backend_path not in sys.path:
+        sys.path.insert(0, backend_path)
+    database_url = prepare_test_environment()
+    reset_database_with_migrations(database_url)
+    clear_app_modules()
     import app.core.config as config
 
     importlib.reload(config)
@@ -29,14 +24,14 @@ def create_client(tmp_path: Path) -> TestClient:
     return TestClient(main.app)
 
 
-def test_health_endpoint(tmp_path: Path) -> None:
-    client = create_client(tmp_path)
+def test_health_endpoint() -> None:
+    client = create_client()
     response = client.get("/health")
     assert response.status_code == 200
 
 
-def test_protected_routes_exist(tmp_path: Path) -> None:
-    client = create_client(tmp_path)
+def test_protected_routes_exist() -> None:
+    client = create_client()
 
     response = client.get("/api/v1/interviews/active", params={"application_id": "app-1"})
     assert response.status_code == 401

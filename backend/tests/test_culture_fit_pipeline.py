@@ -1,35 +1,26 @@
 import importlib
 import json
-import os
 import sys
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from conftest import backend_root, clear_app_modules, prepare_test_environment, reset_database_with_migrations
 
 
-def create_client(tmp_path: Path) -> TestClient:
+def create_client() -> TestClient:
     pytest.importorskip("email_validator")
-    backend_root = str(Path(__file__).resolve().parents[1])
-    if backend_root not in sys.path:
-        sys.path.insert(0, backend_root)
-    for module_name in list(sys.modules):
-        if module_name == "app" or module_name.startswith("app."):
-            del sys.modules[module_name]
-    os.environ["DATABASE_URL"] = f"sqlite:///{tmp_path}/test.db"
-    os.environ["JWT_SECRET"] = "test-secret"
-    os.environ["ALLOWED_ORIGINS"] = '["http://localhost"]'
-    os.environ["ENVIRONMENT"] = "test"
+    backend_path = str(backend_root())
+    if backend_path not in sys.path:
+        sys.path.insert(0, backend_path)
+    database_url = prepare_test_environment()
+    reset_database_with_migrations(database_url)
+    clear_app_modules()
     import app.core.config as config
 
     importlib.reload(config)
     import app.main as main
 
     importlib.reload(main)
-    from app.db import Base, engine
-    import app.models  # noqa: F401
-
-    Base.metadata.create_all(bind=engine)
     return TestClient(main.app)
 
 
@@ -37,12 +28,8 @@ def _create_user_and_token(db):
     from datetime import datetime
 
     from app.core.security import create_access_token, hash_password
-    from app.db import Base, engine
     from app.models import User
 
-    import app.models  # noqa: F401
-
-    Base.metadata.create_all(bind=engine)
     user = User(
         email="tester@example.com",
         password_hash=hash_password("password"),
@@ -56,8 +43,8 @@ def _create_user_and_token(db):
     return user, token
 
 
-def test_requires_org_environment_for_fit_scoring(tmp_path: Path) -> None:
-    client = create_client(tmp_path)
+def test_requires_org_environment_for_fit_scoring() -> None:
+    client = create_client()
     client.get("/health")
     from app.db import SessionLocal
 
@@ -77,8 +64,8 @@ def test_requires_org_environment_for_fit_scoring(tmp_path: Path) -> None:
     assert "organisation" in response.json().get("detail", "").lower()
 
 
-def test_taxonomy_loaded_from_org_context(tmp_path: Path) -> None:
-    create_client(tmp_path)
+def test_taxonomy_loaded_from_org_context() -> None:
+    create_client()
     from app.models import Organisation
     from app.services.culture_fit import load_org_culture_context
 
@@ -124,8 +111,8 @@ def test_taxonomy_loaded_from_org_context(tmp_path: Path) -> None:
     assert env["control_vs_autonomy"] == "full_ownership"
 
 
-def test_org_creation_seeds_default_values_framework(tmp_path: Path) -> None:
-    client = create_client(tmp_path)
+def test_org_creation_seeds_default_values_framework() -> None:
+    client = create_client()
     from app.db import SessionLocal
     from app.models import Organisation
 
@@ -149,8 +136,8 @@ def test_org_creation_seeds_default_values_framework(tmp_path: Path) -> None:
         assert "taxonomy" in values
 
 
-def test_scoring_normalizes_model_score_ranges(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    client = create_client(tmp_path)
+def test_scoring_normalizes_model_score_ranges(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = create_client()
     from app.api import scoring as scoring_api
     from app.db import SessionLocal
 
