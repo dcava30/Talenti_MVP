@@ -18,19 +18,23 @@ def _build_alembic_config() -> Config:
 
 def run_startup_migrations() -> None:
     engine = create_engine(settings.database_url, pool_pre_ping=True)
-    with engine.connect() as connection:
-        if connection.dialect.name != "postgresql":
+    with engine.connect() as lock_connection:
+        if lock_connection.dialect.name != "postgresql":
             raise RuntimeError("DATABASE_URL must point to a PostgreSQL database.")
-        connection.execute(
+
+        lock_connection.execution_options(isolation_level="AUTOCOMMIT").execute(
             text("SELECT pg_advisory_lock(:lock_key)"),
             {"lock_key": STARTUP_MIGRATION_LOCK_KEY},
         )
         try:
-            config = _build_alembic_config()
-            config.attributes["connection"] = connection
-            command.upgrade(config, "head")
+            with engine.connect() as migration_connection:
+                config = _build_alembic_config()
+                config.attributes["connection"] = migration_connection
+                command.upgrade(config, "head")
+                if migration_connection.in_transaction():
+                    migration_connection.commit()
         finally:
-            connection.execute(
+            lock_connection.execution_options(isolation_level="AUTOCOMMIT").execute(
                 text("SELECT pg_advisory_unlock(:lock_key)"),
                 {"lock_key": STARTUP_MIGRATION_LOCK_KEY},
             )
