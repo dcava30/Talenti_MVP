@@ -22,6 +22,33 @@ Copy-Item .env.example .env
 - `MODEL_SERVICE_1_URL` and `MODEL_SERVICE_2_URL`
 - Azure credentials (ACS, Speech, OpenAI, Blob Storage) for cloud-backed features
 
+## Azure CLI Provisioning + Env Export
+
+If you want Azure to create the backing services first, use the existing Azure CLI provisioning script:
+
+```powershell
+.\scripts\day1-dev-deploy.ps1 -SubscriptionId <sub-id> -TenantId <tenant-id>
+```
+
+That script provisions the dev Azure resources and stores the resulting secrets in Key Vault.
+
+To write those Azure-backed values into a local env file after provisioning:
+
+```powershell
+.\scripts\export-azure-env.ps1 -SubscriptionId <sub-id> -OutputPath .env.azure
+```
+
+Profiles:
+
+- `local` (default): writes Azure credentials + database URL, but keeps backend/model/worker URLs on `localhost`
+- `deployed`: writes Azure service URLs for the deployed Container Apps as well
+
+Example for deployed URLs:
+
+```powershell
+.\scripts\export-azure-env.ps1 -SubscriptionId <sub-id> -Profile deployed -OutputPath .env.azure
+```
+
 3. Start the API:
 
 ```powershell
