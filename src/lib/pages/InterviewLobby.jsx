@@ -38,18 +38,18 @@ const InterviewLobby = () => {
     }, [inviteId]);
     const loadInvitationData = async (token) => {
         const result = await validateInvitation(token);
-        if (result.valid && result.jobRole && result.invitation) {
+        if (result.valid && result.jobRole && result.invitation && result.interviewUnlocked) {
             setInterviewData({
                 roleTitle: result.jobRole.title,
                 company: result.jobRole.organisation.name,
                 duration: "10-15 minutes",
                 questionCount: 5,
                 expiresAt: result.invitation.expiresAt,
-                applicationId: result.invitation.applicationId,
+                applicationId: result.application?.id,
             });
         }
         else {
-            setLoadError(result.error || "Failed to load interview data");
+            setLoadError(result.error || "Complete the account claim and profile review steps before starting the interview.");
         }
     };
     const checkDevices = async () => {

@@ -135,9 +135,10 @@ const Auth = () => {
             }
         }
         catch (error) {
+            const message = error?.message || "Invalid email or password. Please try again.";
             toast({
                 title: "Sign In Failed",
-                description: "Invalid email or password. Please try again.",
+                description: message,
                 variant: "destructive",
             });
         }

@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { authApi } from "@/api/auth";
 import { candidatesApi } from "@/api/candidates";
 import { storageApi } from "@/api/storage";
@@ -20,9 +20,14 @@ import ProfileManagement from "@/components/ProfileManagement";
 import { User, FileText, Briefcase, GraduationCap, Wrench, Shield, Upload, Plus, Trash2, Edit2, Save, ArrowLeft, CheckCircle2, Loader2, X, } from "lucide-react";
 const CandidateProfile = () => {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const { toast } = useToast();
+    const inviteMode = searchParams.get("mode") === "confirm";
+    const invitationToken = searchParams.get("invitation_token");
+    const applicationId = searchParams.get("application_id");
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
+    const [isConfirmingProfile, setIsConfirmingProfile] = useState(false);
     const [userId, setUserId] = useState(null);
     const [profile, setProfile] = useState({
         first_name: "",
@@ -41,6 +46,9 @@ const CandidateProfile = () => {
         linkedin_url: "",
         cv_file_id: "",
         cv_file_path: "",
+        profile_prefilled: false,
+        profile_review_status: "",
+        profile_confirmed_at: null,
         profile_visibility: "visible",
     });
     const [employmentHistory, setEmploymentHistory] = useState([]);
@@ -121,6 +129,9 @@ const CandidateProfile = () => {
                     linkedin_url: profileData.linkedin_url || "",
                     cv_file_id: profileData.cv_file_id || "",
                     cv_file_path: profileData.cv_file_path || "",
+                    profile_prefilled: profileData.profile_prefilled || false,
+                    profile_review_status: profileData.profile_review_status || "",
+                    profile_confirmed_at: profileData.profile_confirmed_at || null,
                     profile_visibility: profileData.profile_visibility || "visible",
                 });
             }
@@ -129,11 +140,11 @@ const CandidateProfile = () => {
             if (employmentData) {
                 setEmploymentHistory(employmentData.map(e => ({
                     id: e.id,
-                    job_title: e.job_title,
-                    company_name: e.company_name,
+                    job_title: e.job_title || e.title || "",
+                    company_name: e.company_name || e.company || "",
                     start_date: e.start_date,
                     end_date: e.end_date || "",
-                    is_current: e.is_current || false,
+                    is_current: !e.end_date,
                     description: e.description || "",
                 })));
             }
@@ -147,7 +158,7 @@ const CandidateProfile = () => {
                     field_of_study: e.field_of_study || "",
                     start_date: e.start_date || "",
                     end_date: e.end_date || "",
-                    is_current: e.is_current || false,
+                    is_current: !e.end_date,
                 })));
             }
             // Load skills
@@ -173,17 +184,37 @@ const CandidateProfile = () => {
     };
     const handleSaveProfile = async () => {
         if (!userId)
-            return;
+            return false;
         setIsSaving(true);
         try {
+            const profilePayload = {
+                first_name: profile.first_name,
+                last_name: profile.last_name,
+                email: profile.email,
+                phone: profile.phone,
+                suburb: profile.suburb,
+                postcode: profile.postcode,
+                state: profile.state,
+                country: profile.country,
+                work_rights: profile.work_rights,
+                availability: profile.availability,
+                work_mode: profile.work_mode,
+                gpa_wam: profile.gpa_wam,
+                portfolio_url: profile.portfolio_url,
+                linkedin_url: profile.linkedin_url,
+                cv_file_id: profile.cv_file_id,
+                cv_file_path: profile.cv_file_path,
+                profile_visibility: profile.profile_visibility,
+            };
             await candidatesApi.upsertProfile({
                 user_id: userId,
-                ...profile,
+                ...profilePayload,
             });
             toast({
                 title: "Profile saved",
                 description: "Your profile has been updated successfully.",
             });
+            return true;
         }
         catch (error) {
             console.error("Error saving profile:", error);
@@ -192,8 +223,44 @@ const CandidateProfile = () => {
                 description: "Failed to save profile.",
                 variant: "destructive",
             });
+            return false;
         }
-        setIsSaving(false);
+        finally {
+            setIsSaving(false);
+        }
+    };
+    const handleConfirmAndContinue = async () => {
+        const saved = await handleSaveProfile();
+        if (!saved) {
+            return;
+        }
+        setIsConfirmingProfile(true);
+        try {
+            await candidatesApi.confirmProfile({
+                application_id: applicationId,
+                invitation_token: invitationToken,
+            });
+            toast({
+                title: "Profile confirmed",
+                description: "Your interview is now unlocked.",
+            });
+            if (invitationToken) {
+                navigate(`/candidate/${invitationToken}/lobby`);
+            }
+            else {
+                navigate("/candidate/portal");
+            }
+        }
+        catch (error) {
+            toast({
+                title: "Could not confirm profile",
+                description: error.message || "Please review your profile and try again.",
+                variant: "destructive",
+            });
+        }
+        finally {
+            setIsConfirmingProfile(false);
+        }
     };
     const handleCVUpload = async (e) => {
         const file = e.target.files?.[0];
@@ -292,11 +359,10 @@ const CandidateProfile = () => {
             if (employment.id) {
                 // Update existing
                 await candidatesApi.updateEmployment(employment.id, {
-                    job_title: employment.job_title,
-                    company_name: employment.company_name,
+                    title: employment.job_title,
+                    company: employment.company_name,
                     start_date: employment.start_date,
                     end_date: employment.end_date || null,
-                    is_current: employment.is_current,
                     description: employment.description,
                 });
                 setEmploymentHistory(prev => prev.map(e => e.id === employment.id ? employment : e));
@@ -305,11 +371,10 @@ const CandidateProfile = () => {
                 // Create new
                 const data = await candidatesApi.createEmployment({
                     user_id: userId,
-                    job_title: employment.job_title,
-                    company_name: employment.company_name,
+                    title: employment.job_title,
+                    company: employment.company_name,
                     start_date: employment.start_date,
                     end_date: employment.end_date || null,
-                    is_current: employment.is_current,
                     description: employment.description,
                 });
                 setEmploymentHistory(prev => [{ ...employment, id: data.id }, ...prev]);
@@ -346,7 +411,6 @@ const CandidateProfile = () => {
                     field_of_study: edu.field_of_study,
                     start_date: edu.start_date || null,
                     end_date: edu.end_date || null,
-                    is_current: edu.is_current,
                 });
                 setEducation(prev => prev.map(e => e.id === edu.id ? edu : e));
             }
@@ -358,7 +422,6 @@ const CandidateProfile = () => {
                     field_of_study: edu.field_of_study,
                     start_date: edu.start_date || null,
                     end_date: edu.end_date || null,
-                    is_current: edu.is_current,
                 });
                 setEducation(prev => [{ ...edu, id: data.id }, ...prev]);
             }
@@ -397,14 +460,26 @@ const CandidateProfile = () => {
               <ArrowLeft className="w-5 h-5"/>
             </Button>
             <div>
-              <h1 className="text-xl font-bold">Edit Profile</h1>
-              <p className="text-sm text-muted-foreground">Manage your candidate profile</p>
+              <h1 className="text-xl font-bold">{inviteMode ? "Review Your Profile" : "Edit Profile"}</h1>
+              <p className="text-sm text-muted-foreground">
+                {inviteMode
+                    ? "Confirm the prefilled details from your resume before starting the interview"
+                    : "Manage your candidate profile"}
+              </p>
             </div>
           </div>
-          <Button onClick={handleSaveProfile} disabled={isSaving}>
-            {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <Save className="w-4 h-4 mr-2"/>}
-            Save Changes
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={handleSaveProfile} disabled={isSaving || isConfirmingProfile}>
+              {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <Save className="w-4 h-4 mr-2"/>}
+              Save Changes
+            </Button>
+            {inviteMode && (
+                <Button onClick={handleConfirmAndContinue} disabled={isSaving || isConfirmingProfile}>
+                  {isConfirmingProfile ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <CheckCircle2 className="w-4 h-4 mr-2"/>}
+                  Confirm and Continue
+                </Button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -419,6 +494,16 @@ const CandidateProfile = () => {
             <span className="text-3xl font-bold text-primary">{profileCompletion}%</span>
           </div>
           <Progress value={profileCompletion} className="h-3"/>
+          {inviteMode && (
+              <div className="mt-4 rounded-lg bg-accent/50 p-4 text-sm text-muted-foreground">
+                Review the prefilled details from your resume, make any corrections you need, then use <span className="font-medium text-foreground">Confirm and Continue</span> to unlock the interview.
+              </div>
+          )}
+          {profile.profile_prefilled && !profile.profile_confirmed_at && (
+              <div className="mt-4">
+                <Badge variant="outline">Prefilled from resume</Badge>
+              </div>
+          )}
         </Card>
 
         <Tabs defaultValue="personal" className="space-y-6">

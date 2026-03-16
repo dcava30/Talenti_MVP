@@ -28,6 +28,8 @@ from app.schemas.candidates import (
     EducationCreate,
     EducationResponse,
     EducationUpdate,
+    CandidateProfileConfirmRequest,
+    CandidateProfileConfirmResponse,
     EmploymentCreate,
     EmploymentResponse,
     EmploymentUpdate,
@@ -43,6 +45,7 @@ from app.schemas.candidates import (
 from app.services.background_jobs import enqueue_job
 from app.services.blob_storage import is_blob_storage_configured
 from app.services.domain_events import record_domain_event
+from app.services.resume_parsing import extract_resume_text, parse_resume_text
 
 router = APIRouter(prefix="/api/v1/candidates", tags=["candidates"])
 
@@ -63,6 +66,11 @@ def _build_profile_response(profile: CandidateProfile):
         portfolio_url=profile.portfolio_url,
         cv_file_id=profile.cv_file_id,
         cv_file_path=profile.cv_file_path,
+        profile_prefilled=profile.profile_prefilled,
+        profile_confirmed_at=profile.profile_confirmed_at,
+        profile_review_status=profile.profile_review_status,
+        prefill_source=profile.prefill_source,
+        parsed_snapshot_id=profile.parsed_snapshot_id,
         availability=profile.availability,
         work_mode=profile.work_mode,
         work_rights=profile.work_rights,
@@ -72,6 +80,68 @@ def _build_profile_response(profile: CandidateProfile):
         paused_at=profile.paused_at,
         created_at=profile.created_at,
         updated_at=profile.updated_at,
+    )
+
+
+def _build_candidate_application_response(
+    app: Application,
+    role: JobRole | None,
+    organisation: Organisation | None,
+) -> CandidateApplicationResponse:
+    return CandidateApplicationResponse(
+        id=app.id,
+        job_role_id=app.job_role_id,
+        candidate_profile_id=app.candidate_profile_id,
+        status=app.status,
+        source=app.source,
+        source_channel=app.source_channel,
+        profile_confirmed_at=app.profile_confirmed_at,
+        profile_review_status=app.profile_review_status,
+        created_at=app.created_at,
+        updated_at=app.updated_at,
+        job_roles=(
+            {
+                "id": role.id,
+                "title": role.title,
+                "organisations": {"id": organisation.id, "name": organisation.name}
+                if organisation
+                else None,
+            }
+            if role
+            else None
+        ),
+    )
+
+
+def _queue_candidate_cv_postprocess(
+    db: Session,
+    *,
+    profile: CandidateProfile,
+    file_record: StoredFile,
+    storage_mode: str,
+) -> None:
+    profile.cv_file_id = file_record.id
+    profile.cv_file_path = file_record.blob_path
+    profile.cv_uploaded_at = datetime.utcnow()
+    profile.profile_review_status = "pending_parse"
+    profile.profile_confirmed_at = None
+    record_domain_event(
+        db=db,
+        event_type="candidate.cv_uploaded",
+        aggregate_type="candidate_profile",
+        aggregate_id=profile.id,
+        payload={
+            "candidate_profile_id": profile.id,
+            "file_id": file_record.id,
+            "storage_mode": storage_mode,
+        },
+        correlation_id=profile.id,
+    )
+    enqueue_job(
+        db=db,
+        job_type="candidate_cv_postprocess",
+        payload={"candidate_profile_id": profile.id, "file_id": file_record.id},
+        correlation_id=profile.id,
     )
 
 
@@ -97,16 +167,32 @@ def parse_resume(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ParseResumeResponse:
-    if not payload.resume_text:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Resume text required")
+    resume_text = payload.resume_text
+    if payload.file_id:
+        file_record = _resolve_cv_file(db, cv_file_id=payload.file_id, target_user_id=user.id)
+        if not file_record:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Uploaded CV file not found")
+        resume_text = extract_resume_text(file_record)
+    if not resume_text:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide file_id or resume_text to parse a resume.",
+        )
 
-    lines = [line.strip() for line in payload.resume_text.splitlines() if line.strip()]
-    name = lines[0] if lines else None
-    email = next((line for line in lines if "@" in line), None)
-    skills = [line for line in lines if line.lower().startswith("skill")]
-
-    parsed = ParsedResume(full_name=name, email=email, skills=skills)
-    return ParseResumeResponse(candidate_id=payload.candidate_id, parsed=parsed)
+    parsed_payload = parse_resume_text(resume_text)
+    parsed = ParsedResume(
+        full_name=(parsed_payload.get("personal") or {}).get("full_name"),
+        email=(parsed_payload.get("contact") or {}).get("email"),
+        phone=(parsed_payload.get("contact") or {}).get("phone"),
+        skills=parsed_payload.get("skills") or [],
+        linkedin_url=(parsed_payload.get("contact") or {}).get("linkedin_url"),
+        portfolio_url=(parsed_payload.get("contact") or {}).get("portfolio_url"),
+        summary=parsed_payload.get("summary"),
+        employment=parsed_payload.get("employment") or [],
+        education=parsed_payload.get("education") or [],
+        confidence=parsed_payload.get("confidence") or {},
+    )
+    return ParseResumeResponse(candidate_id=payload.candidate_id or user.id, parsed=parsed)
 
 
 @router.get("/profile", response_model=CandidateProfileResponse | None)
@@ -138,29 +224,24 @@ def upsert_profile(
         db.add(profile)
         db.flush()
     linked_cv_file = _resolve_cv_file(db, cv_file_id=payload.cv_file_id, target_user_id=target_user_id)
-    for field, value in payload.model_dump(exclude_unset=True, exclude={"user_id"}).items():
+    for field, value in payload.model_dump(
+        exclude_unset=True,
+        exclude={
+            "user_id",
+            "profile_prefilled",
+            "profile_confirmed_at",
+            "profile_review_status",
+            "prefill_source",
+            "parsed_snapshot_id",
+        },
+    ).items():
         setattr(profile, field, value)
     if linked_cv_file:
-        profile.cv_file_id = linked_cv_file.id
-        profile.cv_file_path = linked_cv_file.blob_path
-        profile.cv_uploaded_at = datetime.utcnow()
-        record_domain_event(
-            db=db,
-            event_type="candidate.cv_uploaded",
-            aggregate_type="candidate_profile",
-            aggregate_id=profile.id,
-            payload={
-                "candidate_profile_id": profile.id,
-                "file_id": linked_cv_file.id,
-                "storage_mode": "blob",
-            },
-            correlation_id=profile.id,
-        )
-        enqueue_job(
-            db=db,
-            job_type="candidate_cv_postprocess",
-            payload={"candidate_profile_id": profile.id, "file_id": linked_cv_file.id},
-            correlation_id=profile.id,
+        _queue_candidate_cv_postprocess(
+            db,
+            profile=profile,
+            file_record=linked_cv_file,
+            storage_mode="blob",
         )
     profile.updated_at = datetime.utcnow()
     db.commit()
@@ -181,34 +262,74 @@ def update_profile(
     if not profile:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found")
     linked_cv_file = _resolve_cv_file(db, cv_file_id=payload.cv_file_id, target_user_id=user_id)
-    for field, value in payload.model_dump(exclude_unset=True, exclude={"user_id"}).items():
+    for field, value in payload.model_dump(
+        exclude_unset=True,
+        exclude={
+            "user_id",
+            "profile_prefilled",
+            "profile_confirmed_at",
+            "profile_review_status",
+            "prefill_source",
+            "parsed_snapshot_id",
+        },
+    ).items():
         setattr(profile, field, value)
     if linked_cv_file:
-        profile.cv_file_id = linked_cv_file.id
-        profile.cv_file_path = linked_cv_file.blob_path
-        profile.cv_uploaded_at = datetime.utcnow()
-        record_domain_event(
-            db=db,
-            event_type="candidate.cv_uploaded",
-            aggregate_type="candidate_profile",
-            aggregate_id=profile.id,
-            payload={
-                "candidate_profile_id": profile.id,
-                "file_id": linked_cv_file.id,
-                "storage_mode": "blob",
-            },
-            correlation_id=profile.id,
-        )
-        enqueue_job(
-            db=db,
-            job_type="candidate_cv_postprocess",
-            payload={"candidate_profile_id": profile.id, "file_id": linked_cv_file.id},
-            correlation_id=profile.id,
+        _queue_candidate_cv_postprocess(
+            db,
+            profile=profile,
+            file_record=linked_cv_file,
+            storage_mode="blob",
         )
     profile.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(profile)
     return _build_profile_response(profile)
+
+
+@router.post("/profile/confirm", response_model=CandidateProfileConfirmResponse)
+def confirm_profile(
+    payload: CandidateProfileConfirmRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> CandidateProfileConfirmResponse:
+    profile = db.query(CandidateProfile).filter(CandidateProfile.user_id == user.id).first()
+    if not profile:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found")
+
+    application = None
+    if payload.application_id:
+        application = db.get(Application, payload.application_id)
+    elif payload.invitation_token:
+        invitation = db.query(Invitation).filter(Invitation.token == payload.invitation_token).first()
+        application = db.get(Application, invitation.application_id) if invitation else None
+
+    if application and application.candidate_profile_id != profile.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Application not accessible")
+
+    now = datetime.utcnow()
+    profile.profile_confirmed_at = now
+    profile.profile_review_status = "confirmed"
+    profile.updated_at = now
+    if application:
+        application.profile_confirmed_at = now
+        application.profile_review_status = "confirmed"
+        application.updated_at = now
+
+    record_domain_event(
+        db=db,
+        event_type="candidate.profile_confirmed",
+        aggregate_type="candidate_profile",
+        aggregate_id=profile.id,
+        payload={
+            "candidate_profile_id": profile.id,
+            "application_id": application.id if application else None,
+            "user_id": user.id,
+        },
+        correlation_id=profile.id,
+    )
+    db.commit()
+    return CandidateProfileConfirmResponse(ok=True, profile_confirmed_at=now, interview_unlocked=True)
 
 
 @router.get("/employment", response_model=list[EmploymentResponse])
@@ -524,30 +645,7 @@ def list_candidate_applications(
     for app in applications:
         role = roles.get(app.job_role_id)
         organisation = organisations.get(role.organisation_id) if role else None
-        response.append(
-            CandidateApplicationResponse(
-                id=app.id,
-                job_role_id=app.job_role_id,
-                candidate_profile_id=app.candidate_profile_id,
-                status=app.status,
-                created_at=app.created_at,
-                updated_at=app.updated_at,
-                job_roles=(
-                    {
-                        "id": role.id,
-                        "title": role.title,
-                        "organisations": {
-                            "id": organisation.id,
-                            "name": organisation.name,
-                        }
-                        if organisation
-                        else None,
-                    }
-                    if role
-                    else None
-                ),
-            )
-        )
+        response.append(_build_candidate_application_response(app, role, organisation))
     return response
 
 
@@ -561,11 +659,12 @@ def create_candidate_application(
     candidate_id = payload.get("candidate_id") or user.id
     if not job_role_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="job_role_id required")
+    candidate_user = db.get(User, candidate_id)
     profile = db.query(CandidateProfile).filter(CandidateProfile.user_id == candidate_id).first()
     if not profile:
         profile = CandidateProfile(
             user_id=candidate_id,
-            email=user.email,
+            email=candidate_user.email if candidate_user else user.email,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
         )
@@ -575,6 +674,10 @@ def create_candidate_application(
         job_role_id=job_role_id,
         candidate_profile_id=profile.id,
         status=payload.get("status") or "applied",
+        source=payload.get("source"),
+        source_batch_id=payload.get("source_batch_id"),
+        source_channel=payload.get("source_channel"),
+        profile_review_status=payload.get("profile_review_status"),
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
     )
@@ -605,6 +708,10 @@ def list_candidate_invitations(
             "application_id": invitation.application_id,
             "token": invitation.token,
             "status": invitation.status,
+            "candidate_email": invitation.candidate_email,
+            "claim_required": invitation.claim_required,
+            "profile_completion_required": invitation.profile_completion_required,
+            "invitation_kind": invitation.invitation_kind,
             "expires_at": invitation.expires_at,
             "created_at": invitation.created_at,
         }
@@ -829,36 +936,22 @@ def upload_cv(
     db.flush()
     profile = db.query(CandidateProfile).filter(CandidateProfile.user_id == target_user_id).first()
     if not profile:
+        target_user = db.get(User, target_user_id)
         profile = CandidateProfile(
             user_id=target_user_id,
-            email=user.email,
+            email=target_user.email if target_user else user.email,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
         )
         db.add(profile)
         db.flush()
-    profile.cv_file_id = stored_file.id
-    profile.cv_file_path = str(file_path)
-    profile.cv_uploaded_at = datetime.utcnow()
+    _queue_candidate_cv_postprocess(
+        db,
+        profile=profile,
+        file_record=stored_file,
+        storage_mode="local_fallback",
+    )
     profile.updated_at = datetime.utcnow()
-    record_domain_event(
-        db=db,
-        event_type="candidate.cv_uploaded",
-        aggregate_type="candidate_profile",
-        aggregate_id=profile.id,
-        payload={
-            "candidate_profile_id": profile.id,
-            "file_id": stored_file.id,
-            "storage_mode": "local_fallback",
-        },
-        correlation_id=profile.id,
-    )
-    enqueue_job(
-        db=db,
-        job_type="candidate_cv_postprocess",
-        payload={"candidate_profile_id": profile.id, "file_id": stored_file.id},
-        correlation_id=profile.id,
-    )
     db.commit()
     return {
         "cv_file_id": stored_file.id,

@@ -19,6 +19,23 @@ from app.schemas.applications import (
 router = APIRouter(prefix="/api/v1", tags=["applications"])
 
 
+def _build_application_response(application: Application) -> ApplicationResponse:
+    return ApplicationResponse(
+        id=application.id,
+        job_role_id=application.job_role_id,
+        candidate_profile_id=application.candidate_profile_id,
+        status=application.status,
+        source=application.source,
+        source_batch_id=application.source_batch_id,
+        source_channel=application.source_channel,
+        profile_confirmed_at=application.profile_confirmed_at,
+        profile_review_status=application.profile_review_status,
+        cover_letter=application.cover_letter,
+        created_at=application.created_at,
+        updated_at=application.updated_at,
+    )
+
+
 @router.post("/applications", response_model=ApplicationResponse)
 def create_application(
     payload: ApplicationCreate,
@@ -30,6 +47,9 @@ def create_application(
         candidate_profile_id=payload.candidate_profile_id,
         status=payload.status or "new",
         source=payload.source,
+        source_batch_id=payload.source_batch_id,
+        source_channel=payload.source_channel,
+        profile_review_status=payload.profile_review_status,
         cover_letter=payload.cover_letter,
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
@@ -37,16 +57,7 @@ def create_application(
     db.add(application)
     db.commit()
     db.refresh(application)
-    return ApplicationResponse(
-        id=application.id,
-        job_role_id=application.job_role_id,
-        candidate_profile_id=application.candidate_profile_id,
-        status=application.status,
-        source=application.source,
-        cover_letter=application.cover_letter,
-        created_at=application.created_at,
-        updated_at=application.updated_at,
-    )
+    return _build_application_response(application)
 
 
 @router.get("/applications", response_model=list[ApplicationResponse])
@@ -59,19 +70,7 @@ def list_applications(
     if candidate_id:
         query = query.filter(Application.candidate_profile_id == candidate_id)
     applications = query.order_by(Application.created_at.desc()).all()
-    return [
-        ApplicationResponse(
-            id=application.id,
-            job_role_id=application.job_role_id,
-            candidate_profile_id=application.candidate_profile_id,
-            status=application.status,
-            source=application.source,
-            cover_letter=application.cover_letter,
-            created_at=application.created_at,
-            updated_at=application.updated_at,
-        )
-        for application in applications
-    ]
+    return [_build_application_response(application) for application in applications]
 
 
 @router.patch("/applications/{application_id}", response_model=ApplicationResponse)
@@ -88,21 +87,18 @@ def update_application(
         application.status = payload.status
     if payload.source is not None:
         application.source = payload.source
+    if payload.source_channel is not None:
+        application.source_channel = payload.source_channel
+    if payload.profile_confirmed_at is not None:
+        application.profile_confirmed_at = payload.profile_confirmed_at
+    if payload.profile_review_status is not None:
+        application.profile_review_status = payload.profile_review_status
     if payload.cover_letter is not None:
         application.cover_letter = payload.cover_letter
     application.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(application)
-    return ApplicationResponse(
-        id=application.id,
-        job_role_id=application.job_role_id,
-        candidate_profile_id=application.candidate_profile_id,
-        status=application.status,
-        source=application.source,
-        cover_letter=application.cover_letter,
-        created_at=application.created_at,
-        updated_at=application.updated_at,
-    )
+    return _build_application_response(application)
 
 
 @router.get("/roles/{role_id}/applications", response_model=list[ApplicationResponse])
@@ -117,19 +113,7 @@ def list_role_applications(
         .order_by(Application.created_at.desc())
         .all()
     )
-    return [
-        ApplicationResponse(
-            id=application.id,
-            job_role_id=application.job_role_id,
-            candidate_profile_id=application.candidate_profile_id,
-            status=application.status,
-            source=application.source,
-            cover_letter=application.cover_letter,
-            created_at=application.created_at,
-            updated_at=application.updated_at,
-        )
-        for application in applications
-    ]
+    return [_build_application_response(application) for application in applications]
 
 
 @router.get("/applications/{application_id}/context", response_model=ApplicationContextResponse)

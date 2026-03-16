@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.models import Application, Interview, InterviewScore, ScoreDimension, TranscriptSegment, User
+from app.models import Application, CandidateProfile, Interview, InterviewScore, ScoreDimension, TranscriptSegment, User
 from app.services.background_jobs import enqueue_job
 from app.services.domain_events import json_dumps, json_loads, record_domain_event
 from app.schemas.applications import ApplicationResponse
@@ -34,6 +34,10 @@ def _build_application_response(application: Application | None) -> ApplicationR
         candidate_profile_id=application.candidate_profile_id,
         status=application.status,
         source=application.source,
+        source_batch_id=application.source_batch_id,
+        source_channel=application.source_channel,
+        profile_confirmed_at=application.profile_confirmed_at,
+        profile_review_status=application.profile_review_status,
         cover_letter=application.cover_letter,
         created_at=application.created_at,
         updated_at=application.updated_at,
@@ -124,6 +128,20 @@ def start_interview(
     application = db.get(Application, payload.application_id)
     if not application:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
+    profile = db.get(CandidateProfile, application.candidate_profile_id)
+    if not profile or profile.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Interview not accessible")
+    if user.password_setup_required:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Claim your invited account before starting the interview.",
+        )
+    profile_confirmed = bool(profile.profile_confirmed_at or application.profile_confirmed_at)
+    if not profile_confirmed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Confirm your prefilled profile before starting the interview.",
+        )
 
     interview = _get_or_create_active_interview(db, payload.application_id)
     now = datetime.utcnow()

@@ -16,6 +16,9 @@ from app.models.job_role import JobRole
 from app.models.org_user import OrgUser
 from app.models.organisation import Organisation
 from app.models.practice_interview import PracticeInterview
+from app.models.parsed_profile_snapshot import ParsedProfileSnapshot
+from app.models.resume_ingestion_batch import ResumeIngestionBatch
+from app.models.resume_ingestion_item import ResumeIngestionItem
 from app.models.score_dimension import ScoreDimension
 from app.models.transcript_segment import TranscriptSegment
 from app.models.user import User
@@ -39,7 +42,10 @@ __all__ = [
     "JobRole",
     "OrgUser",
     "Organisation",
+    "ParsedProfileSnapshot",
     "PracticeInterview",
+    "ResumeIngestionBatch",
+    "ResumeIngestionItem",
     "ScoreDimension",
     "TranscriptSegment",
     "User",

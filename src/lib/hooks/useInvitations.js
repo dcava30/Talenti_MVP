@@ -49,7 +49,8 @@ export function useInvitations() {
     const sendInvitation = async (params) => {
         setIsSending(true);
         try {
-            const data = await invitationsApi.send(params);
+            const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+            const data = await invitationsApi.send({ ...params, expiresAt });
             toast({
                 title: "Invitation Sent",
                 description: `Interview invitation sent to ${params.candidateEmail}`,

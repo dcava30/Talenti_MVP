@@ -9,12 +9,18 @@ class ApplicationCreate(BaseModel):
     candidate_profile_id: str
     status: str | None = None
     source: str | None = None
+    source_batch_id: str | None = None
+    source_channel: str | None = None
+    profile_review_status: str | None = None
     cover_letter: str | None = None
 
 
 class ApplicationUpdate(BaseModel):
     status: str | None = None
     source: str | None = None
+    source_channel: str | None = None
+    profile_confirmed_at: datetime | None = None
+    profile_review_status: str | None = None
     cover_letter: str | None = None
 
 
@@ -24,6 +30,10 @@ class ApplicationResponse(BaseModel):
     candidate_profile_id: str
     status: str
     source: str | None
+    source_batch_id: str | None = None
+    source_channel: str | None = None
+    profile_confirmed_at: datetime | None = None
+    profile_review_status: str | None = None
     cover_letter: str | None
     created_at: datetime
     updated_at: datetime

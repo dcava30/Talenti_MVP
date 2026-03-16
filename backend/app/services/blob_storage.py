@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-from azure.storage.blob import BlobSasPermissions, generate_blob_sas
+from azure.storage.blob import BlobClient, BlobSasPermissions, generate_blob_sas
 
 from app.core.config import settings
 
@@ -46,3 +46,16 @@ def generate_upload_sas(blob_path: str) -> tuple[str, int]:
         f"{settings.azure_storage_container}/{blob_path}?{sas_token}"
     )
     return url, expires_in
+
+
+def download_blob_bytes(blob_path: str) -> bytes:
+    if not is_blob_storage_configured():
+        raise ValueError("Azure storage account and container are required")
+
+    blob_client = BlobClient(
+        account_url=f"https://{settings.azure_storage_account}.blob.core.windows.net",
+        container_name=settings.azure_storage_container,
+        blob_name=blob_path,
+        credential=settings.azure_storage_account_key or None,
+    )
+    return blob_client.download_blob().readall()

@@ -16,6 +16,7 @@ from app.api import (
     invitations,
     orgs,
     requirements,
+    resume_batches,
     retention,
     roles,
     scoring,
@@ -56,6 +57,7 @@ app.include_router(speech.router)
 app.include_router(orgs.router)
 app.include_router(roles.router)
 app.include_router(candidates.router)
+app.include_router(resume_batches.router)
 app.include_router(requirements.router)
 app.include_router(scoring.router)
 app.include_router(shortlist.router)
