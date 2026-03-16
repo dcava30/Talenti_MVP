@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { useAzureSpeech } from "@/hooks/useAzureSpeech";
 import { useAzureAvatar } from "@/hooks/useAzureAvatar";
@@ -21,6 +21,7 @@ import { LocalVideoStream } from "@azure/communication-calling";
 import { Mic, MicOff, Loader2, Volume2, Clock, AlertTriangle, WifiOff, VolumeX, Video, Cloud, User } from "lucide-react";
 const LiveInterview = () => {
     const navigate = useNavigate();
+    const location = useLocation();
     const { inviteId } = useParams();
     const { toast } = useToast();
     // Interview state
@@ -314,13 +315,20 @@ const LiveInterview = () => {
             });
             streamRef.current = stream;
             // Create interview record
-            let appId = inviteId;
+            let appId = location.state?.applicationId || null;
             if (!appId) {
                 appId = await getOrCreateDemoApplication() || undefined;
             }
             if (appId) {
                 setApplicationId(appId);
-                const interviewId = await createInterview(appId);
+                const interviewId = await createInterview(appId, {
+                    recordingConsent: true,
+                    clientCapabilities: {
+                        invite_id: inviteId || null,
+                        media_devices: !!navigator.mediaDevices,
+                        browser_speech_supported: browserSttSupported && browserTtsSupported,
+                    },
+                });
                 if (interviewId) {
                     currentInterviewIdRef.current = interviewId;
                     console.log("Interview initialized with ID:", interviewId);

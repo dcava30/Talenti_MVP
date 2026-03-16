@@ -22,6 +22,7 @@ class CandidateProfile(Base):
     country: Mapped[str | None] = mapped_column(String, nullable=True)
     linkedin_url: Mapped[str | None] = mapped_column(String, nullable=True)
     portfolio_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    cv_file_id: Mapped[str | None] = mapped_column(String, ForeignKey("files.id"), nullable=True)
     cv_file_path: Mapped[str | None] = mapped_column(String, nullable=True)
     cv_uploaded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     availability: Mapped[str | None] = mapped_column(String, nullable=True)

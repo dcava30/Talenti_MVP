@@ -31,6 +31,7 @@ class CandidateProfileBase(BaseModel):
     country: str | None = None
     linkedin_url: str | None = None
     portfolio_url: str | None = None
+    cv_file_id: str | None = None
     cv_file_path: str | None = None
     availability: str | None = None
     work_mode: str | None = None

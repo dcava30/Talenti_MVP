@@ -1,9 +1,11 @@
 from app.models.audit_log import AuditLog
 from app.models.application import Application
+from app.models.background_job import BackgroundJob
 from app.models.candidate_dei import CandidateDei
 from app.models.candidate_profile import CandidateProfile
 from app.models.candidate_skill import CandidateSkill
 from app.models.data_deletion_request import DataDeletionRequest
+from app.models.domain_event import DomainEvent
 from app.models.education import Education
 from app.models.employment_history import EmploymentHistory
 from app.models.file import File
@@ -22,10 +24,12 @@ from app.models.user_role import UserRole
 __all__ = [
     "AuditLog",
     "Application",
+    "BackgroundJob",
     "CandidateDei",
     "CandidateProfile",
     "CandidateSkill",
     "DataDeletionRequest",
+    "DomainEvent",
     "Education",
     "EmploymentHistory",
     "File",

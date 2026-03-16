@@ -12,6 +12,17 @@ class InterviewCreate(BaseModel):
     scheduled_at: datetime | None = None
 
 
+class InterviewStartRequest(BaseModel):
+    application_id: str
+    recording_consent: bool = False
+    client_capabilities: dict[str, Any] | None = None
+
+
+class InterviewCompleteRequest(BaseModel):
+    duration_seconds: int | None = None
+    anti_cheat_signals: list[dict[str, Any]] = []
+
+
 class InterviewUpdate(BaseModel):
     status: str | None = None
     scheduled_at: datetime | None = None
@@ -30,6 +41,7 @@ class InterviewUpdate(BaseModel):
     recording_processed_at: datetime | None = None
     recording_url: str | None = None
     transcript_status: str | None = None
+    session_metadata: dict[str, Any] | None = None
     summary: str | None = None
     anti_cheat_signals: list[dict[str, Any]] | None = None
 
@@ -54,6 +66,8 @@ class InterviewResponse(BaseModel):
     recording_processed_at: datetime | None
     recording_url: str | None
     transcript_status: str | None
+    anti_cheat_signals: list[dict[str, Any]] = []
+    session_metadata: dict[str, Any] | None = None
     summary: str | None
     created_at: datetime
     updated_at: datetime

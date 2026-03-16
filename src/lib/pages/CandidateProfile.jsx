@@ -15,6 +15,7 @@ import { useNavigate } from "react-router-dom";
 import { authApi } from "@/api/auth";
 import { candidatesApi } from "@/api/candidates";
 import { resumeApi } from "@/api/resume";
+import { storageApi } from "@/api/storage";
 import { useToast } from "@/hooks/use-toast";
 import ProfileManagement from "@/components/ProfileManagement";
 import { User, FileText, Briefcase, GraduationCap, Wrench, Shield, Upload, Plus, Trash2, Edit2, Save, ArrowLeft, CheckCircle2, Loader2, X, } from "lucide-react";
@@ -200,24 +201,41 @@ const CandidateProfile = () => {
             return;
         setIsUploadingCV(true);
         try {
-            const fileExt = file.name.split(".").pop();
-            const uploadResult = await candidatesApi.uploadCv(file, userId);
-            const filePath = uploadResult?.file_path || uploadResult?.path || `${userId}/cv.${fileExt}`;
-            setProfile(prev => ({ ...prev, cv_file_path: filePath }));
-            // Save the path to profile
-            await candidatesApi.upsertProfile({
-                user_id: userId,
-                cv_file_path: filePath,
-                cv_uploaded_at: new Date().toISOString(),
-            });
+            let resolvedPath = "";
+            try {
+                const uploadTarget = await storageApi.createUploadUrl({
+                    file_name: file.name,
+                    content_type: file.type || "application/octet-stream",
+                    purpose: "candidate_cv",
+                });
+                const uploadResponse = await fetch(uploadTarget.upload_url, {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": file.type || "application/octet-stream",
+                        "x-ms-blob-type": "BlockBlob",
+                    },
+                    body: file,
+                });
+                if (!uploadResponse.ok) {
+                    throw new Error(`Blob upload failed with status ${uploadResponse.status}`);
+                }
+                await candidatesApi.upsertProfile({
+                    user_id: userId,
+                    cv_file_id: uploadTarget.file_id,
+                    cv_uploaded_at: new Date().toISOString(),
+                });
+                resolvedPath = uploadTarget.blob_path;
+            }
+            catch (storageError) {
+                console.warn("Blob upload unavailable, falling back to local CV upload:", storageError);
+                const uploadResult = await candidatesApi.uploadCv(file, userId);
+                resolvedPath = uploadResult?.cv_file_path || uploadResult?.file_path || file.name;
+            }
+            setProfile(prev => ({ ...prev, cv_file_path: resolvedPath }));
             toast({
                 title: "CV uploaded",
-                description: "Your CV has been uploaded. Now parsing with AI...",
+                description: "Your CV has been uploaded and linked to your profile.",
             });
-            // Parse the resume with AI
-            if (fileExt?.toLowerCase() === "pdf") {
-                await parseResumeWithAI(filePath);
-            }
         }
         catch (error) {
             console.error("Error uploading CV:", error);

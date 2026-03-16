@@ -48,32 +48,17 @@ export const useInterviewPersistence = () => {
      * @param applicationId - The UUID of the application to create interview for
      * @returns The interview ID on success, or null on failure
      */
-    const createInterview = useCallback(async (applicationId) => {
+    const createInterview = useCallback(async (applicationId, options = {}) => {
         setIsLoading(true);
         setError(null);
         try {
-            // Check for existing in_progress interview
-            const existing = await interviewsApi.findActive(applicationId);
-            if (existing) {
-                // Update to in_progress
-                await interviewsApi.update(existing.id, {
-                    status: "in_progress",
-                    started_at: new Date().toISOString(),
-                });
-                setInterviewId(existing.id);
-                console.log("Resumed existing interview:", existing.id);
-                return existing.id;
-            }
-            // Create new interview
-            const data = await interviewsApi.create({
+            const data = await interviewsApi.start({
                 application_id: applicationId,
-                status: "in_progress",
-                started_at: new Date().toISOString(),
-                anti_cheat_signals: [],
-                metadata: {},
+                recording_consent: !!options.recordingConsent,
+                client_capabilities: options.clientCapabilities || {},
             });
             setInterviewId(data.id);
-            console.log("Created new interview:", data.id);
+            console.log("Started interview:", data.id);
             return data.id;
         }
         catch (err) {
@@ -140,9 +125,7 @@ export const useInterviewPersistence = () => {
     const completeInterview = useCallback(async (interviewIdParam, durationSeconds, antiCheatSignals) => {
         setIsLoading(true);
         try {
-            await interviewsApi.update(interviewIdParam, {
-                status: "completed",
-                ended_at: new Date().toISOString(),
+            await interviewsApi.complete(interviewIdParam, {
                 duration_seconds: durationSeconds,
                 anti_cheat_signals: antiCheatSignals.map(s => ({
                     type: s.type,
@@ -150,11 +133,6 @@ export const useInterviewPersistence = () => {
                     duration: s.duration,
                 })),
             });
-            // Update application status to scoring
-            const interview = await interviewsApi.getById(interviewIdParam);
-            if (interview?.application_id) {
-                await interviewsApi.updateApplication(interview.application_id, { status: "scoring" });
-            }
             console.log("Interview completed:", interviewIdParam);
             return true;
         }

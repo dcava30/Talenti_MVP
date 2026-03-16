@@ -12,6 +12,7 @@ from app.models import (
     DataDeletionRequest,
     Education,
     EmploymentHistory,
+    File as StoredFile,
     Invitation,
     JobRole,
     Organisation,
@@ -39,8 +40,55 @@ from app.schemas.candidates import (
     SkillCreate,
     SkillResponse,
 )
+from app.services.background_jobs import enqueue_job
+from app.services.blob_storage import is_blob_storage_configured
+from app.services.domain_events import record_domain_event
 
 router = APIRouter(prefix="/api/v1/candidates", tags=["candidates"])
+
+
+def _build_profile_response(profile: CandidateProfile):
+    return CandidateProfileResponse(
+        id=profile.id,
+        user_id=profile.user_id,
+        first_name=profile.first_name,
+        last_name=profile.last_name,
+        email=profile.email,
+        phone=profile.phone,
+        suburb=profile.suburb,
+        state=profile.state,
+        postcode=profile.postcode,
+        country=profile.country,
+        linkedin_url=profile.linkedin_url,
+        portfolio_url=profile.portfolio_url,
+        cv_file_id=profile.cv_file_id,
+        cv_file_path=profile.cv_file_path,
+        availability=profile.availability,
+        work_mode=profile.work_mode,
+        work_rights=profile.work_rights,
+        gpa_wam=float(profile.gpa_wam) if profile.gpa_wam is not None else None,
+        profile_visibility=profile.profile_visibility,
+        visibility_settings=profile.visibility_settings,
+        paused_at=profile.paused_at,
+        created_at=profile.created_at,
+        updated_at=profile.updated_at,
+    )
+
+
+def _resolve_cv_file(
+    db: Session,
+    *,
+    cv_file_id: str | None,
+    target_user_id: str,
+) -> StoredFile | None:
+    if not cv_file_id:
+        return None
+    file_record = db.get(StoredFile, cv_file_id)
+    if not file_record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Uploaded CV file not found")
+    if file_record.user_id not in {None, target_user_id}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Uploaded CV file not accessible")
+    return file_record
 
 
 @router.post("/parse-resume", response_model=ParseResumeResponse)
@@ -71,30 +119,7 @@ def get_profile(
     profile = db.query(CandidateProfile).filter(CandidateProfile.user_id == target_user_id).first()
     if not profile:
         return None
-    return CandidateProfileResponse(
-        id=profile.id,
-        user_id=profile.user_id,
-        first_name=profile.first_name,
-        last_name=profile.last_name,
-        email=profile.email,
-        phone=profile.phone,
-        suburb=profile.suburb,
-        state=profile.state,
-        postcode=profile.postcode,
-        country=profile.country,
-        linkedin_url=profile.linkedin_url,
-        portfolio_url=profile.portfolio_url,
-        cv_file_path=profile.cv_file_path,
-        availability=profile.availability,
-        work_mode=profile.work_mode,
-        work_rights=profile.work_rights,
-        gpa_wam=float(profile.gpa_wam) if profile.gpa_wam is not None else None,
-        profile_visibility=profile.profile_visibility,
-        visibility_settings=profile.visibility_settings,
-        paused_at=profile.paused_at,
-        created_at=profile.created_at,
-        updated_at=profile.updated_at,
-    )
+    return _build_profile_response(profile)
 
 
 @router.post("/profile", response_model=CandidateProfileResponse)
@@ -111,35 +136,36 @@ def upsert_profile(
             created_at=datetime.utcnow(),
         )
         db.add(profile)
+        db.flush()
+    linked_cv_file = _resolve_cv_file(db, cv_file_id=payload.cv_file_id, target_user_id=target_user_id)
     for field, value in payload.model_dump(exclude_unset=True, exclude={"user_id"}).items():
         setattr(profile, field, value)
+    if linked_cv_file:
+        profile.cv_file_id = linked_cv_file.id
+        profile.cv_file_path = linked_cv_file.blob_path
+        profile.cv_uploaded_at = datetime.utcnow()
+        record_domain_event(
+            db=db,
+            event_type="candidate.cv_uploaded",
+            aggregate_type="candidate_profile",
+            aggregate_id=profile.id,
+            payload={
+                "candidate_profile_id": profile.id,
+                "file_id": linked_cv_file.id,
+                "storage_mode": "blob",
+            },
+            correlation_id=profile.id,
+        )
+        enqueue_job(
+            db=db,
+            job_type="candidate_cv_postprocess",
+            payload={"candidate_profile_id": profile.id, "file_id": linked_cv_file.id},
+            correlation_id=profile.id,
+        )
     profile.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(profile)
-    return CandidateProfileResponse(
-        id=profile.id,
-        user_id=profile.user_id,
-        first_name=profile.first_name,
-        last_name=profile.last_name,
-        email=profile.email,
-        phone=profile.phone,
-        suburb=profile.suburb,
-        state=profile.state,
-        postcode=profile.postcode,
-        country=profile.country,
-        linkedin_url=profile.linkedin_url,
-        portfolio_url=profile.portfolio_url,
-        cv_file_path=profile.cv_file_path,
-        availability=profile.availability,
-        work_mode=profile.work_mode,
-        work_rights=profile.work_rights,
-        gpa_wam=float(profile.gpa_wam) if profile.gpa_wam is not None else None,
-        profile_visibility=profile.profile_visibility,
-        visibility_settings=profile.visibility_settings,
-        paused_at=profile.paused_at,
-        created_at=profile.created_at,
-        updated_at=profile.updated_at,
-    )
+    return _build_profile_response(profile)
 
 
 @router.patch("/{user_id}/profile", response_model=CandidateProfileResponse)
@@ -154,35 +180,35 @@ def update_profile(
     profile = db.query(CandidateProfile).filter(CandidateProfile.user_id == user_id).first()
     if not profile:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found")
+    linked_cv_file = _resolve_cv_file(db, cv_file_id=payload.cv_file_id, target_user_id=user_id)
     for field, value in payload.model_dump(exclude_unset=True, exclude={"user_id"}).items():
         setattr(profile, field, value)
+    if linked_cv_file:
+        profile.cv_file_id = linked_cv_file.id
+        profile.cv_file_path = linked_cv_file.blob_path
+        profile.cv_uploaded_at = datetime.utcnow()
+        record_domain_event(
+            db=db,
+            event_type="candidate.cv_uploaded",
+            aggregate_type="candidate_profile",
+            aggregate_id=profile.id,
+            payload={
+                "candidate_profile_id": profile.id,
+                "file_id": linked_cv_file.id,
+                "storage_mode": "blob",
+            },
+            correlation_id=profile.id,
+        )
+        enqueue_job(
+            db=db,
+            job_type="candidate_cv_postprocess",
+            payload={"candidate_profile_id": profile.id, "file_id": linked_cv_file.id},
+            correlation_id=profile.id,
+        )
     profile.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(profile)
-    return CandidateProfileResponse(
-        id=profile.id,
-        user_id=profile.user_id,
-        first_name=profile.first_name,
-        last_name=profile.last_name,
-        email=profile.email,
-        phone=profile.phone,
-        suburb=profile.suburb,
-        state=profile.state,
-        postcode=profile.postcode,
-        country=profile.country,
-        linkedin_url=profile.linkedin_url,
-        portfolio_url=profile.portfolio_url,
-        cv_file_path=profile.cv_file_path,
-        availability=profile.availability,
-        work_mode=profile.work_mode,
-        work_rights=profile.work_rights,
-        gpa_wam=float(profile.gpa_wam) if profile.gpa_wam is not None else None,
-        profile_visibility=profile.profile_visibility,
-        visibility_settings=profile.visibility_settings,
-        paused_at=profile.paused_at,
-        created_at=profile.created_at,
-        updated_at=profile.updated_at,
-    )
+    return _build_profile_response(profile)
 
 
 @router.get("/employment", response_model=list[EmploymentResponse])
@@ -781,12 +807,26 @@ def upload_cv(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
+    if is_blob_storage_configured():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Direct CV upload is disabled when Blob Storage is configured. Use /api/storage/upload-url.",
+        )
     target_user_id = candidate_id or user.id
     upload_dir = Path("data/uploads")
     upload_dir.mkdir(parents=True, exist_ok=True)
     file_path = upload_dir / f"{datetime.utcnow().timestamp()}-{file.filename}"
     with file_path.open("wb") as buffer:
         buffer.write(file.file.read())
+    stored_file = StoredFile(
+        user_id=target_user_id,
+        purpose="candidate_cv",
+        blob_path=str(file_path),
+        content_type=file.content_type,
+        created_at=datetime.utcnow(),
+    )
+    db.add(stored_file)
+    db.flush()
     profile = db.query(CandidateProfile).filter(CandidateProfile.user_id == target_user_id).first()
     if not profile:
         profile = CandidateProfile(
@@ -796,7 +836,31 @@ def upload_cv(
             updated_at=datetime.utcnow(),
         )
         db.add(profile)
+        db.flush()
+    profile.cv_file_id = stored_file.id
     profile.cv_file_path = str(file_path)
+    profile.cv_uploaded_at = datetime.utcnow()
     profile.updated_at = datetime.utcnow()
+    record_domain_event(
+        db=db,
+        event_type="candidate.cv_uploaded",
+        aggregate_type="candidate_profile",
+        aggregate_id=profile.id,
+        payload={
+            "candidate_profile_id": profile.id,
+            "file_id": stored_file.id,
+            "storage_mode": "local_fallback",
+        },
+        correlation_id=profile.id,
+    )
+    enqueue_job(
+        db=db,
+        job_type="candidate_cv_postprocess",
+        payload={"candidate_profile_id": profile.id, "file_id": stored_file.id},
+        correlation_id=profile.id,
+    )
     db.commit()
-    return {"cv_file_path": profile.cv_file_path}
+    return {
+        "cv_file_id": stored_file.id,
+        "cv_file_path": profile.cv_file_path,
+    }

@@ -1,5 +1,8 @@
 import { http } from "./http";
 export const interviewsApi = {
+    start(payload) {
+        return http.post("/api/v1/interviews/start", payload);
+    },
     aiInterviewer(payload) {
         return http.post("/api/v1/interview/chat", payload);
     },
@@ -11,6 +14,9 @@ export const interviewsApi = {
     },
     create(payload) {
         return http.post("/api/v1/interviews", payload);
+    },
+    complete(interviewId, payload) {
+        return http.post(`/api/v1/interviews/${interviewId}/complete`, payload);
     },
     update(interviewId, payload) {
         return http.patch(`/api/v1/interviews/${interviewId}`, payload);

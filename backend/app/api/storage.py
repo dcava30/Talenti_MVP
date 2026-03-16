@@ -18,7 +18,7 @@ def create_upload_url(
     user: User = Depends(get_current_user),
 ) -> UploadUrlResponse:
     try:
-        blob_path = build_blob_path(payload.file_name)
+        blob_path = build_blob_path(payload.file_name, payload.purpose)
         upload_url, expires_in = generate_upload_sas(blob_path)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -26,6 +26,7 @@ def create_upload_url(
     file_record = File(
         organisation_id=payload.organisation_id,
         user_id=user.id,
+        purpose=payload.purpose,
         blob_path=blob_path,
         content_type=payload.content_type,
         created_at=datetime.utcnow(),

@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     acs_worker_url: str = ""
     acs_worker_shared_secret: str = ""
     public_base_url: str = ""
+    background_worker_poll_interval_seconds: float = 2.0
+    auto_score_interviews: bool = False
 
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE),

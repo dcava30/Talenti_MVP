@@ -38,6 +38,8 @@ services:
       - AZURE_STORAGE_ACCOUNT=${AZURE_STORAGE_ACCOUNT}
       - AZURE_STORAGE_ACCOUNT_KEY=${AZURE_STORAGE_ACCOUNT_KEY}
       - AZURE_STORAGE_CONTAINER=${AZURE_STORAGE_CONTAINER}
+      - BACKGROUND_WORKER_POLL_INTERVAL_SECONDS=${BACKGROUND_WORKER_POLL_INTERVAL_SECONDS:-2.0}
+      - AUTO_SCORE_INTERVIEWS=${AUTO_SCORE_INTERVIEWS:-false}
     volumes:
       - ./backend/app:/app/app:ro
     depends_on:
@@ -120,6 +122,42 @@ services:
         reservations:
           cpus: '1'
           memory: 2G
+    networks:
+      - talenti-network
+
+  backend-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: ["python", "-m", "app.worker_main"]
+    environment:
+      - DATABASE_URL=${BACKEND_DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/talenti}
+      - JWT_SECRET=${JWT_SECRET:-dev-docker-secret}
+      - MODEL_SERVICE_1_URL=http://model-service-1:8001
+      - MODEL_SERVICE_2_URL=http://model-service-2:8002
+      - ACS_WORKER_URL=http://acs-worker:8000
+      - ACS_WORKER_SHARED_SECRET=${ACS_WORKER_SHARED_SECRET:-dev-acs-worker-secret}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://localhost:8000}
+      - AZURE_ACS_CONNECTION_STRING=${AZURE_ACS_CONNECTION_STRING}
+      - AZURE_STORAGE_ACCOUNT=${AZURE_STORAGE_ACCOUNT}
+      - AZURE_STORAGE_ACCOUNT_KEY=${AZURE_STORAGE_ACCOUNT_KEY}
+      - AZURE_STORAGE_CONTAINER=${AZURE_STORAGE_CONTAINER}
+      - BACKGROUND_WORKER_POLL_INTERVAL_SECONDS=${BACKGROUND_WORKER_POLL_INTERVAL_SECONDS:-2.0}
+      - AUTO_SCORE_INTERVIEWS=${AUTO_SCORE_INTERVIEWS:-false}
+    volumes:
+      - ./backend/app:/app/app:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_started
+      model-service-1:
+        condition: service_started
+      model-service-2:
+        condition: service_started
+      acs-worker:
+        condition: service_started
+    restart: unless-stopped
     networks:
       - talenti-network
 
