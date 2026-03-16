@@ -145,9 +145,9 @@ export function calculateProfileCompletion(profile) {
         "work_rights",
         "availability",
         "work_mode",
-        "cv_file_path",
         "linkedin_url",
     ];
-    const filledFields = fields.filter((field) => profile[field] && profile[field].toString().trim() !== "");
-    return Math.round((filledFields.length / fields.length) * 100);
+    const filledFieldCount = fields.filter((field) => profile[field] && profile[field].toString().trim() !== "").length;
+    const hasCv = Boolean(profile.cv_file_id || profile.cv_file_path);
+    return Math.round(((filledFieldCount + (hasCv ? 1 : 0)) / (fields.length + 1)) * 100);
 }

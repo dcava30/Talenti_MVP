@@ -16,7 +16,7 @@ flowchart LR
 
     subgraph client["Frontend Client (React + Vite)"]
         web["SPA UI<br/>Pages, hooks, React Query, local JWT storage"]
-        api["Frontend API modules<br/>auth, organisations, roles, candidates,<br/>interviews, scoring, invitations, audit,<br/>requirements, shortlist, speech, acs"]
+        api["Frontend API modules<br/>auth, organisations, roles, candidates,<br/>interviews, scoring, invitations, audit,<br/>requirements, shortlist, speech, acs, storage"]
         browser_media["Browser media/runtime layer<br/>Azure ACS Calling SDK<br/>Azure Speech SDK<br/>Azure Avatar WebRTC<br/>Browser Speech fallback"]
     end
 
@@ -31,8 +31,8 @@ flowchart LR
     end
 
     subgraph data["Persistence"]
-        pg["PostgreSQL<br/>users, orgs, roles, candidates,<br/>applications, interviews, transcripts,<br/>scores, invitations, audit logs, files"]
-        localfs["Backend local filesystem<br/>data/uploads<br/>(current CV upload path)"]
+        pg["PostgreSQL<br/>users, orgs, roles, candidates,<br/>applications, interviews, transcripts,<br/>scores, invitations, audit logs, files,<br/>background_jobs, domain_events"]
+        localfs["Backend local filesystem<br/>data/uploads<br/>(local-only CV fallback)"]
     end
 
     subgraph ml["AI / ML Services"]
@@ -41,7 +41,8 @@ flowchart LR
         model2["Model Service 2 :8002<br/>technical / competency scoring<br/>POST /predict/transcript"]
     end
 
-    subgraph worker["Internal Communications Worker"]
+    subgraph worker["Internal Workers"]
+        backend_worker["backend-worker<br/>DB jobs, domain events,<br/>interview/file/scoring orchestration"]
         acs_worker["python-acs-service<br/>ACS call automation + recording processor"]
     end
 
@@ -74,12 +75,19 @@ flowchart LR
     media --> pg
     storage --> pg
 
-    candidate --> localfs
+    candidate -->|local dev fallback only| localfs
     storage --> blob
 
     interview --> openai
     scoring --> model1
     scoring --> model2
+
+    interview --> backend_worker
+    candidate --> backend_worker
+    backend_worker --> pg
+    backend_worker --> acs_worker
+    backend_worker --> model1
+    backend_worker --> model2
 
     media --> acs_identity
     media --> speech
@@ -105,10 +113,11 @@ flowchart LR
 - Interview chat uses Azure OpenAI only through the backend.
 - Interview scoring fans out from the backend to both model microservices, then combines their outputs.
 - The live interview experience uses backend-issued ACS and Speech tokens, but the browser talks directly to Azure runtime services for media, speech, and avatar streaming.
-- Candidate CV upload currently writes to backend local storage via `/api/v1/candidates/cv`.
-- Azure Blob Storage is used by the dedicated storage flow (`/api/storage/upload-url`) and by the ACS worker for processed call recordings.
-- The `python-acs-service` worker is an internal service used for ACS call automation and recording lifecycle events; the backend receives both worker callbacks and ACS webhook events.
-- Current frontend API modules directly call auth, organisations, roles, candidates, interviews, scoring, invitations, audit, ACS token, and Speech token endpoints. `call-automation` and `/api/storage/upload-url` are included because they are part of the deployed backend architecture, even though they are not referenced from `src/api` today.
+- Candidate CV upload is Blob-first in deployed environments via `/api/storage/upload-url`; `/api/v1/candidates/cv` remains as a local-development fallback.
+- Azure Blob Storage is used by the frontend upload flow and by the ACS worker for processed call recordings.
+- `backend-worker` processes `background_jobs` and `domain_events` for interview start/completion orchestration, placeholder CV post-processing, and optional async scoring.
+- The `python-acs-service` worker remains dedicated to ACS call automation and recording lifecycle events; the backend receives both worker callbacks and ACS webhook events.
+- Current frontend API modules directly call `/api/storage/upload-url` for CV upload and `/api/v1/interviews/start` / `/complete` for candidate interview lifecycle actions. Call automation remains internal orchestration.
 
 ## Sequence Diagram: Live Interview Flow
 
@@ -117,13 +126,23 @@ sequenceDiagram
     actor User
     participant UI as React Frontend
     participant API as FastAPI Backend
+    participant DB as PostgreSQL
+    participant BW as backend-worker
     participant OAI as Azure OpenAI
     participant ACS as Azure Communication Services
     participant Speech as Azure Speech Services
     participant Avatar as Azure Avatar Relay
-    participant DB as PostgreSQL
 
-    User->>UI: Open live interview
+    User->>UI: Start interview
+    UI->>API: POST /api/v1/interviews/start
+    API->>DB: Create/resume interview, mark in_progress
+    API->>DB: Write domain event + enqueue orchestration job
+    API-->>UI: interview session metadata
+
+    BW->>DB: Poll and claim interview_start_orchestration
+    DB-->>BW: job payload
+    Note over BW,API: If call automation metadata is missing, orchestration falls back to browser-managed mode
+
     UI->>API: POST /api/v1/acs/token
     API->>ACS: Create identity + issue token
     ACS-->>API: ACS token
@@ -147,13 +166,13 @@ sequenceDiagram
         OAI-->>API: Next interviewer response
         API-->>UI: AI reply
         UI->>Speech: Speak AI reply
-        UI->>DB: Optional transcript persistence via interview APIs
     end
 
     UI->>API: POST /api/v1/interviews/{id}/transcripts
     API->>DB: Save transcript segments
-    UI->>API: PATCH /api/v1/interviews/{id}
-    API->>DB: Update interview status
+    UI->>API: POST /api/v1/interviews/{id}/complete
+    API->>DB: Update interview/application state
+    API->>DB: Write completion/scoring events + jobs
 ```
 
 ## Sequence Diagram: Scoring Pipeline
@@ -164,6 +183,7 @@ sequenceDiagram
     participant UI as React Frontend
     participant API as FastAPI Backend
     participant DB as PostgreSQL
+    participant BW as backend-worker
     participant M1 as Model Service 1
     participant M2 as Model Service 2
 
@@ -177,6 +197,13 @@ sequenceDiagram
     API->>DB: Load transcript segments
     DB-->>API: Transcript
     API-->>UI: Transcript
+
+    opt Async auto-score enabled
+        BW->>DB: Claim scoring_run job
+        BW->>M1: POST /predict
+        BW->>M2: POST /predict/transcript
+        BW->>DB: Persist async score result
+    end
 
     UI->>API: POST /api/v1/scoring/analyze
     API->>DB: Resolve org / role / application context
@@ -197,9 +224,4 @@ sequenceDiagram
     API->>DB: Persist interview score + dimensions
     DB-->>API: Saved score
     API-->>UI: Stored score result
-
-    UI->>API: PATCH /api/v1/applications/{application_id}
-    API->>DB: Mark application reviewed / scoring complete
-    DB-->>API: Updated application
-    API-->>UI: Updated status
 ```

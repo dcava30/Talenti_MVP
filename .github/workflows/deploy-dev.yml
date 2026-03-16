@@ -24,6 +24,7 @@ jobs:
       AZURE_RESOURCE_GROUP: rg-talenti-dev-aue
       ACR_NAME: acrtalentidev
       BACKEND_APP: ca-backend-dev
+      BACKEND_WORKER_APP: ca-backend-worker-dev
       MODEL1_APP: ca-model1-dev
       MODEL2_APP: ca-model2-dev
       ACS_WORKER_APP: ca-acs-worker-dev
@@ -96,6 +97,7 @@ jobs:
 
       - name: Deploy internal services
         run: |
+          az containerapp update --name "$BACKEND_WORKER_APP" --resource-group "$AZURE_RESOURCE_GROUP" --image "$BACKEND_IMAGE"
           az containerapp update --name "$MODEL1_APP" --resource-group "$AZURE_RESOURCE_GROUP" --image "$MODEL1_IMAGE"
           az containerapp update --name "$MODEL2_APP" --resource-group "$AZURE_RESOURCE_GROUP" --image "$MODEL2_IMAGE"
           az containerapp update --name "$ACS_WORKER_APP" --resource-group "$AZURE_RESOURCE_GROUP" --image "$ACS_IMAGE"

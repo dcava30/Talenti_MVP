@@ -12,11 +12,13 @@ param postgresServerName string = 'psql-talenti-dev-aue'
 param backendDbName string = 'talenti_backend_dev'
 
 param backendAppName string = 'ca-backend-dev'
+param backendWorkerAppName string = 'ca-backend-worker-dev'
 param model1AppName string = 'ca-model1-dev'
 param model2AppName string = 'ca-model2-dev'
 param acsWorkerAppName string = 'ca-acs-worker-dev'
 
 param backendImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+param backendWorkerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 param model1Image string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 param model2Image string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 param acsWorkerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
@@ -180,6 +182,46 @@ resource backendApp 'Microsoft.App/containerApps@2023-05-01' = {
       scale: {
         minReplicas: 1
         maxReplicas: 2
+      }
+    }
+  }
+}
+
+resource backendWorkerApp 'Microsoft.App/containerApps@2023-05-01' = {
+  name: backendWorkerAppName
+  location: location
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    managedEnvironmentId: containerEnv.id
+    configuration: {
+      registries: [
+        {
+          server: '${acr.name}.azurecr.io'
+          identity: 'system'
+        }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'backend-worker'
+          image: backendWorkerImage
+          command: [
+            'python'
+            '-m'
+            'app.worker_main'
+          ]
+          resources: {
+            cpu: json('0.5')
+            memory: '1Gi'
+          }
+        }
+      ]
+      scale: {
+        minReplicas: 1
+        maxReplicas: 1
       }
     }
   }

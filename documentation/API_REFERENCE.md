@@ -22,8 +22,10 @@ http://<backend-host>:8000
 - `POST /api/v1/interview/chat` - AI interviewer chat.
 - `POST /api/v1/scoring/analyze` - Score an interview transcript.
 - `POST /api/v1/interviews` - Create interview.
+- `POST /api/v1/interviews/start` - Start or resume the active interview for an application and trigger background orchestration.
 - `GET /api/v1/interviews/{id}` - Fetch interview.
 - `PATCH /api/v1/interviews/{id}` - Update interview.
+- `POST /api/v1/interviews/{id}/complete` - Complete an interview and enqueue post-interview orchestration.
 - `GET /api/v1/interviews/{id}/transcripts` - List transcripts.
 - `POST /api/v1/interviews/{id}/transcripts` - Add transcript segment.
 - `GET /api/v1/interviews/{id}/score` - Fetch score.
@@ -35,7 +37,7 @@ http://<backend-host>:8000
 - `GET /api/v1/candidates/profile` - Get profile.
 - `POST /api/v1/candidates/profile` - Create/update profile.
 - `PATCH /api/v1/candidates/{user_id}/profile` - Update profile.
-- `POST /api/v1/candidates/cv` - Upload CV (multipart).
+- `POST /api/v1/candidates/cv` - Deprecated local-development fallback for direct CV upload.
 
 ## Roles, Requirements, Shortlist
 
@@ -56,7 +58,7 @@ http://<backend-host>:8000
 
 ## Storage
 
-- `POST /api/storage/upload-url` - Create Azure Blob upload URL.
+- `POST /api/storage/upload-url` - Create Azure Blob upload URL for direct browser upload. This is the primary deployed CV upload entrypoint.
 
 ## Azure Communication Services
 
@@ -74,6 +76,8 @@ http://<backend-host>:8000
 ## Notes
 
 - The backend uses PostgreSQL; configure `DATABASE_URL` in `.env`.
-- Uploads are stored in Azure Blob Storage (see `.env.example`).
+- Uploads are stored in Azure Blob Storage in deployed environments (see `.env.example`).
+- Candidate CV upload in deployed environments is: request `/api/storage/upload-url` -> upload directly to Blob -> save `cv_file_id` on the candidate profile.
+- Interview start/complete lifecycle endpoints trigger DB-backed background jobs processed by `backend-worker`.
 
 

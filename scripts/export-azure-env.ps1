@@ -9,6 +9,7 @@ param(
     [string]$OpenAIDeployment = "gpt-4o",
     [string]$StaticWebApp = "swa-talenti-dev-aue",
     [string]$BackendApp = "ca-backend-dev",
+    [string]$BackendWorkerApp = "ca-backend-worker-dev",
     [string]$Model1App = "ca-model1-dev",
     [string]$Model2App = "ca-model2-dev",
     [string]$AcsWorkerApp = "ca-acs-worker-dev",
@@ -192,6 +193,12 @@ $envLines = @(
     "ACS_WORKER_URL=$acsWorkerUrl"
     "ACS_WORKER_SHARED_SECRET=$acsWorkerSharedSecret"
     "PUBLIC_BASE_URL=$publicBaseUrl"
+    "BACKGROUND_WORKER_POLL_INTERVAL_SECONDS=2.0"
+    "AUTO_SCORE_INTERVIEWS=false"
+    ""
+    "# Backend worker"
+    "# Uses the same backend runtime env vars above and starts with: python -m app.worker_main"
+    "BACKEND_WORKER_APP_NAME=$BackendWorkerApp"
     ""
     "# Azure Communication Services"
     "AZURE_ACS_CONNECTION_STRING=$acsConnection"

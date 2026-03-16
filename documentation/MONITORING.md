@@ -13,12 +13,19 @@ Talenti runs as a FastAPI service backed by PostgreSQL and Azure integrations. M
 - Database connectivity and server health for PostgreSQL.
 - Disk usage and available capacity.
 - Migration status on startup (Alembic).
+- Queue depth and job age in `background_jobs`.
+- Event volume and write failures in `domain_events`.
 
 ### Azure Services
 - Azure Communication Services token issuance failures.
 - Azure Speech token issuance failures.
 - Azure OpenAI request errors/timeouts.
 - Azure Blob Storage upload URL generation failures.
+
+### Workers
+- `backend-worker` process health and restart count.
+- Count of `background_jobs` stuck in `pending` or `running`.
+- ACS worker callback failures.
 
 ## Logs
 
@@ -31,12 +38,14 @@ Talenti runs as a FastAPI service backed by PostgreSQL and Azure integrations. M
 - **Auth Failures:** sustained spike in 401/403 responses.
 - **Azure Dependency Errors:** 5xx/timeout spikes on ACS, Speech, OpenAI, or Blob APIs.
 - **Disk Pressure:** PostgreSQL storage low on disk (<10%).
+- **Job Backlog:** `background_jobs` pending queue age exceeds expected poll/retry window.
 
 ## Troubleshooting Checklist
 
 1. Check FastAPI logs for stack traces.
-2. Verify `.env` configuration for Azure keys and `DATABASE_URL`.
-3. Confirm PostgreSQL connectivity, storage capacity, and server health.
-4. Verify Azure service health and quotas.
+2. Check `backend-worker` logs if orchestration, CV post-processing, or async scoring is stalled.
+3. Verify `.env` configuration for Azure keys, `DATABASE_URL`, `BACKGROUND_WORKER_POLL_INTERVAL_SECONDS`, and `AUTO_SCORE_INTERVIEWS`.
+4. Confirm PostgreSQL connectivity, storage capacity, and server health.
+5. Verify Azure service health and quotas.
 
 

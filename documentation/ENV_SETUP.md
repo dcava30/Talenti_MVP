@@ -1,6 +1,6 @@
 # Environment Setup
 
-Talenti runs with a FastAPI backend, PostgreSQL database, and Azure service integrations.
+Talenti runs with a FastAPI backend, a dedicated backend worker, a PostgreSQL database, and Azure service integrations.
 
 ## Prerequisites
 
@@ -49,11 +49,23 @@ Example for deployed URLs:
 .\scripts\export-azure-env.ps1 -SubscriptionId <sub-id> -Profile deployed -OutputPath .env.azure
 ```
 
+The generated env file includes backend worker toggles:
+
+- `BACKGROUND_WORKER_POLL_INTERVAL_SECONDS`
+- `AUTO_SCORE_INTERVIEWS`
+
 3. Start the API:
 
 ```powershell
 cd backend
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+4. Start the backend worker in a second terminal:
+
+```powershell
+cd backend
+python -m app.worker_main
 ```
 
 ## Frontend Setup
@@ -85,11 +97,21 @@ docker compose -f docker-compose.yml -f docker-compose.external-db.yml up -d
 
 ## Storage Configuration
 
-Uploads are stored in Azure Blob Storage. Set:
+Uploads in deployed environments are stored in Azure Blob Storage. Set:
 
 - `AZURE_STORAGE_ACCOUNT`
 - `AZURE_STORAGE_ACCOUNT_KEY`
 - `AZURE_STORAGE_CONTAINER`
+
+The backend worker also reads:
+
+- `BACKGROUND_WORKER_POLL_INTERVAL_SECONDS`
+- `AUTO_SCORE_INTERVIEWS`
+
+Notes:
+
+- Deployed dev/staging/prod should use `/api/storage/upload-url` as the primary candidate CV upload flow.
+- `/api/v1/candidates/cv` remains a local-development fallback when Blob credentials are unavailable.
 
 ## Auth Configuration
 

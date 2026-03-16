@@ -11,6 +11,7 @@ Talenti is a FastAPI + PostgreSQL backend with a React (Vite) frontend and Azure
 ## Target architecture
 
 - FastAPI backend with PostgreSQL.
+- Dedicated backend worker for DB-backed jobs and domain events.
 - React frontend (JavaScript/JSX).
 - Azure Cognitive Services integrations.
 
@@ -41,7 +42,10 @@ cp .env.example .env
 cd backend
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# Step 6: Start the frontend development server with auto-reloading and an instant preview.
+# Step 6: Start the backend worker for background jobs.
+python -m app.worker_main
+
+# Step 7: Start the frontend development server with auto-reloading and an instant preview.
 cd ..
 export VITE_API_BASE_URL=http://localhost:8000
 npm run dev
@@ -65,6 +69,7 @@ Windows (manual startup) equivalents:
 Copy-Item .env.example .env
 cd backend
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+python -m app.worker_main
 cd ..
 $env:VITE_API_BASE_URL="http://localhost:8000"
 npm run dev
@@ -120,8 +125,9 @@ This project is built with:
 
 ## How can I deploy this project?
 
-Deploy the FastAPI service and Vite frontend using your preferred infrastructure (container platform, VM, or PaaS).
-Ensure the backend has access to the PostgreSQL DSN and required Azure credentials.
+Deploy the FastAPI service, backend worker, and Vite frontend using your preferred infrastructure (container platform, VM, or PaaS).
+Ensure both backend runtimes have access to the PostgreSQL DSN and required Azure credentials.
+In deployed dev/staging/prod, candidate CV uploads should use Blob-first upload via `/api/storage/upload-url`; the direct `/api/v1/candidates/cv` route is only a local fallback.
 
 
 

@@ -1,7 +1,7 @@
 # Talenti Database Schema Documentation
 
 > **Version:** 1.0.0  
-> **Last Updated:** January 2026  
+> **Last Updated:** March 2026
 > **Database:** PostgreSQL
 
 ## Overview
@@ -36,10 +36,13 @@ erDiagram
     applications ||--o{ interviews : "has"
     applications ||--o{ invitations : "has"
     applications }o--|| candidate_profiles : "from candidate"
+    candidate_profiles }o--|| files : "links CV"
     
     interviews ||--o{ transcript_segments : "contains"
     interviews ||--o{ score_dimensions : "scored by"
     interviews ||--|| interview_scores : "has summary"
+    interviews ||--o{ background_jobs : "triggers"
+    interviews ||--o{ domain_events : "emits"
     
     candidate_profiles ||--|| auth_users : "belongs to"
     candidate_profiles ||--o{ candidate_skills : "has"
@@ -171,6 +174,7 @@ Candidate personal information and profile data.
 | country | text | YES | NULL | Country |
 | linkedin_url | text | YES | NULL | LinkedIn profile |
 | portfolio_url | text | YES | NULL | Portfolio/website |
+| cv_file_id | text | YES | NULL | FK to files.id for the linked CV |
 | cv_file_path | text | YES | NULL | Path to CV in storage |
 | cv_uploaded_at | timestamptz | YES | NULL | When CV was uploaded |
 | availability | text | YES | NULL | When available to start |
@@ -316,14 +320,25 @@ Interview sessions.
 | started_at | timestamptz | YES | NULL | When interview began |
 | ended_at | timestamptz | YES | NULL | When interview ended |
 | duration_seconds | integer | YES | NULL | Total duration |
+| call_connection_id | text | YES | NULL | ACS call connection identifier |
+| server_call_id | text | YES | NULL | Server-managed ACS call identifier |
+| recording_id | text | YES | NULL | Recording session identifier |
+| recording_started | boolean | NO | false | Whether recording has started |
+| recording_processed | boolean | NO | false | Whether recording has been processed |
+| recording_status | text | YES | NULL | Recording lifecycle status |
+| recording_error | text | YES | NULL | Recording failure message |
+| recording_started_at | timestamptz | YES | NULL | When recording started |
+| recording_stopped_at | timestamptz | YES | NULL | When recording stopped |
+| recording_processed_at | timestamptz | YES | NULL | When recording was processed |
 | recording_url | text | YES | NULL | URL to recording |
-| recording_deleted_at | timestamptz | YES | NULL | When recording deleted |
-| anti_cheat_signals | jsonb | YES | NULL | Detected anomalies |
-| metadata | jsonb | YES | NULL | Additional data |
+| transcript_status | text | YES | NULL | Transcript lifecycle status |
+| anti_cheat_signals | text | YES | NULL | JSON-encoded detected anomalies |
+| session_metadata | text | YES | NULL | JSON-encoded session/orchestration metadata |
+| summary | text | YES | NULL | Interview summary text |
 | created_at | timestamptz | NO | now() | Creation timestamp |
 | updated_at | timestamptz | NO | now() | Last update |
 
-**Metadata JSONB Structure:**
+**Session metadata JSON structure:**
 ```json
 {
   "serverCallId": "...",
@@ -363,6 +378,62 @@ Interview transcript broken into speaker segments.
 
 **Foreign Keys:**
 - `transcript_segments_interview_id_fkey` - interviews(id)
+
+---
+
+### files
+
+Blob-backed uploaded files tracked by the backend.
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | text | NO | uuid | Primary key |
+| organisation_id | text | YES | NULL | Owning organisation when applicable |
+| user_id | text | YES | NULL | Owning user when applicable |
+| purpose | text | NO | 'general' | File purpose such as `candidate_cv` |
+| blob_path | text | NO | - | Blob path/key in storage |
+| content_type | text | YES | NULL | MIME type |
+| metadata | text | YES | NULL | JSON-encoded metadata |
+| created_at | timestamptz | NO | now() | Creation timestamp |
+
+---
+
+### background_jobs
+
+DB-backed asynchronous work queue processed by `backend-worker`.
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | text | NO | uuid | Primary key |
+| job_type | text | NO | - | Handler key such as `interview_start_orchestration` |
+| status | text | NO | `pending` | `pending`, `running`, `completed`, `failed`, or `skipped` |
+| payload_json | text | NO | - | JSON-encoded job payload |
+| result_json | text | YES | NULL | JSON-encoded job result |
+| attempts | integer | NO | 0 | Attempt count |
+| max_attempts | integer | NO | 3 | Retry ceiling |
+| available_at | timestamptz | NO | now() | Next eligible run time |
+| started_at | timestamptz | YES | NULL | Processing start time |
+| completed_at | timestamptz | YES | NULL | Processing completion time |
+| last_error | text | YES | NULL | Most recent failure message |
+| correlation_id | text | YES | NULL | Shared orchestration correlation ID |
+| created_at | timestamptz | NO | now() | Creation timestamp |
+| updated_at | timestamptz | NO | now() | Last update |
+
+---
+
+### domain_events
+
+Outbox-style domain event log written transactionally with state changes.
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | text | NO | uuid | Primary key |
+| event_type | text | NO | - | Event name such as `interview.started` |
+| aggregate_type | text | NO | - | Aggregate category such as `interview` |
+| aggregate_id | text | NO | - | Aggregate identifier |
+| payload_json | text | NO | - | JSON-encoded event payload |
+| correlation_id | text | YES | NULL | Shared orchestration correlation ID |
+| created_at | timestamptz | NO | now() | Creation timestamp |
 
 ---
 

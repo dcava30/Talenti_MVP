@@ -14,7 +14,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useNavigate } from "react-router-dom";
 import { authApi } from "@/api/auth";
 import { candidatesApi } from "@/api/candidates";
-import { resumeApi } from "@/api/resume";
 import { storageApi } from "@/api/storage";
 import { useToast } from "@/hooks/use-toast";
 import ProfileManagement from "@/components/ProfileManagement";
@@ -40,6 +39,7 @@ const CandidateProfile = () => {
         gpa_wam: null,
         portfolio_url: "",
         linkedin_url: "",
+        cv_file_id: "",
         cv_file_path: "",
         profile_visibility: "visible",
     });
@@ -49,7 +49,6 @@ const CandidateProfile = () => {
     const [newSkill, setNewSkill] = useState("");
     const [newSkillType, setNewSkillType] = useState("hard");
     const [isUploadingCV, setIsUploadingCV] = useState(false);
-    const [isParsingCV, setIsParsingCV] = useState(false);
     const [editingEmployment, setEditingEmployment] = useState(null);
     const [editingEducation, setEditingEducation] = useState(null);
     const [showEmploymentDialog, setShowEmploymentDialog] = useState(false);
@@ -72,7 +71,7 @@ const CandidateProfile = () => {
             completed++;
         if (profile.work_mode)
             completed++;
-        if (profile.cv_file_path)
+        if (profile.cv_file_path || profile.cv_file_id)
             completed++;
         if (employmentHistory.length > 0)
             completed++;
@@ -120,6 +119,7 @@ const CandidateProfile = () => {
                     gpa_wam: profileData.gpa_wam,
                     portfolio_url: profileData.portfolio_url || "",
                     linkedin_url: profileData.linkedin_url || "",
+                    cv_file_id: profileData.cv_file_id || "",
                     cv_file_path: profileData.cv_file_path || "",
                     profile_visibility: profileData.profile_visibility || "visible",
                 });
@@ -202,6 +202,7 @@ const CandidateProfile = () => {
         setIsUploadingCV(true);
         try {
             let resolvedPath = "";
+            let resolvedFileId = "";
             try {
                 const uploadTarget = await storageApi.createUploadUrl({
                     file_name: file.name,
@@ -224,14 +225,16 @@ const CandidateProfile = () => {
                     cv_file_id: uploadTarget.file_id,
                     cv_uploaded_at: new Date().toISOString(),
                 });
+                resolvedFileId = uploadTarget.file_id;
                 resolvedPath = uploadTarget.blob_path;
             }
             catch (storageError) {
                 console.warn("Blob upload unavailable, falling back to local CV upload:", storageError);
                 const uploadResult = await candidatesApi.uploadCv(file, userId);
+                resolvedFileId = uploadResult?.cv_file_id || "";
                 resolvedPath = uploadResult?.cv_file_path || uploadResult?.file_path || file.name;
             }
-            setProfile(prev => ({ ...prev, cv_file_path: resolvedPath }));
+            setProfile(prev => ({ ...prev, cv_file_id: resolvedFileId, cv_file_path: resolvedPath }));
             toast({
                 title: "CV uploaded",
                 description: "Your CV has been uploaded and linked to your profile.",
@@ -246,131 +249,6 @@ const CandidateProfile = () => {
             });
         }
         setIsUploadingCV(false);
-    };
-    const parseResumeWithAI = async (filePath) => {
-        if (!userId)
-            return;
-        setIsParsingCV(true);
-        try {
-            const data = await resumeApi.parse({ file_path: filePath, candidate_id: userId });
-            const parsed = data?.data || data?.parsed || data;
-            if (!parsed) {
-                throw new Error("Failed to parse resume");
-            }
-            // Update profile with parsed personal info
-            if (parsed.personal) {
-                const updatedProfile = { ...profile };
-                if (parsed.personal.first_name)
-                    updatedProfile.first_name = parsed.personal.first_name;
-                if (parsed.personal.last_name)
-                    updatedProfile.last_name = parsed.personal.last_name;
-                if (parsed.personal.email)
-                    updatedProfile.email = parsed.personal.email;
-                if (parsed.personal.phone)
-                    updatedProfile.phone = parsed.personal.phone;
-                if (parsed.personal.linkedin_url)
-                    updatedProfile.linkedin_url = parsed.personal.linkedin_url;
-                if (parsed.personal.portfolio_url)
-                    updatedProfile.portfolio_url = parsed.personal.portfolio_url;
-                if (parsed.personal.location) {
-                    if (parsed.personal.location.suburb)
-                        updatedProfile.suburb = parsed.personal.location.suburb;
-                    if (parsed.personal.location.state)
-                        updatedProfile.state = parsed.personal.location.state;
-                    if (parsed.personal.location.postcode)
-                        updatedProfile.postcode = parsed.personal.location.postcode;
-                    if (parsed.personal.location.country)
-                        updatedProfile.country = parsed.personal.location.country;
-                }
-                setProfile(updatedProfile);
-                // Save to database
-                await candidatesApi.upsertProfile({
-                    user_id: userId,
-                    ...updatedProfile,
-                });
-            }
-            // Add employment history
-            if (parsed.employment && parsed.employment.length > 0) {
-                for (const emp of parsed.employment) {
-                    const newEmp = await candidatesApi.createEmployment({
-                        user_id: userId,
-                        job_title: emp.job_title,
-                        company_name: emp.company_name,
-                        start_date: emp.start_date,
-                        end_date: emp.end_date || null,
-                        is_current: emp.is_current,
-                        description: emp.description || "",
-                    });
-                    if (newEmp) {
-                        setEmploymentHistory(prev => [...prev, {
-                                id: newEmp.id,
-                                job_title: newEmp.job_title,
-                                company_name: newEmp.company_name,
-                                start_date: newEmp.start_date,
-                                end_date: newEmp.end_date || "",
-                                is_current: newEmp.is_current || false,
-                                description: newEmp.description || "",
-                            }]);
-                    }
-                }
-            }
-            // Add education
-            if (parsed.education && parsed.education.length > 0) {
-                for (const edu of parsed.education) {
-                    const newEdu = await candidatesApi.createEducation({
-                        user_id: userId,
-                        institution: edu.institution,
-                        degree: edu.degree,
-                        field_of_study: edu.field_of_study || null,
-                        start_date: edu.start_date || null,
-                        end_date: edu.end_date || null,
-                        is_current: edu.is_current || false,
-                    });
-                    if (newEdu) {
-                        setEducation(prev => [...prev, {
-                                id: newEdu.id,
-                                institution: newEdu.institution,
-                                degree: newEdu.degree,
-                                field_of_study: newEdu.field_of_study || "",
-                                start_date: newEdu.start_date || "",
-                                end_date: newEdu.end_date || "",
-                                is_current: newEdu.is_current || false,
-                            }]);
-                    }
-                }
-            }
-            // Add skills
-            if (parsed.skills && parsed.skills.length > 0) {
-                for (const skill of parsed.skills) {
-                    const newSkillData = await candidatesApi.createSkill({
-                        user_id: userId,
-                        skill_name: skill.skill_name,
-                        skill_type: skill.skill_type,
-                    });
-                    if (newSkillData) {
-                        setSkills(prev => [...prev, {
-                                id: newSkillData.id,
-                                skill_name: newSkillData.skill_name,
-                                skill_type: newSkillData.skill_type,
-                                proficiency_level: "",
-                            }]);
-                    }
-                }
-            }
-            toast({
-                title: "Resume parsed successfully",
-                description: "Your profile has been updated with information from your resume.",
-            });
-        }
-        catch (error) {
-            console.error("Error parsing resume:", error);
-            toast({
-                title: "Parsing notice",
-                description: "CV uploaded but could not extract all details. You can fill them in manually.",
-                variant: "default",
-            });
-        }
-        setIsParsingCV(false);
     };
     const handleAddSkill = async () => {
         if (!newSkill.trim() || !userId)

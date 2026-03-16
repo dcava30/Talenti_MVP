@@ -16,6 +16,7 @@ param(
     [string]$StorageAccountName = "sttalentidevaue",
 
     [string]$BackendApp = "ca-backend-dev",
+    [string]$BackendWorkerApp = "ca-backend-worker-dev",
     [string]$Model1App = "ca-model1-dev",
     [string]$Model2App = "ca-model2-dev",
     [string]$AcsWorkerApp = "ca-acs-worker-dev",
@@ -255,7 +256,7 @@ az keyvault secret set --vault-name $KeyVaultName --name "azure-storage-connecti
 Write-Section "Assign AcrPull and Key Vault roles to container apps"
 $acrId = az acr show --name $AcrName --resource-group $ResourceGroup --query id -o tsv
 $kvId = az keyvault show --name $KeyVaultName --resource-group $ResourceGroup --query id -o tsv
-foreach ($app in @($BackendApp, $Model1App, $Model2App, $AcsWorkerApp)) {
+foreach ($app in @($BackendApp, $BackendWorkerApp, $Model1App, $Model2App, $AcsWorkerApp)) {
     $principal = az containerapp show --name $app --resource-group $ResourceGroup --query identity.principalId -o tsv
     if ($principal) {
         Ensure-AzRoleAssignment -PrincipalId $principal -Role "AcrPull" -Scope $acrId
@@ -297,6 +298,13 @@ az containerapp secret set --name $BackendApp --resource-group $ResourceGroup --
     azure-storage-account="keyvaultref:https://$KeyVaultName.vault.azure.net/secrets/azure-storage-account,identityref:system" `
     azure-storage-account-key="keyvaultref:https://$KeyVaultName.vault.azure.net/secrets/azure-storage-account-key,identityref:system" | Out-Null
 
+az containerapp secret set --name $BackendWorkerApp --resource-group $ResourceGroup --secrets `
+    database-url="keyvaultref:https://$KeyVaultName.vault.azure.net/secrets/backend-database-url,identityref:system" `
+    jwt-secret="keyvaultref:https://$KeyVaultName.vault.azure.net/secrets/jwt-secret,identityref:system" `
+    acs-worker-shared-secret="keyvaultref:https://$KeyVaultName.vault.azure.net/secrets/acs-worker-shared-secret,identityref:system" `
+    azure-storage-account="keyvaultref:https://$KeyVaultName.vault.azure.net/secrets/azure-storage-account,identityref:system" `
+    azure-storage-account-key="keyvaultref:https://$KeyVaultName.vault.azure.net/secrets/azure-storage-account-key,identityref:system" | Out-Null
+
 az containerapp secret set --name $AcsWorkerApp --resource-group $ResourceGroup --secrets `
     acs-connection-string="keyvaultref:https://$KeyVaultName.vault.azure.net/secrets/azure-acs-connection-string,identityref:system" `
     az-storage-connection="keyvaultref:https://$KeyVaultName.vault.azure.net/secrets/azure-storage-connection,identityref:system" `
@@ -322,6 +330,21 @@ az containerapp update --name $BackendApp --resource-group $ResourceGroup --set-
     AZURE_STORAGE_ACCOUNT=secretref:azure-storage-account `
     AZURE_STORAGE_ACCOUNT_KEY=secretref:azure-storage-account-key `
     AZURE_STORAGE_CONTAINER=uploads | Out-Null
+
+az containerapp update --name $BackendWorkerApp --resource-group $ResourceGroup --set-env-vars `
+    DATABASE_URL=secretref:database-url `
+    JWT_SECRET=secretref:jwt-secret `
+    ENVIRONMENT=development `
+    MODEL_SERVICE_1_URL=$model1Url `
+    MODEL_SERVICE_2_URL=$model2Url `
+    ACS_WORKER_URL=$workerUrl `
+    ACS_WORKER_SHARED_SECRET=secretref:acs-worker-shared-secret `
+    PUBLIC_BASE_URL=$publicBaseUrl `
+    AZURE_STORAGE_ACCOUNT=secretref:azure-storage-account `
+    AZURE_STORAGE_ACCOUNT_KEY=secretref:azure-storage-account-key `
+    AZURE_STORAGE_CONTAINER=uploads `
+    BACKGROUND_WORKER_POLL_INTERVAL_SECONDS=2.0 `
+    AUTO_SCORE_INTERVIEWS=false | Out-Null
 
 az containerapp update --name $AcsWorkerApp --resource-group $ResourceGroup --set-env-vars `
     ACS_CONNECTION_STRING=secretref:acs-connection-string `
@@ -351,6 +374,7 @@ if ($RunWorkflows) {
 
 Write-Section "Done"
 Write-Host "Backend URL: $publicBaseUrl"
+Write-Host "Backend worker app: $BackendWorkerApp"
 Write-Host "Model1 URL (internal): $model1Url"
 Write-Host "Model2 URL (internal): $model2Url"
 Write-Host "ACS Worker URL (internal): $workerUrl"

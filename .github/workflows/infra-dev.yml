@@ -42,7 +42,7 @@ jobs:
         run: |
           ACR_ID=$(az acr show --name acrtalentidev --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
           KV_ID=$(az keyvault show --name kv-talenti-dev-aue --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
-          for APP in ca-backend-dev ca-model1-dev ca-model2-dev ca-acs-worker-dev; do
+          for APP in ca-backend-dev ca-backend-worker-dev ca-model1-dev ca-model2-dev ca-acs-worker-dev; do
             PRINCIPAL_ID=$(az containerapp show --name "$APP" --resource-group "$AZURE_RESOURCE_GROUP" --query identity.principalId -o tsv)
             if [ -n "$PRINCIPAL_ID" ]; then
               az role assignment create --assignee-object-id "$PRINCIPAL_ID" --assignee-principal-type ServicePrincipal --role AcrPull --scope "$ACR_ID" || true
