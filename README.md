@@ -26,26 +26,29 @@ The only requirement is having Node.js & npm installed - [install with nvm](http
 Follow these steps:
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+# Step 1: Clone the main app repository over SSH.
+git clone git@github.com:dcava30/Talenti_MVP.git
 
 # Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+cd Talenti_MVP
 
-# Step 3: Install the necessary dependencies.
+# Step 3: Clone the model repositories into the expected local folders.
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-model-repos.ps1 -SshKeyPath C:\Users\Declan\.ssh\id_ed25519_personal -Fetch
+
+# Step 4: Install the necessary dependencies.
 npm i
 
-# Step 4: Create local environment configuration at repo root.
+# Step 5: Create local environment configuration at repo root.
 cp .env.example .env
 
-# Step 5: Start the backend API (FastAPI + PostgreSQL).
+# Step 6: Start the backend API (FastAPI + PostgreSQL).
 cd backend
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# Step 6: Start the backend worker for background jobs.
+# Step 7: Start the backend worker for background jobs.
 python -m app.worker_main
 
-# Step 7: Start the frontend development server with auto-reloading and an instant preview.
+# Step 8: Start the frontend development server with auto-reloading and an instant preview.
 cd ..
 export VITE_API_BASE_URL=http://localhost:8000
 npm run dev
@@ -109,6 +112,7 @@ This project is built with:
 |----------|-------------|
 | [DOCS.md](old/DOCS.md) | Master index of current and legacy docs |
 | [HANDOVER.md](documentation/HANDOVER.md) | Technical handover and architecture overview |
+| [CODEX_CAPABILITY_SETUP.md](documentation/CODEX_CAPABILITY_SETUP.md) | Local GitHub/Azure auth, model repo setup, and OIDC bootstrap |
 | [ENV_SETUP.md](documentation/ENV_SETUP.md) | Environment setup and local configuration |
 | [FRONTEND_GUIDE.md](documentation/FRONTEND_GUIDE.md) | React architecture and implementation guide |
 | [API_REFERENCE.md](documentation/API_REFERENCE.md) | FastAPI endpoint reference |
@@ -130,7 +134,7 @@ Deploy the FastAPI service, backend worker, and Vite frontend using your preferr
 Ensure both backend runtimes have access to the PostgreSQL DSN and required Azure credentials.
 In deployed dev/staging/prod, candidate CV uploads should use Blob-first upload via `/api/storage/upload-url`; the direct `/api/v1/candidates/cv` route is only a local fallback.
 
-For the GitHub Actions release flow, start with [RELEASE_PIPELINE.md](documentation/RELEASE_PIPELINE.md), [DEPLOYMENT_DEV_V2.md](documentation/DEPLOYMENT_DEV_V2.md), and [MONITORING.md](documentation/MONITORING.md).
+For the GitHub Actions release flow, start with [CODEX_CAPABILITY_SETUP.md](documentation/CODEX_CAPABILITY_SETUP.md), [RELEASE_PIPELINE.md](documentation/RELEASE_PIPELINE.md), [DEPLOYMENT_DEV_V2.md](documentation/DEPLOYMENT_DEV_V2.md), and [MONITORING.md](documentation/MONITORING.md).
 
 
 

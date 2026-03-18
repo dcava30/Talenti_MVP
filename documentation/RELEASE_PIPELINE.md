@@ -93,6 +93,18 @@ Optional repository or environment secret:
 
 Use a PAT for `RELEASE_PLEASE_TOKEN` if you want downstream workflows to respond to release publication automatically. Without it, manual promotion still works.
 
+To create the environments and seed their OIDC secrets from the command line, use:
+
+```powershell
+.\scripts\setup-deployment-access.ps1 -SubscriptionId <sub-id> -AlertEmailAddress <team-email>
+```
+
+The Azure federated credential subject must match the GitHub environment form used by the workflows:
+
+- `repo:dcava30/Talenti_MVP:environment:dev`
+- `repo:dcava30/Talenti_MVP:environment:uat`
+- `repo:dcava30/Talenti_MVP:environment:prod`
+
 ## Promotion and Rollback
 
 - UAT is promoted from a published GitHub Release.

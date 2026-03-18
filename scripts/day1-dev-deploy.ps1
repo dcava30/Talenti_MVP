@@ -2,11 +2,10 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$SubscriptionId,
 
-    [Parameter(Mandatory = $true)]
-    [string]$TenantId,
-
+    [string]$TenantId = "",
     [string]$Repo = "dcava30/Talenti_MVP",
-    [string]$Branch = "develop",
+    [string]$Branch = "main",
+    [string]$GitHubEnvironment = "dev",
 
     [string]$Location = "australiaeast",
     [string]$ResourceGroup = "rg-talenti-dev-aue",
@@ -33,11 +32,13 @@ param(
     [string]$OpenAIDeployment = "gpt-4o",
 
     [string]$StaticWebApp = "swa-talenti-dev-aue",
-    [string]$OidcAppName = "gh-talenti-dev-oidc",
 
     [string]$FrontendOrigin = "",
     [string]$JwtSecret = "",
     [string]$AcsWorkerSharedSecret = "",
+    [string]$AlertEmailAddress = "",
+    [string]$Model1ImageRef = "",
+    [string]$Model2ImageRef = "",
 
     [switch]$RunWorkflows
 )
@@ -74,20 +75,13 @@ function Convert-SecureToPlain {
     }
 }
 
-function Ensure-GhSecret {
-    param(
-        [string]$Name,
-        [string]$Value
-    )
-    gh secret set $Name --body $Value | Out-Null
-}
-
 function Ensure-AzRoleAssignment {
     param(
         [string]$PrincipalId,
         [string]$Role,
         [string]$Scope
     )
+
     az role assignment create `
         --assignee-object-id $PrincipalId `
         --assignee-principal-type ServicePrincipal `
@@ -101,12 +95,18 @@ function Ensure-Container {
         [string]$Key,
         [string]$Name
     )
+
     az storage container create --name $Name --account-name $Account --account-key $Key --auth-mode key | Out-Null
+}
+
+if ($GitHubEnvironment -ne "dev") {
+    throw "day1-dev-deploy.ps1 configures the dev environment only. Use -GitHubEnvironment dev."
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $infraTemplate = Join-Path $repoRoot "infra/dev/main.bicep"
 $parametersPath = Join-Path $repoRoot "infra/dev/parameters.dev.json"
+$setupAccessScript = Join-Path $PSScriptRoot "setup-deployment-access.ps1"
 
 if (-not (Test-Path $infraTemplate)) {
     throw "Missing infra template: $infraTemplate"
@@ -114,6 +114,10 @@ if (-not (Test-Path $infraTemplate)) {
 
 if (-not (Test-Path $parametersPath)) {
     throw "Missing infra parameters: $parametersPath"
+}
+
+if (-not (Test-Path $setupAccessScript)) {
+    throw "Missing helper script: $setupAccessScript"
 }
 
 Require-Command "az"
@@ -130,9 +134,20 @@ if (-not $PostgresAdminPassword) {
 }
 $PostgresPasswordPlain = Convert-SecureToPlain -Value $PostgresAdminPassword
 
+if (-not $AlertEmailAddress) {
+    throw "AlertEmailAddress is required because infra/dev/main.bicep provisions Azure Monitor alerting resources."
+}
+
 Write-Section "Login and prerequisites"
 az extension add --name containerapp --upgrade | Out-Null
+az extension add --name staticwebapp --upgrade | Out-Null
 az account set --subscription $SubscriptionId
+if (-not $TenantId) {
+    $TenantId = az account show --subscription $SubscriptionId --query tenantId -o tsv
+}
+if (-not $TenantId) {
+    throw "Unable to resolve tenant id from Azure CLI. Pass -TenantId explicitly after running az login."
+}
 az group create --name $ResourceGroup --location $Location | Out-Null
 
 $null = gh auth status 2>$null
@@ -140,47 +155,12 @@ if ($LASTEXITCODE -ne 0) {
     throw "gh is not authenticated. Run 'gh auth login' and rerun."
 }
 
-Write-Section "Create or reuse OIDC app"
-$oidcAppId = az ad app list --display-name $OidcAppName --query "[0].appId" -o tsv
-if (-not $oidcAppId) {
-    $oidcAppId = az ad app create --display-name $OidcAppName --query appId -o tsv
-}
-
-$spObjId = az ad sp list --filter "appId eq '$oidcAppId'" --query "[0].id" -o tsv
-if (-not $spObjId) {
-    $spObjId = az ad sp create --id $oidcAppId --query id -o tsv
-}
-
-$rgId = az group show --name $ResourceGroup --query id -o tsv
-Ensure-AzRoleAssignment -PrincipalId $spObjId -Role "Contributor" -Scope $rgId
-
-$federatedName = "github-$Branch"
-$existingFederated = az ad app federated-credential list --id $oidcAppId --query "[?name=='$federatedName'].name | [0]" -o tsv
-if (-not $existingFederated) {
-    $tmpFed = Join-Path $env:TEMP "talenti-fed-$([guid]::NewGuid().ToString('N')).json"
-    @"
-{
-  "name": "$federatedName",
-  "issuer": "https://token.actions.githubusercontent.com",
-  "subject": "repo:$Repo:ref:refs/heads/$Branch",
-  "audiences": [ "api://AzureADTokenExchange" ]
-}
-"@ | Set-Content -Path $tmpFed -Encoding UTF8
-    az ad app federated-credential create --id $oidcAppId --parameters $tmpFed | Out-Null
-    Remove-Item $tmpFed -Force
-}
-
-Write-Section "Set GitHub OIDC secrets"
-Ensure-GhSecret -Name "AZURE_CLIENT_ID" -Value $oidcAppId
-Ensure-GhSecret -Name "AZURE_TENANT_ID" -Value $TenantId
-Ensure-GhSecret -Name "AZURE_SUBSCRIPTION_ID" -Value $SubscriptionId
-
 Write-Section "Deploy infra (Bicep)"
 az deployment group create `
     --resource-group $ResourceGroup `
     --template-file $infraTemplate `
     --parameters "@$parametersPath" `
-    --parameters "postgresAdminUser=$PostgresAdminUser" "postgresAdminPassword=$PostgresPasswordPlain" | Out-Null
+    --parameters "postgresAdminUser=$PostgresAdminUser" "postgresAdminPassword=$PostgresPasswordPlain" "alertEmailAddress=$AlertEmailAddress" | Out-Null
 
 Write-Section "Create ACS/Speech/OpenAI resources if missing"
 $null = az communication show --name $AcsResource --resource-group $ResourceGroup 2>$null
@@ -223,7 +203,7 @@ if ($LASTEXITCODE -ne 0) {
         --sku-capacity 10 | Out-Null
 }
 
-Write-Section "Gather keys/endpoints"
+Write-Section "Gather keys and endpoints"
 $acsConnection = az communication list-key --name $AcsResource --resource-group $ResourceGroup --query primaryConnectionString -o tsv
 $speechKey = az cognitiveservices account keys list --name $SpeechResource --resource-group $ResourceGroup --query key1 -o tsv
 $speechRegion = $Location
@@ -235,7 +215,7 @@ $storageKey = az storage account keys list --resource-group $ResourceGroup --acc
 $storageConnection = az storage account show-connection-string --resource-group $ResourceGroup --name $StorageAccountName --query connectionString -o tsv
 
 $pgHost = az postgres flexible-server show --resource-group $ResourceGroup --name $PostgresServer --query fullyQualifiedDomainName -o tsv
-$databaseUrl = "postgresql+psycopg://$PostgresAdminUser:$PostgresPasswordPlain@$pgHost:5432/$PostgresDb?sslmode=require"
+$databaseUrl = "postgresql+psycopg://${PostgresAdminUser}:${PostgresPasswordPlain}@$pgHost:5432/$PostgresDb?sslmode=require"
 
 Write-Section "Ensure storage containers"
 Ensure-Container -Account $StorageAccountName -Key $storageKey -Name "uploads"
@@ -355,16 +335,25 @@ az containerapp update --name $AcsWorkerApp --resource-group $ResourceGroup --se
     ACS_CALLBACK_URL="$publicBaseUrl/api/v1/acs/webhook" `
     ENVIRONMENT=development | Out-Null
 
-Write-Section "Create Static Web App (if missing) and configure GitHub secrets"
+Write-Section "Create Static Web App if missing"
 $null = az staticwebapp show --name $StaticWebApp --resource-group $ResourceGroup 2>$null
 if ($LASTEXITCODE -ne 0) {
     az staticwebapp create --name $StaticWebApp --resource-group $ResourceGroup --location $Location --sku Standard | Out-Null
 }
-$swaToken = az staticwebapp secrets list --name $StaticWebApp --resource-group $ResourceGroup --query properties.apiKey -o tsv
-Ensure-GhSecret -Name "AZURE_STATIC_WEB_APPS_API_TOKEN" -Value $swaToken
-Ensure-GhSecret -Name "BACKEND_DATABASE_URL" -Value $databaseUrl
-Ensure-GhSecret -Name "JWT_SECRET" -Value $JwtSecret
-Ensure-GhSecret -Name "DEV_BACKEND_HEALTH_URL" -Value "$publicBaseUrl/health"
+
+Write-Section "Configure GitHub deployment environment"
+& $setupAccessScript `
+    -SubscriptionId $SubscriptionId `
+    -TenantId $TenantId `
+    -Repo $Repo `
+    -EnvironmentNames @($GitHubEnvironment) `
+    -Location $Location `
+    -AlertEmailAddress $AlertEmailAddress `
+    -PostgresAdminPassword $PostgresPasswordPlain `
+    -BackendDatabaseUrl $databaseUrl `
+    -JwtSecret $JwtSecret `
+    -Model1ImageRef $Model1ImageRef `
+    -Model2ImageRef $Model2ImageRef
 
 if ($RunWorkflows) {
     Write-Section "Trigger GitHub workflows"
@@ -381,6 +370,7 @@ Write-Host "ACS Worker URL (internal): $workerUrl"
 Write-Host "Frontend origin configured: $FrontendOrigin"
 Write-Host ""
 Write-Host "Next:"
-Write-Host "1) Ensure branch '$Branch' has your deployment changes."
-Write-Host "2) Run deploy-dev workflow if not triggered."
-Write-Host "3) Verify $publicBaseUrl/health returns 200."
+Write-Host "1) Set MODEL1_IMAGE_REF and MODEL2_IMAGE_REF in GitHub environment 'dev' if you did not pass them today."
+Write-Host "2) Ensure ALERT_EMAIL_ADDRESS is set in GitHub environment 'dev' if you did not pass it today."
+Write-Host "3) Run deploy-dev workflow if not triggered."
+Write-Host "4) Verify $publicBaseUrl/health returns 200."

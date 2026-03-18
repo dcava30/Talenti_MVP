@@ -153,6 +153,10 @@ Recommended flow:
 
 Security recommendation:
 - Use GitHub OIDC federation to Azure for deployments (avoid long-lived client secrets).
+- Use one Azure app registration per GitHub environment, with subject claims:
+  - repo:dcava30/Talenti_MVP:environment:dev
+  - repo:dcava30/Talenti_MVP:environment:uat
+  - repo:dcava30/Talenti_MVP:environment:prod
 
 
 8) Validation Checklist Per Environment

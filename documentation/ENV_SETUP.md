@@ -6,6 +6,22 @@ Talenti runs with a FastAPI backend, a dedicated backend worker, a PostgreSQL da
 
 - Python 3.11+
 - Node.js 18+
+- GitHub CLI (`gh`) for release and environment automation
+- Azure CLI (`az`) for cloud provisioning
+
+## Repository Layout
+
+Talenti uses three separate repositories during development:
+
+- main app repo: `git@github.com:dcava30/Talenti_MVP.git`
+- `model-service-1`: `git@github.com:dcava30/Talenti_model_culture.git`
+- `model-service-2`: `git@github.com:dcava30/Talenti_model_skills.git`
+
+Clone the model repos into the expected local folders before running local scripts:
+
+```powershell
+.\scripts\setup-model-repos.ps1 -SshKeyPath C:\Users\Declan\.ssh\id_ed25519_personal -Fetch
+```
 
 ## Backend Setup (FastAPI + PostgreSQL)
 
@@ -27,10 +43,16 @@ Copy-Item .env.example .env
 If you want Azure to create the backing services first, use the existing Azure CLI provisioning script:
 
 ```powershell
-.\scripts\day1-dev-deploy.ps1 -SubscriptionId <sub-id> -TenantId <tenant-id>
+.\scripts\day1-dev-deploy.ps1 -SubscriptionId <sub-id>
 ```
 
-That script provisions the dev Azure resources and stores the resulting secrets in Key Vault.
+That script provisions the dev Azure resources, stores the resulting secrets in Key Vault, and syncs the GitHub `dev` environment for the deployment workflows.
+
+If you want to create the GitHub environments plus Azure OIDC identities before the first deployment:
+
+```powershell
+.\scripts\setup-deployment-access.ps1 -SubscriptionId <sub-id> -AlertEmailAddress <team-email>
+```
 
 To write those Azure-backed values into a local env file after provisioning:
 

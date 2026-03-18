@@ -87,6 +87,18 @@
 - `promote-release.yml`:
   - Promotes the released digests and frontend artifact to UAT/PROD without rebuilding them.
 
+Seed the GitHub `dev` environment and Azure OIDC identity with:
+
+```powershell
+.\scripts\setup-deployment-access.ps1 -SubscriptionId <sub-id> -EnvironmentNames dev -AlertEmailAddress <team-email>
+```
+
+For first-time DEV runtime bootstrap, use:
+
+```powershell
+.\scripts\day1-dev-deploy.ps1 -SubscriptionId <sub-id>
+```
+
 ## Pinned Model Promotion Runbook
 
 1. In model repo pipelines, retrieve immutable digest refs for successful dev images:

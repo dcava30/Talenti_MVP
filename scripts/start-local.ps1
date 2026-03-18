@@ -98,6 +98,17 @@ function Ensure-Venv {
     return $pythonExe
 }
 
+function Require-RepoDirectory {
+    param(
+        [string]$Path,
+        [string]$Label
+    )
+
+    if (-not (Test-Path $Path)) {
+        throw "Missing $Label at $Path. Run .\scripts\setup-model-repos.ps1 first."
+    }
+}
+
 function Set-Or-AppendEnvKey {
     param(
         [string]$EnvPath,
@@ -216,12 +227,14 @@ Invoke-Checked $acsWorkerPython @("-m", "pip", "install", "-r", "requirements.tx
 
 Write-Section "Bootstrap model-service-1 dependencies"
 $ms1Path = Join-Path $repoRootResolved "model-service-1"
+Require-RepoDirectory -Path $ms1Path -Label "model-service-1"
 $ms1Python = Ensure-Venv (Join-Path $ms1Path ".venv")
 Invoke-Checked $ms1Python @("-m", "pip", "install", "--upgrade", "pip")
 Invoke-Checked $ms1Python @("-m", "pip", "install", "-r", "requirements.txt") $ms1Path
 
 Write-Section "Bootstrap model-service-2 dependencies"
 $ms2Path = Join-Path $repoRootResolved "model-service-2"
+Require-RepoDirectory -Path $ms2Path -Label "model-service-2"
 $ms2Python = Ensure-Venv (Join-Path $ms2Path ".venv")
 Invoke-Checked $ms2Python @("-m", "pip", "install", "--upgrade", "pip")
 Invoke-Checked $ms2Python @("-m", "pip", "install", "-r", "requirements.txt") $ms2Path
