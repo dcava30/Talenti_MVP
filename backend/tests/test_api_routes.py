@@ -28,6 +28,7 @@ def test_health_endpoint() -> None:
     client = create_client()
     response = client.get("/health")
     assert response.status_code == 200
+    assert response.headers.get("X-Request-ID")
 
 
 def test_protected_routes_exist() -> None:

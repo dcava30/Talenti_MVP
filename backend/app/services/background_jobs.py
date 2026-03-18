@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import BackgroundJob
@@ -86,3 +86,21 @@ def fail_job(
 def get_job_payload(job: BackgroundJob) -> dict[str, Any]:
     payload = json_loads(job.payload_json, default={})
     return payload if isinstance(payload, dict) else {}
+
+
+def get_job_queue_metrics(db: Session) -> dict[str, float | int]:
+    pending_count, oldest_created_at = db.execute(
+        select(func.count(BackgroundJob.id), func.min(BackgroundJob.created_at)).where(
+            BackgroundJob.status == "pending"
+        )
+    ).one()
+
+    now = datetime.utcnow()
+    oldest_pending_age_seconds = 0.0
+    if oldest_created_at is not None:
+        oldest_pending_age_seconds = max(0.0, (now - oldest_created_at).total_seconds())
+
+    return {
+        "pending_jobs": int(pending_count or 0),
+        "oldest_pending_job_age_seconds": oldest_pending_age_seconds,
+    }

@@ -1,31 +1,33 @@
-name: deploy-dev
+name: promote-release
 
 on:
-  workflow_dispatch:
-  workflow_run:
-    workflows:
-      - ci
+  release:
     types:
-      - completed
-
-concurrency:
-  group: deploy-dev
-  cancel-in-progress: false
+      - published
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: GitHub release tag to promote
+        required: true
+        type: string
+      target_environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - uat
+          - prod
 
 permissions:
-  actions: read
-  id-token: write
   contents: read
+  id-token: write
 
 jobs:
-  deploy:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main')
+  promote:
     runs-on: ubuntu-latest
-    environment: dev
+    environment: ${{ github.event_name == 'release' && 'uat' || inputs.target_environment }}
     env:
+      RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
       AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
       ACR_NAME: ${{ vars.ACR_NAME }}
       BACKEND_APP: ${{ vars.BACKEND_APP }}
@@ -35,32 +37,15 @@ jobs:
       ACS_WORKER_APP: ${{ vars.ACS_WORKER_APP }}
       STATIC_WEB_APP_NAME: ${{ vars.STATIC_WEB_APP_NAME }}
       KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
-      MODEL1_IMAGE: ${{ vars.MODEL1_IMAGE_REF }}
-      MODEL2_IMAGE: ${{ vars.MODEL2_IMAGE_REF }}
     steps:
-      - name: Resolve source sha
-        id: source
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
-            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-          fi
-
       - uses: actions/checkout@v4
         with:
-          ref: ${{ steps.source.outputs.sha }}
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
 
       - name: Azure login (OIDC)
         uses: azure/login@v2
@@ -79,6 +64,7 @@ jobs:
           set -euo pipefail
 
           required_vars=(
+            RELEASE_TAG
             AZURE_RESOURCE_GROUP
             ACR_NAME
             BACKEND_APP
@@ -88,8 +74,6 @@ jobs:
             ACS_WORKER_APP
             STATIC_WEB_APP_NAME
             KEY_VAULT_NAME
-            MODEL1_IMAGE
-            MODEL2_IMAGE
           )
 
           for name in "${required_vars[@]}"; do
@@ -109,44 +93,76 @@ jobs:
           az containerapp show --name "$ACS_WORKER_APP" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
           az staticwebapp show --name "$STATIC_WEB_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
 
-      - name: ACR login
-        run: az acr login --name "$ACR_NAME"
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN != '' && secrets.RELEASE_PLEASE_TOKEN || github.token }}
+        run: |
+          gh release download "$RELEASE_TAG" \
+            --pattern "release-manifest.json" \
+            --pattern "frontend-dist.tgz" \
+            --dir release-assets
 
-      - name: Validate pinned model image digests
+      - name: Read release manifest
+        run: |
+          python - <<'PY' >> "$GITHUB_ENV"
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path("release-assets/release-manifest.json").read_text(encoding="utf-8"))
+          mapping = {
+              "RELEASE_VERSION": manifest["version"],
+              "RELEASE_GIT_SHA": manifest["git_sha"],
+              "BACKEND_SOURCE_IMAGE": manifest["backend_image"],
+              "ACS_SOURCE_IMAGE": manifest["acs_worker_image"],
+              "MODEL1_SOURCE_IMAGE": manifest["model1_image"],
+              "MODEL2_SOURCE_IMAGE": manifest["model2_image"],
+              "FRONTEND_SOURCE_SHA": manifest["frontend_source_sha"],
+          }
+
+          for key, value in mapping.items():
+              print(f"{key}={value}")
+          PY
+
+      - name: Import release images into target ACR
         run: |
           set -euo pipefail
 
-          model1_pattern="^${ACR_NAME}\\.azurecr\\.io/talenti/model-service-1@sha256:[a-f0-9]{64}$"
-          model2_pattern="^${ACR_NAME}\\.azurecr\\.io/talenti/model-service-2@sha256:[a-f0-9]{64}$"
+          import_image() {
+            source_ref="$1"
+            target_acr="$2"
+            release_tag="$3"
 
-          if ! [[ "$MODEL1_IMAGE" =~ $model1_pattern ]]; then
-            echo "MODEL1_IMAGE is invalid: $MODEL1_IMAGE"
-            exit 1
-          fi
+            source_registry="${source_ref%%/*}"
+            remainder="${source_ref#*/}"
+            repository="${remainder%@*}"
 
-          if ! [[ "$MODEL2_IMAGE" =~ $model2_pattern ]]; then
-            echo "MODEL2_IMAGE is invalid: $MODEL2_IMAGE"
-            exit 1
-          fi
+            if [[ "$source_registry" == "$target_acr.azurecr.io" ]]; then
+              printf '%s\n' "$source_ref"
+              return
+            fi
 
-          docker manifest inspect "$MODEL1_IMAGE" > /dev/null
-          docker manifest inspect "$MODEL2_IMAGE" > /dev/null
+            az acr import \
+              --name "$target_acr" \
+              --source "$source_ref" \
+              --image "${repository}:${release_tag}" \
+              --force
 
-      - name: Build and push backend image
-        run: |
-          BACKEND_IMAGE="$ACR_NAME.azurecr.io/talenti/backend:${{ steps.source.outputs.sha }}"
-          docker build -t "$BACKEND_IMAGE" backend
-          docker push "$BACKEND_IMAGE"
-          echo "BACKEND_IMAGE=$BACKEND_IMAGE" >> $GITHUB_ENV
+            imported_digest=$(az acr manifest show-metadata \
+              --registry "$target_acr" \
+              --name "${repository}:${release_tag}" \
+              --query digest \
+              -o tsv)
 
-      - name: Build and push acs-worker image
-        run: |
-          ACS_IMAGE="$ACR_NAME.azurecr.io/talenti/acs-worker:${{ steps.source.outputs.sha }}"
-          docker build -t "$ACS_IMAGE" python-acs-service
-          docker push "$ACS_IMAGE"
-          echo "ACS_IMAGE=$ACS_IMAGE" >> $GITHUB_ENV
+            printf '%s\n' "$target_acr.azurecr.io/${repository}@${imported_digest}"
+          }
 
-      - name: Run backend migrations (single job)
+          SAFE_TAG="${RELEASE_TAG#v}"
+          echo "BACKEND_IMAGE=$(import_image "$BACKEND_SOURCE_IMAGE" "$ACR_NAME" "backend-${SAFE_TAG}")" >> "$GITHUB_ENV"
+          echo "ACS_IMAGE=$(import_image "$ACS_SOURCE_IMAGE" "$ACR_NAME" "acs-worker-${SAFE_TAG}")" >> "$GITHUB_ENV"
+          echo "MODEL1_IMAGE=$(import_image "$MODEL1_SOURCE_IMAGE" "$ACR_NAME" "model-service-1-${SAFE_TAG}")" >> "$GITHUB_ENV"
+          echo "MODEL2_IMAGE=$(import_image "$MODEL2_SOURCE_IMAGE" "$ACR_NAME" "model-service-2-${SAFE_TAG}")" >> "$GITHUB_ENV"
+
+      - name: Run backend migrations
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e backend
@@ -164,10 +180,10 @@ jobs:
       - name: Deploy backend
         run: az containerapp update --name "$BACKEND_APP" --resource-group "$AZURE_RESOURCE_GROUP" --image "$BACKEND_IMAGE"
 
-      - name: Build frontend artifact
+      - name: Extract frontend artifact
         run: |
-          npm ci
-          npm run build
+          mkdir -p frontend-dist
+          tar -xzf release-assets/frontend-dist.tgz -C frontend-dist
 
       - name: Resolve frontend deployment token
         run: |
@@ -178,13 +194,13 @@ jobs:
             -o tsv)
           echo "AZURE_STATIC_WEB_APPS_API_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
-      - name: Deploy frontend to Static Web Apps
+      - name: Deploy frontend artifact
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ env.AZURE_STATIC_WEB_APPS_API_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: "upload"
-          app_location: "dist"
+          app_location: "frontend-dist"
           output_location: "/"
           skip_app_build: true
 
@@ -204,8 +220,8 @@ jobs:
           echo "BACKEND_HEALTH_URL=https://${BACKEND_FQDN}/health" >> "$GITHUB_ENV"
           echo "FRONTEND_URL=https://${FRONTEND_HOST}" >> "$GITHUB_ENV"
 
-      - name: Smoke check backend health
+      - name: Smoke check backend
         run: curl -fsS "$BACKEND_HEALTH_URL"
 
-      - name: Smoke check frontend availability
+      - name: Smoke check frontend
         run: curl -fsS "$FRONTEND_URL" > /dev/null

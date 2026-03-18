@@ -1,4 +1,4 @@
-name: infra-dev
+name: infra-uat
 
 on:
   workflow_dispatch:
@@ -6,9 +6,9 @@ on:
     branches:
       - main
     paths:
-      - "infra/dev/**"
+      - "infra/uat/**"
       - "infra/modules/**"
-      - ".github/workflows/infra-dev.yml"
+      - ".github/workflows/infra-uat.yml"
 
 permissions:
   id-token: write
@@ -17,6 +17,7 @@ permissions:
 jobs:
   deploy-infra:
     runs-on: ubuntu-latest
+    environment: uat
     env:
       AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
       AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
@@ -27,7 +28,6 @@ jobs:
       MODEL1_APP: ${{ vars.MODEL1_APP }}
       MODEL2_APP: ${{ vars.MODEL2_APP }}
       ACS_WORKER_APP: ${{ vars.ACS_WORKER_APP }}
-    environment: dev
     steps:
       - uses: actions/checkout@v4
 
@@ -76,8 +76,8 @@ jobs:
         run: |
           az deployment group create \
             --resource-group "$AZURE_RESOURCE_GROUP" \
-            --template-file infra/dev/main.bicep \
-            --parameters @infra/dev/parameters.dev.json \
+            --template-file infra/uat/main.bicep \
+            --parameters @infra/uat/parameters.uat.json \
             --parameters postgresAdminPassword="${{ secrets.POSTGRES_ADMIN_PASSWORD }}" \
             --parameters alertEmailAddress="${{ vars.ALERT_EMAIL_ADDRESS }}"
 

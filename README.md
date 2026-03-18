@@ -114,6 +114,7 @@ This project is built with:
 | [API_REFERENCE.md](documentation/API_REFERENCE.md) | FastAPI endpoint reference |
 | [DATABASE_SCHEMA.md](documentation/DATABASE_SCHEMA.md) | PostgreSQL tables and relationships |
 | [MONITORING.md](documentation/MONITORING.md) | Logging, metrics, and observability guidance |
+| [RELEASE_PIPELINE.md](documentation/RELEASE_PIPELINE.md) | Release, promotion, and GitHub Actions workflow guide |
 | [ARCHITECTURE_DECISIONS.md](documentation/ARCHITECTURE_DECISIONS.md) | Architecture decision records |
 | [POSTGRESQL_MIGRATION.md](documentation/POSTGRESQL_MIGRATION.md) | PostgreSQL migration notes |
 | [DEPLOYMENT_DEV_V2.md](documentation/DEPLOYMENT_DEV_V2.md) | Dev deployment topology and runbook |
@@ -128,6 +129,8 @@ This project is built with:
 Deploy the FastAPI service, backend worker, and Vite frontend using your preferred infrastructure (container platform, VM, or PaaS).
 Ensure both backend runtimes have access to the PostgreSQL DSN and required Azure credentials.
 In deployed dev/staging/prod, candidate CV uploads should use Blob-first upload via `/api/storage/upload-url`; the direct `/api/v1/candidates/cv` route is only a local fallback.
+
+For the GitHub Actions release flow, start with [RELEASE_PIPELINE.md](documentation/RELEASE_PIPELINE.md), [DEPLOYMENT_DEV_V2.md](documentation/DEPLOYMENT_DEV_V2.md), and [MONITORING.md](documentation/MONITORING.md).
 
 
 

@@ -1,4 +1,4 @@
-# Dev Deployment v2 (Backend Public, Internal Workers)
+# Dev Deployment v3 (Main-Based Release Candidate Flow)
 
 ## Topology
 
@@ -27,6 +27,7 @@
 - `ACS_WORKER_URL`
 - `ACS_WORKER_SHARED_SECRET`
 - `PUBLIC_BASE_URL`
+- `LOG_LEVEL`
 - Existing Azure settings:
   - `AZURE_ACS_CONNECTION_STRING`
   - `AZURE_SPEECH_KEY`
@@ -52,7 +53,9 @@
 - `AZURE_STORAGE_ACCOUNT_KEY`
 - `AZURE_STORAGE_CONTAINER`
 - `BACKGROUND_WORKER_POLL_INTERVAL_SECONDS`
+- `BACKGROUND_WORKER_METRICS_LOG_INTERVAL_SECONDS`
 - `AUTO_SCORE_INTERVIEWS`
+- `LOG_LEVEL`
 
 ## Required ACS Worker App Settings
 
@@ -65,15 +68,24 @@
 
 ## CI/CD
 
-- `infra-dev.yml`: deploys Bicep infra with OIDC.
+- `pr-validate.yml`: validates Conventional Commit PR titles and runs CI for PRs to `main`.
+- `ci.yml`: runs on pushes to `main` and is the gate for DEV deployment.
+- `infra-dev.yml`: deploys DEV Bicep infra with OIDC and alerting resources.
 - `deploy-dev.yml`:
+  - Runs after successful `ci` on `main`.
   - Builds/pushes backend and ACS worker images from this repo.
   - Deploys the same backend image to both `backend` and `backend-worker`.
   - Consumes pinned model images from GitHub environment `dev` variables:
-    - `DEV_MODEL1_IMAGE_REF`
-    - `DEV_MODEL2_IMAGE_REF`
+    - `MODEL1_IMAGE_REF`
+    - `MODEL2_IMAGE_REF`
   - Fails fast if model refs are missing, malformed, or unresolved in ACR.
-  - Runs backend migrations once, deploys internal services then backend, deploys frontend.
+  - Preflight-checks the resource group, ACR, Key Vault, Container Apps, and Static Web App.
+  - Runs backend migrations once, deploys internal services then backend, deploys frontend, and smoke-checks backend/frontend availability.
+- `release.yml`:
+  - Uses `release-please` to manage repo-root `VERSION`, `CHANGELOG.md`, and GitHub Releases.
+  - Uploads `release-manifest.json` and `frontend-dist.tgz` for promotion.
+- `promote-release.yml`:
+  - Promotes the released digests and frontend artifact to UAT/PROD without rebuilding them.
 
 ## Pinned Model Promotion Runbook
 
@@ -81,13 +93,40 @@
    - `acrtalentidev.azurecr.io/talenti/model-service-1@sha256:<64-hex>`
    - `acrtalentidev.azurecr.io/talenti/model-service-2@sha256:<64-hex>`
 2. In GitHub -> main repo -> Settings -> Environments -> `dev`, set variables:
-   - `DEV_MODEL1_IMAGE_REF=<model1 digest ref>`
-   - `DEV_MODEL2_IMAGE_REF=<model2 digest ref>`
+   - `MODEL1_IMAGE_REF=<model1 digest ref>`
+   - `MODEL2_IMAGE_REF=<model2 digest ref>`
 3. Trigger `deploy-dev` workflow (manual or matching push).
 4. Verify deployment:
    - Backend health endpoint returns 200.
    - `backend-worker` is running and `background_jobs` are not stuck in `pending`.
    - Container Apps `ca-model1-dev` and `ca-model2-dev` revisions reference the pinned digest images.
+
+## GitHub Environment Variables
+
+Set these variables in the GitHub `dev` environment:
+
+- `AZURE_LOCATION`
+- `AZURE_RESOURCE_GROUP`
+- `ACR_NAME`
+- `KEY_VAULT_NAME`
+- `STATIC_WEB_APP_NAME`
+- `BACKEND_APP`
+- `BACKEND_WORKER_APP`
+- `MODEL1_APP`
+- `MODEL2_APP`
+- `ACS_WORKER_APP`
+- `ALERT_EMAIL_ADDRESS`
+- `MODEL1_IMAGE_REF`
+- `MODEL2_IMAGE_REF`
+
+Set these secrets in the GitHub `dev` environment:
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+- `POSTGRES_ADMIN_PASSWORD`
+- `BACKEND_DATABASE_URL`
+- `JWT_SECRET`
 
 ## Migration
 

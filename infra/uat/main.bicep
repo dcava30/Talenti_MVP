@@ -1,6 +1,6 @@
 targetScope = 'resourceGroup'
 
-@description('Primary location for dev resources.')
+@description('Primary location for UAT resources.')
 param location string = resourceGroup().location
 
 @secure()
@@ -9,24 +9,24 @@ param postgresAdminUser string = 'talentiadmin'
 param alertEmailAddress string
 
 module platform '../modules/platform.bicep' = {
-  name: 'talenti-dev-platform'
+  name: 'talenti-uat-platform'
   params: {
     location: location
-    environmentName: 'dev'
-    logAnalyticsName: 'log-talenti-dev-aue'
-    appInsightsName: 'appi-talenti-dev-aue'
-    containerEnvName: 'cae-talenti-dev-aue'
-    acrName: 'acrtalentidev'
-    keyVaultName: 'kv-talenti-dev-aue'
-    storageAccountName: 'sttalentidevaue'
-    postgresServerName: 'psql-talenti-dev-aue'
-    backendDbName: 'talenti_backend_dev'
-    staticWebAppName: 'swa-talenti-dev-aue'
-    backendAppName: 'ca-backend-dev'
-    backendWorkerAppName: 'ca-backend-worker-dev'
-    model1AppName: 'ca-model1-dev'
-    model2AppName: 'ca-model2-dev'
-    acsWorkerAppName: 'ca-acs-worker-dev'
+    environmentName: 'uat'
+    logAnalyticsName: 'log-talenti-uat-aue'
+    appInsightsName: 'appi-talenti-uat-aue'
+    containerEnvName: 'cae-talenti-uat-aue'
+    acrName: 'acrtalentiuat'
+    keyVaultName: 'kv-talenti-uat-aue'
+    storageAccountName: 'sttalentiuataue'
+    postgresServerName: 'psql-talenti-uat-aue'
+    backendDbName: 'talenti_backend_uat'
+    staticWebAppName: 'swa-talenti-uat-aue'
+    backendAppName: 'ca-backend-uat'
+    backendWorkerAppName: 'ca-backend-worker-uat'
+    model1AppName: 'ca-model1-uat'
+    model2AppName: 'ca-model2-uat'
+    acsWorkerAppName: 'ca-acs-worker-uat'
     postgresAdminPassword: postgresAdminPassword
     postgresAdminUser: postgresAdminUser
     alertEmailAddress: alertEmailAddress

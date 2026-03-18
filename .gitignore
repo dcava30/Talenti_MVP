@@ -16,6 +16,9 @@ dist-ssr
 data/
 __pycache__/
 .pytest_cache/
+.tmp/
+backend/.pytest_cache_local/
+pytest-cache-files-*/
 .venv/
 
 # Editor directories and files

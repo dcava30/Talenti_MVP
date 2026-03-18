@@ -8,16 +8,16 @@ This checklist is for deploying the Talenti stack to Azure across three environm
 - UAT
 - PROD
 
-Use one environment-specific deployment for each stage, then promote the same image versions from DEV -> UAT -> PROD.
+Use one environment-specific deployment for each stage, then promote the same immutable release artifacts from DEV -> UAT -> PROD.
 
 
 1) Environment Strategy
 -----------------------
 Recommended:
 - Separate resource group per environment:
-  - rg-talenti-dev
-  - rg-talenti-uat
-  - rg-talenti-prod
+  - rg-talenti-dev-aue
+  - rg-talenti-uat-aue
+  - rg-talenti-prod-aue
 - Optionally separate subscription for PROD.
 - Keep naming consistent across all environments.
 
@@ -47,6 +47,8 @@ AI and communication dependencies:
 Observability:
 - Log Analytics Workspace
 - Application Insights
+- Azure Monitor Action Group
+- Synthetic availability tests
 
 Frontend hosting:
 - Azure Static Web Apps (or equivalent static hosting)
@@ -138,10 +140,16 @@ Example:
 7) CI/CD Promotion Flow
 -----------------------
 Recommended flow:
-1. Commit/merge to develop -> build images -> deploy DEV automatically.
-2. Run tests/smoke checks -> manual approval -> deploy UAT.
-3. UAT signoff -> manual approval -> deploy PROD.
-4. Promote same image tags between environments (do not rebuild differently per stage).
+1. Open PRs against `main` and use Conventional Commit PR titles.
+2. Merge with squash after `pr-validate` passes.
+3. Push to `main` runs `ci`, then `deploy-dev` deploys the commit SHA to DEV.
+4. `release.yml` creates or updates a release PR with `release-please`.
+5. Merge the release PR to create a GitHub Release and upload:
+   - `release-manifest.json`
+   - `frontend-dist.tgz`
+6. Published release promotes automatically to UAT.
+7. After UAT signoff, manually run `promote-release.yml` for PROD.
+8. Promote the same release manifest digests between environments. Do not rebuild per stage.
 
 Security recommendation:
 - Use GitHub OIDC federation to Azure for deployments (avoid long-lived client secrets).
@@ -160,6 +168,7 @@ After deployment:
 8. Verify Azure OpenAI scoring path works.
 9. Confirm frontend can call backend APIs end-to-end.
 10. Confirm logs/metrics arrive in Log Analytics/App Insights.
+11. Confirm Azure Monitor alert rules and Action Group delivery are configured.
 
 
 9) Environment Matrix Template
