@@ -3,7 +3,7 @@
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0003_blob_jobs_and_interview_lifecycle"
+revision = "0003_blob_jobs_lifecycle"
 down_revision = "0002_recording_lifecycle_fields"
 branch_labels = None
 depends_on = None

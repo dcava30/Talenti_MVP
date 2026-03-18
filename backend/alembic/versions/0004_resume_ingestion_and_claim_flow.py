@@ -3,8 +3,8 @@
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0004_resume_ingestion_and_claim_flow"
-down_revision = "0003_blob_jobs_and_interview_lifecycle"
+revision = "0004_resume_claim_flow"
+down_revision = "0003_blob_jobs_lifecycle"
 branch_labels = None
 depends_on = None
 
