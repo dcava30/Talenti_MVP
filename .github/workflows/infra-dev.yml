@@ -3,9 +3,11 @@ name: infra-dev
 on:
   workflow_dispatch:
   push:
-    branches: [develop]
+    branches:
+      - main
     paths:
-      - "infra/**"
+      - "infra/dev/**"
+      - "infra/modules/**"
       - ".github/workflows/infra-dev.yml"
 
 permissions:
@@ -16,10 +18,18 @@ jobs:
   deploy-infra:
     runs-on: ubuntu-latest
     env:
-      AZURE_LOCATION: australiaeast
-      AZURE_RESOURCE_GROUP: rg-talenti-dev-aue
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      ACR_NAME: ${{ vars.ACR_NAME }}
+      KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
+      BACKEND_APP: ${{ vars.BACKEND_APP }}
+      BACKEND_WORKER_APP: ${{ vars.BACKEND_WORKER_APP }}
+      MODEL1_APP: ${{ vars.MODEL1_APP }}
+      MODEL2_APP: ${{ vars.MODEL2_APP }}
+      ACS_WORKER_APP: ${{ vars.ACS_WORKER_APP }}
+    environment: dev
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Azure login (OIDC)
         uses: azure/login@v2
@@ -27,6 +37,37 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Ensure Azure CLI extensions
+        run: az extension add --name containerapp --upgrade
+
+      - name: Validate infra inputs
+        run: |
+          set -euo pipefail
+
+          required_vars=(
+            AZURE_LOCATION
+            AZURE_RESOURCE_GROUP
+            ACR_NAME
+            KEY_VAULT_NAME
+            BACKEND_APP
+            BACKEND_WORKER_APP
+            MODEL1_APP
+            MODEL2_APP
+            ACS_WORKER_APP
+          )
+
+          for name in "${required_vars[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required environment variable: $name"
+              exit 1
+            fi
+          done
+
+          if [[ -z "${{ vars.ALERT_EMAIL_ADDRESS }}" ]]; then
+            echo "Missing required environment variable: ALERT_EMAIL_ADDRESS"
+            exit 1
+          fi
 
       - name: Ensure resource group
         run: az group create --name "$AZURE_RESOURCE_GROUP" --location "$AZURE_LOCATION"
@@ -36,13 +77,15 @@ jobs:
           az deployment group create \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --template-file infra/dev/main.bicep \
-            --parameters @infra/dev/parameters.dev.json
+            --parameters @infra/dev/parameters.dev.json \
+            --parameters postgresAdminPassword="${{ secrets.POSTGRES_ADMIN_PASSWORD }}" \
+            --parameters alertEmailAddress="${{ vars.ALERT_EMAIL_ADDRESS }}"
 
       - name: Assign AcrPull and Key Vault Secrets User roles
         run: |
-          ACR_ID=$(az acr show --name acrtalentidev --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
-          KV_ID=$(az keyvault show --name kv-talenti-dev-aue --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
-          for APP in ca-backend-dev ca-model1-dev ca-model2-dev ca-acs-worker-dev; do
+          ACR_ID=$(az acr show --name "$ACR_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
+          KV_ID=$(az keyvault show --name "$KEY_VAULT_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
+          for APP in "$BACKEND_APP" "$BACKEND_WORKER_APP" "$MODEL1_APP" "$MODEL2_APP" "$ACS_WORKER_APP"; do
             PRINCIPAL_ID=$(az containerapp show --name "$APP" --resource-group "$AZURE_RESOURCE_GROUP" --query identity.principalId -o tsv)
             if [ -n "$PRINCIPAL_ID" ]; then
               az role assignment create --assignee-object-id "$PRINCIPAL_ID" --assignee-principal-type ServicePrincipal --role AcrPull --scope "$ACR_ID" || true

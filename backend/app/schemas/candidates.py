@@ -4,8 +4,9 @@ from pydantic import BaseModel, EmailStr
 
 
 class ParseResumeRequest(BaseModel):
-    candidate_id: str
-    resume_text: str
+    candidate_id: str | None = None
+    file_id: str | None = None
+    resume_text: str | None = None
 
 
 class ParsedResume(BaseModel):
@@ -13,6 +14,12 @@ class ParsedResume(BaseModel):
     email: EmailStr | None = None
     phone: str | None = None
     skills: list[str] = []
+    linkedin_url: str | None = None
+    portfolio_url: str | None = None
+    summary: str | None = None
+    employment: list[dict] = []
+    education: list[dict] = []
+    confidence: dict = {}
 
 
 class ParseResumeResponse(BaseModel):
@@ -31,7 +38,13 @@ class CandidateProfileBase(BaseModel):
     country: str | None = None
     linkedin_url: str | None = None
     portfolio_url: str | None = None
+    cv_file_id: str | None = None
     cv_file_path: str | None = None
+    profile_prefilled: bool | None = None
+    profile_confirmed_at: datetime | None = None
+    profile_review_status: str | None = None
+    prefill_source: str | None = None
+    parsed_snapshot_id: str | None = None
     availability: str | None = None
     work_mode: str | None = None
     work_rights: str | None = None
@@ -165,6 +178,21 @@ class CandidateApplicationResponse(BaseModel):
     job_role_id: str
     candidate_profile_id: str
     status: str
+    source: str | None = None
+    source_channel: str | None = None
+    profile_confirmed_at: datetime | None = None
+    profile_review_status: str | None = None
     created_at: datetime
     updated_at: datetime
     job_roles: CandidateApplicationJobRole | None = None
+
+
+class CandidateProfileConfirmRequest(BaseModel):
+    application_id: str | None = None
+    invitation_token: str | None = None
+
+
+class CandidateProfileConfirmResponse(BaseModel):
+    ok: bool
+    profile_confirmed_at: datetime
+    interview_unlocked: bool = True

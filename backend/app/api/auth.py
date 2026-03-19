@@ -12,8 +12,16 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.models import User
-from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserResponse
+from app.models import Application, CandidateProfile, Invitation, User
+from app.schemas.auth import (
+    ClaimInviteContextResponse,
+    ClaimInviteRequest,
+    LoginRequest,
+    RegisterRequest,
+    TokenResponse,
+    UserResponse,
+)
+from app.services.invitation_context import build_invitation_validation_response
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -32,7 +40,15 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> UserRes
     db.add(user)
     db.commit()
     db.refresh(user)
-    return UserResponse(id=user.id, email=user.email, full_name=user.full_name, created_at=user.created_at)
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        password_setup_required=user.password_setup_required,
+        invited_via_org=user.invited_via_org,
+        account_claimed_at=user.account_claimed_at,
+        created_at=user.created_at,
+    )
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -42,6 +58,11 @@ def login(
     user = db.query(User).filter(User.email == payload.email).first()
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    if user.password_setup_required:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account claim required. Use the invitation link sent to your resume email.",
+        )
 
     access = create_access_token(user.id)
     refresh = create_refresh_token(user.id)
@@ -88,4 +109,65 @@ def logout(response: Response) -> dict:
 
 @router.get("/me", response_model=UserResponse)
 def me(user: User = Depends(get_current_user)) -> UserResponse:
-    return UserResponse(id=user.id, email=user.email, full_name=user.full_name, created_at=user.created_at)
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        password_setup_required=user.password_setup_required,
+        invited_via_org=user.invited_via_org,
+        account_claimed_at=user.account_claimed_at,
+        created_at=user.created_at,
+    )
+
+
+@router.get("/claim-context", response_model=ClaimInviteContextResponse)
+def claim_context(token: str, db: Session = Depends(get_db)) -> ClaimInviteContextResponse:
+    response = build_invitation_validation_response(db, token=token, mark_opened=False)
+    return ClaimInviteContextResponse(**response.model_dump())
+
+
+@router.post("/claim-invite", response_model=TokenResponse)
+def claim_invite(
+    payload: ClaimInviteRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    validation = build_invitation_validation_response(db, token=payload.token, mark_opened=True)
+    if not validation.valid or not validation.invitation or not validation.application:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired invitation")
+
+    invitation = db.query(Invitation).filter(Invitation.token == payload.token).first()
+    application = db.get(Application, validation.application["id"])
+    profile = db.get(CandidateProfile, application.candidate_profile_id) if application else None
+    user = db.get(User, profile.user_id) if profile else None
+    if not invitation or not application or not profile or not user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invitation is not claimable")
+
+    expected_email = (invitation.candidate_email or user.email or "").strip().lower()
+    provided_email = payload.email.strip().lower()
+    if expected_email and expected_email != provided_email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Use the email address from your resume to claim this account.",
+        )
+
+    user.password_hash = hash_password(payload.password)
+    user.password_setup_required = False
+    user.account_claimed_at = datetime.utcnow()
+    if payload.full_name and not user.full_name:
+        user.full_name = payload.full_name
+    if not profile.email:
+        profile.email = user.email
+    invitation.status = "claimed"
+    db.commit()
+
+    access = create_access_token(user.id)
+    refresh = create_refresh_token(user.id)
+    response.set_cookie(
+        "refresh_token",
+        refresh,
+        httponly=True,
+        secure=settings.environment.lower() == "production",
+        samesite="lax",
+    )
+    return TokenResponse(access_token=access)

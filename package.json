@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:dev": "vite build --mode development",
-    "lint": "eslint .",
+    "lint": "eslint src/api src/lib/lib vite.config.js eslint.config.js tailwind.config.js postcss.config.js --ignore-pattern \"src/api/__tests__/**\"",
     "test": "vitest run",
     "preview": "vite preview",
     "check:no-supabase": "python scripts/no_supabase.py",

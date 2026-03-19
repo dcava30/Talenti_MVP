@@ -11,6 +11,17 @@ export default defineConfig(() => ({
     host: "::",
     port: 8080,
   },
+  test: {
+    environment: "node",
+    include: ["src/api/__tests__/**/*.test.js"],
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/.pytest_cache/**",
+      "**/backend/.pytest_cache_local/**",
+      "**/pytest-cache-files-*/**",
+    ],
+  },
   plugins: [react()],
   resolve: {
     alias: [

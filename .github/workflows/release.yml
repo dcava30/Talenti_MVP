@@ -1,0 +1,112 @@
+name: release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    environment: dev
+    env:
+      ACR_NAME: ${{ vars.ACR_NAME }}
+      MODEL1_IMAGE: ${{ vars.MODEL1_IMAGE_REF }}
+      MODEL2_IMAGE: ${{ vars.MODEL2_IMAGE_REF }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN != '' && secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      - name: Checkout release commit
+        if: steps.release.outputs.release_created == 'true'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.release.outputs.tag_name }}
+
+      - name: Setup Node.js
+        if: steps.release.outputs.release_created == 'true'
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Build frontend release artifact
+        if: steps.release.outputs.release_created == 'true'
+        run: |
+          npm ci
+          npm run build
+          tar -czf frontend-dist.tgz -C dist .
+
+      - name: Azure login (OIDC)
+        if: steps.release.outputs.release_created == 'true'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Wait for release images in ACR
+        if: steps.release.outputs.release_created == 'true'
+        run: |
+          set -euo pipefail
+          RELEASE_SHA=$(git rev-list -n 1 "${{ steps.release.outputs.tag_name }}")
+          echo "RELEASE_SHA=$RELEASE_SHA" >> "$GITHUB_ENV"
+
+          resolve_digest() {
+            az acr manifest show-metadata \
+              --registry "$ACR_NAME" \
+              --name "$1:${RELEASE_SHA}" \
+              --query digest \
+              -o tsv
+          }
+
+          for attempt in $(seq 1 40); do
+            backend_digest=$(resolve_digest "talenti/backend" || true)
+            acs_digest=$(resolve_digest "talenti/acs-worker" || true)
+
+            if [[ -n "$backend_digest" && -n "$acs_digest" ]]; then
+              echo "BACKEND_DIGEST=$backend_digest" >> "$GITHUB_ENV"
+              echo "ACS_DIGEST=$acs_digest" >> "$GITHUB_ENV"
+              exit 0
+            fi
+
+            echo "Waiting for backend and ACS images for ${RELEASE_SHA} (attempt $attempt/40)..."
+            sleep 30
+          done
+
+          echo "Timed out waiting for release images to be pushed to ACR."
+          exit 1
+
+      - name: Create release manifest
+        if: steps.release.outputs.release_created == 'true'
+        run: |
+          RELEASE_VERSION="${{ steps.release.outputs.tag_name }}"
+          RELEASE_VERSION="${RELEASE_VERSION#v}"
+          python scripts/create_release_manifest.py \
+            --version "${RELEASE_VERSION}" \
+            --git-sha "${RELEASE_SHA}" \
+            --backend-image "$ACR_NAME.azurecr.io/talenti/backend@${BACKEND_DIGEST}" \
+            --acs-worker-image "$ACR_NAME.azurecr.io/talenti/acs-worker@${ACS_DIGEST}" \
+            --model1-image "$MODEL1_IMAGE" \
+            --model2-image "$MODEL2_IMAGE" \
+            --frontend-source-sha "${RELEASE_SHA}" \
+            --output release-manifest.json
+
+      - name: Upload release assets
+        if: steps.release.outputs.release_created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN != '' && secrets.RELEASE_PLEASE_TOKEN || github.token }}
+        run: |
+          gh release upload "${{ steps.release.outputs.tag_name }}" \
+            release-manifest.json \
+            frontend-dist.tgz \
+            --clobber

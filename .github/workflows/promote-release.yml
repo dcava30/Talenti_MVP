@@ -1,0 +1,251 @@
+name: promote-release
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: GitHub release tag to promote
+        required: true
+        type: string
+      target_environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - uat
+          - prod
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  promote:
+    runs-on: ${{ fromJSON((github.event_name == 'release' || inputs.target_environment == 'uat') && '["self-hosted","uat"]' || '["ubuntu-latest"]') }}
+    environment: ${{ github.event_name == 'release' && 'uat' || inputs.target_environment }}
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      ACR_NAME: ${{ vars.ACR_NAME }}
+      BACKEND_APP: ${{ vars.BACKEND_APP }}
+      BACKEND_WORKER_APP: ${{ vars.BACKEND_WORKER_APP }}
+      MODEL1_APP: ${{ vars.MODEL1_APP }}
+      MODEL2_APP: ${{ vars.MODEL2_APP }}
+      ACS_WORKER_APP: ${{ vars.ACS_WORKER_APP }}
+      FRONTEND_STORAGE_ACCOUNT: ${{ vars.FRONTEND_STORAGE_ACCOUNT }}
+      FRONT_DOOR_PROFILE_NAME: ${{ vars.FRONT_DOOR_PROFILE_NAME }}
+      FRONT_DOOR_ENDPOINT_NAME: ${{ vars.FRONT_DOOR_ENDPOINT_NAME }}
+      KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Ensure Azure CLI extensions
+        run: |
+          az extension add --name containerapp --upgrade
+          az extension add --name front-door --upgrade
+
+      - name: Preflight Azure resources
+        run: |
+          set -euo pipefail
+
+          required_vars=(
+            RELEASE_TAG
+            AZURE_RESOURCE_GROUP
+            ACR_NAME
+            BACKEND_APP
+            BACKEND_WORKER_APP
+            MODEL1_APP
+            MODEL2_APP
+            ACS_WORKER_APP
+            FRONTEND_STORAGE_ACCOUNT
+            FRONT_DOOR_PROFILE_NAME
+            FRONT_DOOR_ENDPOINT_NAME
+            KEY_VAULT_NAME
+          )
+
+          for name in "${required_vars[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required environment variable: $name"
+              exit 1
+            fi
+          done
+
+          az group show --name "$AZURE_RESOURCE_GROUP" > /dev/null
+          az acr show --name "$ACR_NAME" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
+          az keyvault show --name "$KEY_VAULT_NAME" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
+          az containerapp show --name "$BACKEND_APP" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
+          az containerapp show --name "$BACKEND_WORKER_APP" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
+          az containerapp show --name "$MODEL1_APP" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
+          az containerapp show --name "$MODEL2_APP" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
+          az containerapp show --name "$ACS_WORKER_APP" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
+          az storage account show --name "$FRONTEND_STORAGE_ACCOUNT" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
+          az afd profile show --profile-name "$FRONT_DOOR_PROFILE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
+          az afd endpoint show --profile-name "$FRONT_DOOR_PROFILE_NAME" --endpoint-name "$FRONT_DOOR_ENDPOINT_NAME" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN != '' && secrets.RELEASE_PLEASE_TOKEN || github.token }}
+        run: |
+          gh release download "$RELEASE_TAG" \
+            --pattern "release-manifest.json" \
+            --pattern "frontend-dist.tgz" \
+            --dir release-assets
+
+      - name: Read release manifest
+        run: |
+          python - <<'PY' >> "$GITHUB_ENV"
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path("release-assets/release-manifest.json").read_text(encoding="utf-8"))
+          mapping = {
+              "RELEASE_VERSION": manifest["version"],
+              "RELEASE_GIT_SHA": manifest["git_sha"],
+              "BACKEND_SOURCE_IMAGE": manifest["backend_image"],
+              "ACS_SOURCE_IMAGE": manifest["acs_worker_image"],
+              "MODEL1_SOURCE_IMAGE": manifest["model1_image"],
+              "MODEL2_SOURCE_IMAGE": manifest["model2_image"],
+              "FRONTEND_SOURCE_SHA": manifest["frontend_source_sha"],
+          }
+
+          for key, value in mapping.items():
+              print(f"{key}={value}")
+          PY
+
+      - name: Import release images into target ACR
+        run: |
+          set -euo pipefail
+
+          import_image() {
+            source_ref="$1"
+            target_acr="$2"
+            release_tag="$3"
+
+            source_registry="${source_ref%%/*}"
+            remainder="${source_ref#*/}"
+            repository="${remainder%@*}"
+
+            if [[ "$source_registry" == "$target_acr.azurecr.io" ]]; then
+              printf '%s\n' "$source_ref"
+              return
+            fi
+
+            az acr import \
+              --name "$target_acr" \
+              --source "$source_ref" \
+              --image "${repository}:${release_tag}" \
+              --force
+
+            imported_digest=$(az acr manifest show-metadata \
+              --registry "$target_acr" \
+              --name "${repository}:${release_tag}" \
+              --query digest \
+              -o tsv)
+
+            printf '%s\n' "$target_acr.azurecr.io/${repository}@${imported_digest}"
+          }
+
+          SAFE_TAG="${RELEASE_TAG#v}"
+          echo "BACKEND_IMAGE=$(import_image "$BACKEND_SOURCE_IMAGE" "$ACR_NAME" "backend-${SAFE_TAG}")" >> "$GITHUB_ENV"
+          echo "ACS_IMAGE=$(import_image "$ACS_SOURCE_IMAGE" "$ACR_NAME" "acs-worker-${SAFE_TAG}")" >> "$GITHUB_ENV"
+          echo "MODEL1_IMAGE=$(import_image "$MODEL1_SOURCE_IMAGE" "$ACR_NAME" "model-service-1-${SAFE_TAG}")" >> "$GITHUB_ENV"
+          echo "MODEL2_IMAGE=$(import_image "$MODEL2_SOURCE_IMAGE" "$ACR_NAME" "model-service-2-${SAFE_TAG}")" >> "$GITHUB_ENV"
+
+      - name: Run backend migrations
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e backend
+          export DATABASE_URL="${{ secrets.BACKEND_DATABASE_URL }}"
+          export JWT_SECRET="${{ secrets.JWT_SECRET }}"
+          python backend/scripts/run_migrations.py
+
+      - name: Deploy internal services
+        run: |
+          az containerapp update --name "$BACKEND_WORKER_APP" --resource-group "$AZURE_RESOURCE_GROUP" --image "$BACKEND_IMAGE"
+          az containerapp update --name "$MODEL1_APP" --resource-group "$AZURE_RESOURCE_GROUP" --image "$MODEL1_IMAGE"
+          az containerapp update --name "$MODEL2_APP" --resource-group "$AZURE_RESOURCE_GROUP" --image "$MODEL2_IMAGE"
+          az containerapp update --name "$ACS_WORKER_APP" --resource-group "$AZURE_RESOURCE_GROUP" --image "$ACS_IMAGE"
+
+      - name: Deploy backend
+        run: az containerapp update --name "$BACKEND_APP" --resource-group "$AZURE_RESOURCE_GROUP" --image "$BACKEND_IMAGE"
+
+      - name: Extract frontend artifact
+        run: |
+          mkdir -p frontend-dist
+          tar -xzf release-assets/frontend-dist.tgz -C frontend-dist
+
+      - name: Resolve frontend hosting details
+        run: |
+          STORAGE_KEY=$(az storage account keys list \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --account-name "$FRONTEND_STORAGE_ACCOUNT" \
+            --query "[0].value" \
+            -o tsv)
+          FRONTEND_HOST=$(az afd endpoint show \
+            --profile-name "$FRONT_DOOR_PROFILE_NAME" \
+            --endpoint-name "$FRONT_DOOR_ENDPOINT_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query hostName \
+            -o tsv)
+          echo "FRONTEND_STORAGE_KEY=$STORAGE_KEY" >> "$GITHUB_ENV"
+          echo "FRONTEND_HOST=$FRONTEND_HOST" >> "$GITHUB_ENV"
+
+      - name: Deploy frontend artifact to storage static website
+        run: |
+          az storage blob upload-batch \
+            --account-name "$FRONTEND_STORAGE_ACCOUNT" \
+            --account-key "$FRONTEND_STORAGE_KEY" \
+            --destination '$web' \
+            --source frontend-dist \
+            --overwrite
+
+      - name: Purge Front Door cache
+        run: |
+          az afd endpoint purge \
+            --profile-name "$FRONT_DOOR_PROFILE_NAME" \
+            --endpoint-name "$FRONT_DOOR_ENDPOINT_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --domains "$FRONTEND_HOST" \
+            --content-paths '/*'
+
+      - name: Update backend allowed origins
+        run: |
+          ALLOWED_ORIGINS_JSON=$(printf '[\"https://%s\"]' "$FRONTEND_HOST")
+          az containerapp update \
+            --name "$BACKEND_APP" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --set-env-vars ALLOWED_ORIGINS="$ALLOWED_ORIGINS_JSON"
+
+      - name: Resolve smoke test URLs
+        run: |
+          BACKEND_FQDN=$(az containerapp show \
+            --name "$BACKEND_APP" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query properties.configuration.ingress.fqdn \
+            -o tsv)
+
+          echo "BACKEND_HEALTH_URL=https://${BACKEND_FQDN}/health" >> "$GITHUB_ENV"
+          echo "FRONTEND_URL=https://${FRONTEND_HOST}" >> "$GITHUB_ENV"
+
+      - name: Smoke check backend
+        run: curl -fsS "$BACKEND_HEALTH_URL"
+
+      - name: Smoke check frontend
+        run: curl -fsS "$FRONTEND_URL" > /dev/null

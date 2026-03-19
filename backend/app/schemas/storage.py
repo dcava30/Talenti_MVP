@@ -5,6 +5,7 @@ class UploadUrlRequest(BaseModel):
     organisation_id: str | None = None
     file_name: str
     content_type: str | None = None
+    purpose: str = "general"
 
 
 class UploadUrlResponse(BaseModel):

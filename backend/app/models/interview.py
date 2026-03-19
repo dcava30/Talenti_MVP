@@ -29,6 +29,8 @@ class Interview(Base):
     recording_processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     recording_url: Mapped[str | None] = mapped_column(String, nullable=True)
     transcript_status: Mapped[str | None] = mapped_column(String, nullable=True)
+    anti_cheat_signals: Mapped[str | None] = mapped_column(Text, nullable=True)
+    session_metadata: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

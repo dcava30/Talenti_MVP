@@ -10,6 +10,7 @@ import { useJobRole, useRoleApplications } from "@/hooks/useOrgData";
 import { useCurrentOrg } from "@/hooks/useOrgData";
 import { formatDistanceToNow } from "date-fns";
 import { SendInvitationDialog } from "@/components/SendInvitationDialog";
+import { ResumeBatchUploadDialog } from "@/components/ResumeBatchUploadDialog";
 import { CandidateComparison } from "@/components/CandidateComparison";
 import { ShortlistView } from "@/components/ShortlistView";
 import { useShortlist } from "@/hooks/useShortlist";
@@ -23,6 +24,7 @@ const RoleDetails = () => {
     const { data: orgData } = useCurrentOrg();
     const queryClient = useQueryClient();
     const [invitationDialogOpen, setInvitationDialogOpen] = useState(false);
+    const [resumeUploadDialogOpen, setResumeUploadDialogOpen] = useState(false);
     const [selectedApplicationId, setSelectedApplicationId] = useState(null);
     const [downloadingPDF, setDownloadingPDF] = useState(null);
     const [selectedForComparison, setSelectedForComparison] = useState([]);
@@ -149,7 +151,7 @@ const RoleDetails = () => {
               {isGenerating ? (<Loader2 className="w-4 h-4 mr-2 animate-spin"/>) : (<Sparkles className="w-4 h-4 mr-2"/>)}
               {isGenerating ? "Generating..." : "AI Shortlist"}
             </Button>
-            <Button variant="outline">
+            <Button variant="outline" onClick={() => setResumeUploadDialogOpen(true)}>
               <Upload className="w-4 h-4 mr-2"/>
               Upload Resumes
             </Button>
@@ -301,7 +303,7 @@ const RoleDetails = () => {
               <h3 className="text-lg font-medium mb-2">No candidates yet</h3>
               <p className="text-muted-foreground mb-4">Upload resumes or send invitations to add candidates</p>
               <div className="flex gap-3 justify-center">
-                <Button>
+                <Button onClick={() => setResumeUploadDialogOpen(true)}>
                   <Upload className="w-4 h-4 mr-2"/>
                   Upload Resumes
                 </Button>
@@ -316,6 +318,9 @@ const RoleDetails = () => {
 
       {/* Invitation Dialog */}
       {role && orgData?.organisation && (<SendInvitationDialog open={invitationDialogOpen} onOpenChange={setInvitationDialogOpen} applicationId={selectedApplicationId} roleId={role.id} roleTitle={role.title} companyName={orgData.organisation.name} onSuccess={() => {
+                queryClient.invalidateQueries({ queryKey: ["role-applications", roleId] });
+            }}/>)}
+      {role && orgData?.organisation && (<ResumeBatchUploadDialog open={resumeUploadDialogOpen} onOpenChange={setResumeUploadDialogOpen} roleId={role.id} organisationId={orgData.organisation.id} onSuccess={() => {
                 queryClient.invalidateQueries({ queryKey: ["role-applications", roleId] });
             }}/>)}
     </div>);

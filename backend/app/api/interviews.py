@@ -4,10 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.models import Application, Interview, InterviewScore, ScoreDimension, TranscriptSegment, User
+from app.models import Application, CandidateProfile, Interview, InterviewScore, ScoreDimension, TranscriptSegment, User
+from app.services.background_jobs import enqueue_job
+from app.services.domain_events import json_dumps, json_loads, record_domain_event
 from app.schemas.applications import ApplicationResponse
 from app.schemas.interviews import (
+    InterviewCompleteRequest,
     InterviewCreate,
+    InterviewStartRequest,
     InterviewReportResponse,
     InterviewResponse,
     InterviewScoreResponse,
@@ -30,6 +34,10 @@ def _build_application_response(application: Application | None) -> ApplicationR
         candidate_profile_id=application.candidate_profile_id,
         status=application.status,
         source=application.source,
+        source_batch_id=application.source_batch_id,
+        source_channel=application.source_channel,
+        profile_confirmed_at=application.profile_confirmed_at,
+        profile_review_status=application.profile_review_status,
         cover_letter=application.cover_letter,
         created_at=application.created_at,
         updated_at=application.updated_at,
@@ -59,11 +67,37 @@ def _build_interview_response(
         recording_processed_at=interview.recording_processed_at,
         recording_url=interview.recording_url,
         transcript_status=interview.transcript_status,
+        anti_cheat_signals=json_loads(interview.anti_cheat_signals, default=[]) or [],
+        session_metadata=json_loads(interview.session_metadata, default=None),
         summary=interview.summary,
         created_at=interview.created_at,
         updated_at=interview.updated_at,
         application=_build_application_response(application),
     )
+
+
+def _get_or_create_active_interview(db: Session, application_id: str) -> Interview:
+    interview = (
+        db.query(Interview)
+        .filter(
+            Interview.application_id == application_id,
+            Interview.status.in_(["pending", "in_progress"]),
+        )
+        .order_by(Interview.created_at.desc())
+        .first()
+    )
+    if interview:
+        return interview
+
+    interview = Interview(
+        application_id=application_id,
+        status="pending",
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(interview)
+    db.flush()
+    return interview
 
 
 @router.post("", response_model=InterviewResponse)
@@ -85,6 +119,68 @@ def create_interview(
     return _build_interview_response(interview, db.get(Application, interview.application_id))
 
 
+@router.post("/start", response_model=InterviewResponse)
+def start_interview(
+    payload: InterviewStartRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> InterviewResponse:
+    application = db.get(Application, payload.application_id)
+    if not application:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
+    profile = db.get(CandidateProfile, application.candidate_profile_id)
+    if not profile or profile.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Interview not accessible")
+    if user.password_setup_required:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Claim your invited account before starting the interview.",
+        )
+    profile_confirmed = bool(profile.profile_confirmed_at or application.profile_confirmed_at)
+    if not profile_confirmed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Confirm your prefilled profile before starting the interview.",
+        )
+
+    interview = _get_or_create_active_interview(db, payload.application_id)
+    now = datetime.utcnow()
+    interview.status = "in_progress"
+    interview.started_at = interview.started_at or now
+    interview.updated_at = now
+    interview.session_metadata = json_dumps(payload.client_capabilities or {})
+    interview.transcript_status = interview.transcript_status or "initializing"
+
+    record_domain_event(
+        db=db,
+        event_type="interview.started",
+        aggregate_type="interview",
+        aggregate_id=interview.id,
+        payload={
+            "interview_id": interview.id,
+            "application_id": payload.application_id,
+            "recording_consent": payload.recording_consent,
+            "client_capabilities": payload.client_capabilities or {},
+        },
+        correlation_id=interview.id,
+    )
+    enqueue_job(
+        db=db,
+        job_type="interview_start_orchestration",
+        payload={
+            "interview_id": interview.id,
+            "application_id": payload.application_id,
+            "recording_consent": payload.recording_consent,
+            "client_capabilities": payload.client_capabilities or {},
+        },
+        correlation_id=interview.id,
+    )
+
+    db.commit()
+    db.refresh(interview)
+    return _build_interview_response(interview, application)
+
+
 @router.get("/active", response_model=InterviewResponse | None)
 def get_active_interview(
     application_id: str,
@@ -103,6 +199,70 @@ def get_active_interview(
     if not interview:
         return None
     return _build_interview_response(interview, db.get(Application, interview.application_id))
+
+
+@router.post("/{interview_id}/complete", response_model=InterviewResponse)
+def complete_interview(
+    interview_id: str,
+    payload: InterviewCompleteRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> InterviewResponse:
+    interview = db.get(Interview, interview_id)
+    if not interview:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
+
+    application = db.get(Application, interview.application_id)
+    if not application:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
+
+    now = datetime.utcnow()
+    interview.status = "completed"
+    interview.ended_at = now
+    interview.duration_seconds = payload.duration_seconds
+    interview.anti_cheat_signals = json_dumps(payload.anti_cheat_signals)
+    interview.updated_at = now
+    application.status = "scoring"
+    application.updated_at = now
+
+    record_domain_event(
+        db=db,
+        event_type="interview.completed",
+        aggregate_type="interview",
+        aggregate_id=interview.id,
+        payload={
+            "interview_id": interview.id,
+            "application_id": interview.application_id,
+            "duration_seconds": payload.duration_seconds,
+        },
+        correlation_id=interview.id,
+    )
+    record_domain_event(
+        db=db,
+        event_type="scoring.requested",
+        aggregate_type="interview",
+        aggregate_id=interview.id,
+        payload={
+            "interview_id": interview.id,
+            "application_id": interview.application_id,
+        },
+        correlation_id=interview.id,
+    )
+    enqueue_job(
+        db=db,
+        job_type="interview_complete_orchestration",
+        payload={"interview_id": interview.id},
+        correlation_id=interview.id,
+    )
+    enqueue_job(
+        db=db,
+        job_type="scoring_run",
+        payload={"interview_id": interview.id, "application_id": interview.application_id},
+        correlation_id=interview.id,
+    )
+    db.commit()
+    db.refresh(interview)
+    return _build_interview_response(interview, application)
 
 
 @router.get("/{interview_id}", response_model=InterviewResponse)
@@ -150,6 +310,10 @@ def update_interview(
         value = getattr(payload, field)
         if value is not None:
             setattr(interview, field, value)
+    if payload.anti_cheat_signals is not None:
+        interview.anti_cheat_signals = json_dumps(payload.anti_cheat_signals)
+    if payload.session_metadata is not None:
+        interview.session_metadata = json_dumps(payload.session_metadata)
     interview.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(interview)

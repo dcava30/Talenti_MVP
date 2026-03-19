@@ -7,17 +7,29 @@ vi.mock("../http", () => ({
         patch: vi.fn(),
         delete: vi.fn(),
     },
-    request: vi.fn(),
 }));
 
-const { http, request } = await import("../http");
+const { http } = await import("../http");
 const { interviewsApi } = await import("../interviews");
-const { candidatesApi } = await import("../candidates");
 const { auditApi } = await import("../audit");
 const { organisationsApi } = await import("../organisations");
 const { rolesApi } = await import("../roles");
+const { storageApi } = await import("../storage");
 
 describe("API endpoints", () => {
+    it("targets interview lifecycle endpoints", () => {
+        interviewsApi.start({ application_id: "app-1", recording_consent: true });
+        expect(http.post).toHaveBeenCalledWith("/api/v1/interviews/start", {
+            application_id: "app-1",
+            recording_consent: true,
+        });
+
+        interviewsApi.complete("int-1", { duration_seconds: 120 });
+        expect(http.post).toHaveBeenCalledWith("/api/v1/interviews/int-1/complete", {
+            duration_seconds: 120,
+        });
+    });
+
     it("targets the AI interview endpoint", () => {
         interviewsApi.aiInterviewer({ interview_id: "int-1", messages: [] });
         expect(http.post).toHaveBeenCalledWith("/api/v1/interview/chat", {
@@ -46,14 +58,16 @@ describe("API endpoints", () => {
         });
     });
 
-    it("targets candidate CV upload endpoint", () => {
-        request.mockClear();
-        request.mockImplementation(() => Promise.resolve());
-        const file = new Blob(["resume"], { type: "text/plain" });
-        candidatesApi.uploadCv(file);
-        expect(request).toHaveBeenCalledWith("/api/v1/candidates/cv", {
-            method: "POST",
-            body: expect.any(FormData),
+    it("targets blob upload url endpoint", () => {
+        storageApi.createUploadUrl({
+            file_name: "resume.pdf",
+            content_type: "application/pdf",
+            purpose: "candidate_cv",
+        });
+        expect(http.post).toHaveBeenCalledWith("/api/storage/upload-url", {
+            file_name: "resume.pdf",
+            content_type: "application/pdf",
+            purpose: "candidate_cv",
         });
     });
 

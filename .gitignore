@@ -16,7 +16,12 @@ dist-ssr
 data/
 __pycache__/
 .pytest_cache/
+.tmp/
+backend/.pytest_cache_local/
+pytest-cache-files-*/
 .venv/
+model-service-1/
+model-service-2/
 
 # Editor directories and files
 .vscode/*

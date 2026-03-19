@@ -28,6 +28,7 @@ def test_health_endpoint() -> None:
     client = create_client()
     response = client.get("/health")
     assert response.status_code == 200
+    assert response.headers.get("X-Request-ID")
 
 
 def test_protected_routes_exist() -> None:
@@ -48,9 +49,21 @@ def test_protected_routes_exist() -> None:
     response = client.post("/api/v1/interviews", json={"application_id": "app-1"})
     assert response.status_code == 401
 
+    response = client.post("/api/v1/interviews/start", json={"application_id": "app-1"})
+    assert response.status_code == 401
+
+    response = client.post("/api/v1/interviews/int-1/complete", json={"duration_seconds": 30})
+    assert response.status_code == 401
+
     response = client.post(
         "/api/v1/call-automation/calls",
         json={"interview_id": "int-1", "target_identity": "8:acs:user"},
+    )
+    assert response.status_code == 401
+
+    response = client.post(
+        "/api/storage/upload-url",
+        json={"file_name": "resume.pdf", "purpose": "candidate_cv"},
     )
     assert response.status_code == 401
 

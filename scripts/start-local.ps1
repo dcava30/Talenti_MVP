@@ -98,6 +98,17 @@ function Ensure-Venv {
     return $pythonExe
 }
 
+function Require-RepoDirectory {
+    param(
+        [string]$Path,
+        [string]$Label
+    )
+
+    if (-not (Test-Path $Path)) {
+        throw "Missing $Label at $Path. Run .\scripts\setup-model-repos.ps1 first."
+    }
+}
+
 function Set-Or-AppendEnvKey {
     param(
         [string]$EnvPath,
@@ -174,11 +185,15 @@ Set-Or-AppendEnvKey -EnvPath $envPath -Key "MODEL_SERVICE_2_URL" -Value "http://
 Set-Or-AppendEnvKey -EnvPath $envPath -Key "ACS_WORKER_URL" -Value "http://localhost:$AcsWorkerPort"
 Set-Or-AppendEnvKey -EnvPath $envPath -Key "ACS_WORKER_SHARED_SECRET" -Value $acsWorkerSecret
 Set-Or-AppendEnvKey -EnvPath $envPath -Key "PUBLIC_BASE_URL" -Value "http://localhost:$BackendPort"
+Set-Or-AppendEnvKey -EnvPath $envPath -Key "BACKGROUND_WORKER_POLL_INTERVAL_SECONDS" -Value "2.0"
+Set-Or-AppendEnvKey -EnvPath $envPath -Key "AUTO_SCORE_INTERVIEWS" -Value "false"
 
 $env:DATABASE_URL = $databaseUrl
 $env:ACS_WORKER_SHARED_SECRET = $acsWorkerSecret
 $env:BACKEND_INTERNAL_URL = "http://localhost:$BackendPort"
 $env:ACS_CALLBACK_URL = "http://localhost:$BackendPort/api/v1/acs/webhook"
+$env:BACKGROUND_WORKER_POLL_INTERVAL_SECONDS = "2.0"
+$env:AUTO_SCORE_INTERVIEWS = "false"
 
 Write-Section "Bootstrap backend dependencies"
 $backendPath = Join-Path $repoRootResolved "backend"
@@ -212,12 +227,14 @@ Invoke-Checked $acsWorkerPython @("-m", "pip", "install", "-r", "requirements.tx
 
 Write-Section "Bootstrap model-service-1 dependencies"
 $ms1Path = Join-Path $repoRootResolved "model-service-1"
+Require-RepoDirectory -Path $ms1Path -Label "model-service-1"
 $ms1Python = Ensure-Venv (Join-Path $ms1Path ".venv")
 Invoke-Checked $ms1Python @("-m", "pip", "install", "--upgrade", "pip")
 Invoke-Checked $ms1Python @("-m", "pip", "install", "-r", "requirements.txt") $ms1Path
 
 Write-Section "Bootstrap model-service-2 dependencies"
 $ms2Path = Join-Path $repoRootResolved "model-service-2"
+Require-RepoDirectory -Path $ms2Path -Label "model-service-2"
 $ms2Python = Ensure-Venv (Join-Path $ms2Path ".venv")
 Invoke-Checked $ms2Python @("-m", "pip", "install", "--upgrade", "pip")
 Invoke-Checked $ms2Python @("-m", "pip", "install", "-r", "requirements.txt") $ms2Path
@@ -241,6 +258,10 @@ try {
     Write-Section "Start backend"
     $backendProc = Start-Process -FilePath $backendPython -ArgumentList "-m","uvicorn","app.main:app","--host","127.0.0.1","--port",$BackendPort -WorkingDirectory $backendPath -RedirectStandardOutput (Join-Path $logsDir "backend.out.log") -RedirectStandardError (Join-Path $logsDir "backend.err.log") -PassThru
     $processes += $backendProc
+
+    Write-Section "Start backend-worker"
+    $backendWorkerProc = Start-Process -FilePath $backendPython -ArgumentList "-m","app.worker_main" -WorkingDirectory $backendPath -RedirectStandardOutput (Join-Path $logsDir "backend-worker.out.log") -RedirectStandardError (Join-Path $logsDir "backend-worker.err.log") -PassThru
+    $processes += $backendWorkerProc
 
     Write-Section "Start acs-worker"
     $acsWorkerProc = Start-Process -FilePath $acsWorkerPython -ArgumentList "-m","uvicorn","app.main:app","--host","127.0.0.1","--port",$AcsWorkerPort -WorkingDirectory $acsWorkerPath -RedirectStandardOutput (Join-Path $logsDir "acs-worker.out.log") -RedirectStandardError (Join-Path $logsDir "acs-worker.err.log") -PassThru

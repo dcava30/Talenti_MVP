@@ -1,0 +1,122 @@
+# Release Pipeline
+
+Talenti now uses a trunk-based release model on `main`.
+
+## Branching and Merge Rules
+
+- All feature and fix PRs target `main`.
+- PR titles must follow Conventional Commits, for example:
+  - `feat(api): add release manifest upload`
+  - `fix(worker): emit queue metrics for alerting`
+- Merge with squash so the PR title becomes the release note source.
+- Configure branch protection in GitHub so:
+  - `pr-validate` is required before merge
+  - squash merge is allowed
+  - direct pushes to `main` are blocked
+
+## Workflows
+
+- `pr-validate.yml`
+  - Runs on pull requests to `main`
+  - Enforces Conventional Commit PR titles
+  - Runs frontend lint/test/build and backend tests
+- `ci.yml`
+  - Runs on pushes to `main`
+  - Re-runs frontend lint/test/build and backend tests
+- `deploy-dev.yml`
+  - Runs after a successful `ci` workflow on `main`
+  - Builds backend and ACS worker images tagged by commit SHA
+  - Validates pinned model digests
+  - Runs migrations once
+  - Deploys DEV backend, worker, ACS worker, and frontend
+  - Smoke-checks backend `/health` and the DEV Static Web App
+- `release.yml`
+  - Runs on pushes to `main`
+  - Uses `release-please` with repo-root `VERSION` and `CHANGELOG.md`
+  - Creates or updates the release PR
+  - When the release PR is merged and a tag is created, uploads:
+    - `release-manifest.json`
+    - `frontend-dist.tgz`
+- `promote-release.yml`
+  - Auto-promotes published releases to UAT
+  - Allows manual promotion to UAT or PROD by release tag
+  - Imports immutable image digests into the target ACR when needed
+  - Reuses the release frontend artifact instead of rebuilding it
+  - Publishes UAT/PROD frontend assets to Azure Storage static website hosting
+  - Purges Azure Front Door Standard cache after upload
+  - Runs UAT on a self-hosted runner inside the allowlisted network
+
+## Release Contract
+
+- Repo-level version source: [`VERSION`](/c:/Users/Declan/Downloads/TalentiMatchFrontend/Talenti_MVP/VERSION)
+- Human changelog: [`CHANGELOG.md`](/c:/Users/Declan/Downloads/TalentiMatchFrontend/Talenti_MVP/CHANGELOG.md)
+- Git tag format: `vX.Y.Z`
+- Machine promotion contract: `release-manifest.json`
+
+`release-manifest.json` contains:
+
+- `version`
+- `git_sha`
+- `backend_image`
+- `acs_worker_image`
+- `model1_image`
+- `model2_image`
+- `frontend_source_sha`
+- `created_at`
+
+## GitHub Environment Variables and Secrets
+
+Create `dev`, `uat`, and `prod` GitHub environments with these variables:
+
+- `AZURE_LOCATION`
+- `AZURE_RESOURCE_GROUP`
+- `ACR_NAME`
+- `KEY_VAULT_NAME`
+- `BACKEND_APP`
+- `BACKEND_WORKER_APP`
+- `MODEL1_APP`
+- `MODEL2_APP`
+- `ACS_WORKER_APP`
+- `ALERT_EMAIL_ADDRESS`
+- `STATIC_WEB_APP_NAME` in `dev` only
+- `MODEL1_IMAGE_REF` and `MODEL2_IMAGE_REF` in `dev` only
+- `FRONTEND_STORAGE_ACCOUNT` in `uat` and `prod`
+- `FRONT_DOOR_PROFILE_NAME` in `uat` and `prod`
+- `FRONT_DOOR_ENDPOINT_NAME` in `uat` and `prod`
+- `FRONTEND_ALLOWED_CIDRS` in `uat` only, as a JSON array string such as `["203.0.113.0/24"]`
+
+Store these secrets per environment:
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+- `POSTGRES_ADMIN_PASSWORD`
+- `BACKEND_DATABASE_URL`
+- `JWT_SECRET`
+
+Optional repository or environment secret:
+
+- `RELEASE_PLEASE_TOKEN`
+
+Use a PAT for `RELEASE_PLEASE_TOKEN` if you want downstream workflows to respond to release publication automatically. Without it, manual promotion still works.
+
+To create the environments and seed their OIDC secrets from the command line, use:
+
+```powershell
+.\scripts\setup-deployment-access.ps1 -SubscriptionId <sub-id> -AlertEmailAddress <team-email>
+```
+
+The Azure federated credential subject must match the GitHub environment form used by the workflows:
+
+- `repo:dcava30/Talenti_MVP:environment:dev`
+- `repo:dcava30/Talenti_MVP:environment:uat`
+- `repo:dcava30/Talenti_MVP:environment:prod`
+
+## Promotion and Rollback
+
+- UAT is promoted from a published GitHub Release.
+- PROD is promoted manually by release tag.
+- Promotion always uses the manifest digests captured at release time.
+- UAT frontend traffic is restricted at Azure Front Door Standard with an IP allowlist custom WAF rule.
+- UAT promotion and frontend smoke checks require a self-hosted runner with the `uat` label on an allowlisted office/VPN network.
+- Roll back by rerunning `promote-release.yml` with an older `release_tag`.

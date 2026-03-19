@@ -14,6 +14,10 @@ class InvitationResponse(BaseModel):
     application_id: str
     token: str
     status: str
+    candidate_email: EmailStr | None = None
+    claim_required: bool = False
+    profile_completion_required: bool = False
+    invitation_kind: str | None = None
     expires_at: datetime
     created_at: datetime
 
@@ -27,3 +31,9 @@ class InvitationValidationResponse(BaseModel):
     invitation: dict | None = None
     application: dict | None = None
     jobRole: dict | None = None
+    candidate_email: EmailStr | None = None
+    claim_required: bool = False
+    profile_completion_required: bool = False
+    account_claimed: bool = False
+    profile_confirmed: bool = False
+    interview_unlocked: bool = False

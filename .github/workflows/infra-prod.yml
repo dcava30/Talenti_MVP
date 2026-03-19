@@ -1,0 +1,115 @@
+name: infra-prod
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "infra/prod/**"
+      - "infra/modules/**"
+      - ".github/workflows/infra-prod.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-infra:
+    runs-on: ubuntu-latest
+    environment: prod
+    env:
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      ACR_NAME: ${{ vars.ACR_NAME }}
+      KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
+      FRONTEND_STORAGE_ACCOUNT: ${{ vars.FRONTEND_STORAGE_ACCOUNT }}
+      FRONT_DOOR_PROFILE_NAME: ${{ vars.FRONT_DOOR_PROFILE_NAME }}
+      FRONT_DOOR_ENDPOINT_NAME: ${{ vars.FRONT_DOOR_ENDPOINT_NAME }}
+      BACKEND_APP: ${{ vars.BACKEND_APP }}
+      BACKEND_WORKER_APP: ${{ vars.BACKEND_WORKER_APP }}
+      MODEL1_APP: ${{ vars.MODEL1_APP }}
+      MODEL2_APP: ${{ vars.MODEL2_APP }}
+      ACS_WORKER_APP: ${{ vars.ACS_WORKER_APP }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Ensure Azure CLI extensions
+        run: az extension add --name containerapp --upgrade
+
+      - name: Validate infra inputs
+        run: |
+          set -euo pipefail
+
+          required_vars=(
+            AZURE_LOCATION
+            AZURE_RESOURCE_GROUP
+            ACR_NAME
+            KEY_VAULT_NAME
+            FRONTEND_STORAGE_ACCOUNT
+            FRONT_DOOR_PROFILE_NAME
+            FRONT_DOOR_ENDPOINT_NAME
+            BACKEND_APP
+            BACKEND_WORKER_APP
+            MODEL1_APP
+            MODEL2_APP
+            ACS_WORKER_APP
+          )
+
+          for name in "${required_vars[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required environment variable: $name"
+              exit 1
+            fi
+          done
+
+          if [[ -z "${{ vars.ALERT_EMAIL_ADDRESS }}" ]]; then
+            echo "Missing required environment variable: ALERT_EMAIL_ADDRESS"
+            exit 1
+          fi
+
+      - name: Ensure resource group
+        run: az group create --name "$AZURE_RESOURCE_GROUP" --location "$AZURE_LOCATION"
+
+      - name: Deploy bicep
+        run: |
+          az deployment group create \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --template-file infra/prod/main.bicep \
+            --parameters @infra/prod/parameters.prod.json \
+            --parameters postgresAdminPassword="${{ secrets.POSTGRES_ADMIN_PASSWORD }}" \
+            --parameters alertEmailAddress="${{ vars.ALERT_EMAIL_ADDRESS }}"
+
+      - name: Enable static website hosting
+        run: |
+          FRONTEND_STORAGE_KEY=$(az storage account keys list \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --account-name "$FRONTEND_STORAGE_ACCOUNT" \
+            --query "[0].value" \
+            -o tsv)
+
+          az storage blob service-properties update \
+            --account-name "$FRONTEND_STORAGE_ACCOUNT" \
+            --account-key "$FRONTEND_STORAGE_KEY" \
+            --static-website true \
+            --index-document index.html \
+            --404-document index.html
+
+      - name: Assign AcrPull and Key Vault Secrets User roles
+        run: |
+          ACR_ID=$(az acr show --name "$ACR_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
+          KV_ID=$(az keyvault show --name "$KEY_VAULT_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
+          for APP in "$BACKEND_APP" "$BACKEND_WORKER_APP" "$MODEL1_APP" "$MODEL2_APP" "$ACS_WORKER_APP"; do
+            PRINCIPAL_ID=$(az containerapp show --name "$APP" --resource-group "$AZURE_RESOURCE_GROUP" --query identity.principalId -o tsv)
+            if [ -n "$PRINCIPAL_ID" ]; then
+              az role assignment create --assignee-object-id "$PRINCIPAL_ID" --assignee-principal-type ServicePrincipal --role AcrPull --scope "$ACR_ID" || true
+              az role assignment create --assignee-object-id "$PRINCIPAL_ID" --assignee-principal-type ServicePrincipal --role "Key Vault Secrets User" --scope "$KV_ID" || true
+            fi
+          done

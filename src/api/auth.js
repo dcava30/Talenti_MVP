@@ -17,6 +17,14 @@ export const authApi = {
         authTokenStorage.set(response.access_token);
         return response;
     },
+    async claimInvite(payload) {
+        const response = await http.post("/api/auth/claim-invite", payload);
+        authTokenStorage.set(response.access_token);
+        return response;
+    },
+    async getClaimContext(token) {
+        return http.get("/api/auth/claim-context", { token });
+    },
     async logout() {
         await http.post("/api/auth/logout");
         authTokenStorage.clear();

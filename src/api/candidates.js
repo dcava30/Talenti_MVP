@@ -6,6 +6,9 @@ export const candidatesApi = {
     upsertProfile(payload) {
         return http.post("/api/v1/candidates/profile", payload);
     },
+    confirmProfile(payload) {
+        return http.post("/api/v1/candidates/profile/confirm", payload);
+    },
     updateProfile(userId, payload) {
         return http.patch(`/api/v1/candidates/${userId}/profile`, payload);
     },

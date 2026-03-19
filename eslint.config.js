@@ -4,9 +4,18 @@ import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 
 export default [
-  { ignores: ["dist"] },
   {
-    extends: [js.configs.recommended],
+    ignores: [
+      "dist",
+      "node_modules",
+      ".pytest_cache",
+      "backend/.pytest_cache_local",
+      "pytest-cache-files-*",
+      "logs",
+    ],
+  },
+  js.configs.recommended,
+  {
     files: ["**/*.{js,jsx}"],
     languageOptions: {
       ecmaVersion: 2020,

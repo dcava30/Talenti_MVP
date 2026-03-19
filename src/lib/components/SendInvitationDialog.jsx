@@ -5,8 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, Send, Mail, UserPlus } from "lucide-react";
 import { useInvitations } from "@/hooks/useInvitations";
-import { authApi } from "@/api/auth";
-import { candidatesApi } from "@/api/candidates";
 import { useToast } from "@/hooks/use-toast";
 export function SendInvitationDialog({ open, onOpenChange, applicationId, roleId, roleTitle, companyName, onSuccess, }) {
     const [email, setEmail] = useState("");
@@ -20,22 +18,8 @@ export function SendInvitationDialog({ open, onOpenChange, applicationId, roleId
         setIsCreating(true);
         try {
             let appId = applicationId;
-            // If no applicationId, create a new application for this candidate
             if (!appId) {
-                // Get current user
-                const user = await authApi.me();
-                if (!user)
-                    throw new Error("Not authenticated");
-                // Check if this email already has an application for this role
-                // For now, create a placeholder candidate_id using a hash of email
-                // In production, this would create/lookup a candidate account
-                // Create application
-                const application = await candidatesApi.createApplication({
-                    job_role_id: roleId,
-                    candidate_id: user.id,
-                    status: "applied",
-                });
-                appId = application.id;
+                throw new Error("Create or upload a candidate record first. For sourced candidates, use the bulk resume upload flow.");
             }
             const result = await sendInvitation({
                 applicationId: appId,
