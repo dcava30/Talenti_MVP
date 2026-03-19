@@ -51,7 +51,10 @@ Observability:
 - Synthetic availability tests
 
 Frontend hosting:
-- Azure Static Web Apps (or equivalent static hosting)
+- DEV: Azure Static Web Apps in a supported region such as `eastasia`
+- UAT and PROD: Azure Storage static website hosting in `australiaeast`
+- UAT and PROD edge: Azure Front Door Standard
+- UAT restriction: Front Door custom WAF IP allowlist rule
 
 
 3) Container App Deployment Topology
@@ -135,6 +138,12 @@ Example:
 - DEV frontend -> DEV backend URL
 - UAT frontend -> UAT backend URL
 - PROD frontend -> PROD backend URL
+
+Recommended split:
+- DEV keeps Azure Static Web Apps for speed of iteration.
+- UAT/PROD use Azure Storage static website hosting plus Azure Front Door Standard.
+- Use Azure-managed Front Door hostnames first; add custom domains later.
+- Because UAT is IP-restricted at Front Door, run UAT promotion/frontend smoke checks from a self-hosted runner on the allowlisted office/VPN network.
 
 
 7) CI/CD Promotion Flow

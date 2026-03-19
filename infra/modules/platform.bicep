@@ -12,6 +12,15 @@ param storageAccountName string
 param postgresServerName string
 param backendDbName string
 param staticWebAppName string
+@allowed([
+  'staticwebapp'
+  'storage-frontdoor'
+])
+param frontendHostingMode string = 'staticwebapp'
+param staticWebAppLocation string = location
+param frontDoorProfileName string = ''
+param frontDoorEndpointName string = ''
+param frontDoorAllowedCidrs array = []
 
 param backendAppName string
 param backendWorkerAppName string
@@ -36,12 +45,18 @@ var monitoringTag = {
   workload: 'talenti'
 }
 
+var frontendUsesStaticWebApp = frontendHostingMode == 'staticwebapp'
+var frontendUsesFrontDoor = frontendHostingMode == 'storage-frontdoor'
+var resolvedFrontDoorProfileName = empty(frontDoorProfileName) ? 'fdp-talenti-${environmentName}' : frontDoorProfileName
+var resolvedFrontDoorEndpointName = empty(frontDoorEndpointName) ? 'afd-talenti-${environmentName}' : frontDoorEndpointName
+var frontDoorWafPolicyName = 'waf-talenti-${environmentName}'
+var frontDoorSecurityPolicyName = 'security-talenti-${environmentName}'
 var backendAvailabilityTestName = 'wt-talenti-backend-${environmentName}'
 var frontendAvailabilityTestName = 'wt-talenti-frontend-${environmentName}'
 var backendAvailabilityTestId = guid(resourceGroup().id, backendAvailabilityTestName)
 var frontendAvailabilityTestId = guid(resourceGroup().id, frontendAvailabilityTestName)
 var backendHealthUrl = 'https://${backendApp.properties.configuration.ingress.fqdn}/health'
-var frontendUrl = 'https://${staticWebApp.properties.defaultHostname}'
+var storageStaticWebsiteHost = replace(replace(storage.properties.primaryEndpoints.web, 'https://', ''), '/', '')
 var syntheticLocations = [
   {
     Id: 'us-tx-sn1-azr'
@@ -196,7 +211,8 @@ resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2023-12-01-preview'
 }
 
 resource backendDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-12-01-preview' = {
-  name: '${postgres.name}/${backendDbName}'
+  parent: postgres
+  name: backendDbName
 }
 
 resource containerEnv 'Microsoft.App/managedEnvironments@2023-05-01' = {
@@ -512,9 +528,149 @@ resource acsWorkerApp 'Microsoft.App/containerApps@2023-05-01' = {
   }
 }
 
-resource staticWebApp 'Microsoft.Web/staticSites@2022-09-01' = {
+resource frontDoorProfile 'Microsoft.Cdn/profiles@2021-06-01' = if (frontendUsesFrontDoor) {
+  name: resolvedFrontDoorProfileName
+  location: 'global'
+  tags: monitoringTag
+  sku: {
+    name: 'Standard_AzureFrontDoor'
+  }
+  properties: {
+    originResponseTimeoutSeconds: 120
+  }
+}
+
+resource frontDoorEndpoint 'Microsoft.Cdn/profiles/afdEndpoints@2021-06-01' = if (frontendUsesFrontDoor) {
+  parent: frontDoorProfile
+  name: resolvedFrontDoorEndpointName
+  location: 'global'
+  properties: {
+    enabledState: 'Enabled'
+  }
+}
+
+resource frontDoorOriginGroup 'Microsoft.Cdn/profiles/originGroups@2021-06-01' = if (frontendUsesFrontDoor) {
+  parent: frontDoorProfile
+  name: 'og-frontend-${environmentName}'
+  properties: {
+    loadBalancingSettings: {
+      additionalLatencyInMilliseconds: 0
+      sampleSize: 4
+      successfulSamplesRequired: 3
+    }
+    healthProbeSettings: {
+      probeIntervalInSeconds: 120
+      probePath: '/'
+      probeProtocol: 'Https'
+      probeRequestType: 'GET'
+    }
+    sessionAffinityState: 'Disabled'
+    trafficRestorationTimeToHealedOrNewEndpointsInMinutes: 10
+  }
+}
+
+resource frontDoorOrigin 'Microsoft.Cdn/profiles/originGroups/origins@2021-06-01' = if (frontendUsesFrontDoor) {
+  parent: frontDoorOriginGroup
+  name: 'origin-frontend-${environmentName}'
+  properties: {
+    enabledState: 'Enabled'
+    enforceCertificateNameCheck: true
+    hostName: storageStaticWebsiteHost
+    httpPort: 80
+    httpsPort: 443
+    originHostHeader: storageStaticWebsiteHost
+    priority: 1
+    weight: 1000
+  }
+}
+
+resource frontDoorRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2021-06-01' = if (frontendUsesFrontDoor) {
+  parent: frontDoorEndpoint
+  name: 'route-frontend-${environmentName}'
+  properties: {
+    enabledState: 'Enabled'
+    forwardingProtocol: 'MatchRequest'
+    httpsRedirect: 'Enabled'
+    linkToDefaultDomain: 'Enabled'
+    originGroup: {
+      id: frontDoorOriginGroup.id
+    }
+    patternsToMatch: [
+      '/*'
+    ]
+    supportedProtocols: [
+      'Http'
+      'Https'
+    ]
+  }
+}
+
+resource frontDoorWafPolicy 'Microsoft.Network/FrontDoorWebApplicationFirewallPolicies@2024-02-01' = if (frontendUsesFrontDoor) {
+  name: frontDoorWafPolicyName
+  location: 'global'
+  tags: monitoringTag
+  sku: {
+    name: 'Standard_AzureFrontDoor'
+  }
+  properties: {
+    customRules: {
+      rules: length(frontDoorAllowedCidrs) > 0 ? [
+        {
+          action: 'Block'
+          enabledState: 'Enabled'
+          matchConditions: [
+            {
+              matchValue: frontDoorAllowedCidrs
+              matchVariable: 'RemoteAddr'
+              negateCondition: true
+              operator: 'IPMatch'
+            }
+          ]
+          name: 'AllowApprovedCidrsOnly'
+          priority: 1
+          ruleType: 'MatchRule'
+        }
+      ] : []
+    }
+    managedRules: {
+      managedRuleSets: []
+    }
+    policySettings: {
+      enabledState: 'Enabled'
+      mode: 'Prevention'
+      requestBodyCheck: 'Enabled'
+    }
+  }
+}
+
+resource frontDoorSecurityPolicy 'Microsoft.Cdn/profiles/securityPolicies@2024-02-01' = if (frontendUsesFrontDoor) {
+  parent: frontDoorProfile
+  name: frontDoorSecurityPolicyName
+  properties: {
+    parameters: {
+      type: 'WebApplicationFirewall'
+      associations: [
+        {
+          domains: [
+            {
+              id: frontDoorEndpoint.id
+            }
+          ]
+          patternsToMatch: [
+            '/*'
+          ]
+        }
+      ]
+      wafPolicy: {
+        id: frontDoorWafPolicy.id
+      }
+    }
+  }
+}
+
+resource staticWebApp 'Microsoft.Web/staticSites@2022-09-01' = if (frontendUsesStaticWebApp) {
   name: staticWebAppName
-  location: location
+  location: staticWebAppLocation
   tags: monitoringTag
   sku: {
     name: 'Standard'
@@ -545,7 +701,7 @@ resource backendAvailabilityWebTest 'Microsoft.Insights/webtests@2022-06-15' = {
   }
 }
 
-resource frontendAvailabilityWebTest 'Microsoft.Insights/webtests@2022-06-15' = {
+resource frontendAvailabilityWebTestStatic 'Microsoft.Insights/webtests@2022-06-15' = if (frontendUsesStaticWebApp) {
   name: frontendAvailabilityTestName
   location: location
   kind: 'ping'
@@ -562,7 +718,29 @@ resource frontendAvailabilityWebTest 'Microsoft.Insights/webtests@2022-06-15' = 
     RetryEnabled: true
     Locations: syntheticLocations
     Configuration: {
-      WebTest: '<WebTest Name="${frontendAvailabilityTestName}" Id="${frontendAvailabilityTestId}" Enabled="True" Timeout="30" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010"><Items><Request Method="GET" Guid="${frontendAvailabilityTestId}" Version="1.1" Url="${frontendUrl}" ThinkTime="0" Timeout="30" ParseDependentRequests="False" FollowRedirects="True" RecordResult="True" Cache="False" ExpectedHttpStatusCode="200" IgnoreHttpStatusCode="False" /></Items></WebTest>'
+      WebTest: '<WebTest Name="${frontendAvailabilityTestName}" Id="${frontendAvailabilityTestId}" Enabled="True" Timeout="30" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010"><Items><Request Method="GET" Guid="${frontendAvailabilityTestId}" Version="1.1" Url="https://${staticWebApp!.properties.defaultHostname}" ThinkTime="0" Timeout="30" ParseDependentRequests="False" FollowRedirects="True" RecordResult="True" Cache="False" ExpectedHttpStatusCode="200" IgnoreHttpStatusCode="False" /></Items></WebTest>'
+    }
+  }
+}
+
+resource frontendAvailabilityWebTestFrontDoor 'Microsoft.Insights/webtests@2022-06-15' = if (frontendUsesFrontDoor) {
+  name: frontendAvailabilityTestName
+  location: location
+  kind: 'ping'
+  tags: union(monitoringTag, {
+    'hidden-link:${appInsights.id}': 'Resource'
+  })
+  properties: {
+    SyntheticMonitorId: frontendAvailabilityTestName
+    Name: frontendAvailabilityTestName
+    Enabled: true
+    Frequency: 300
+    Timeout: 30
+    Kind: 'ping'
+    RetryEnabled: true
+    Locations: syntheticLocations
+    Configuration: {
+      WebTest: '<WebTest Name="${frontendAvailabilityTestName}" Id="${frontendAvailabilityTestId}" Enabled="True" Timeout="30" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010"><Items><Request Method="GET" Guid="${frontendAvailabilityTestId}" Version="1.1" Url="https://${frontDoorEndpoint!.properties.hostName}" ThinkTime="0" Timeout="30" ParseDependentRequests="False" FollowRedirects="True" RecordResult="True" Cache="False" ExpectedHttpStatusCode="200" IgnoreHttpStatusCode="False" /></Items></WebTest>'
     }
   }
 }
@@ -840,7 +1018,9 @@ resource restartAlerts 'Microsoft.Insights/metricAlerts@2018-03-01' = [for app i
 }]
 
 output backendUrl string = 'https://${backendApp.properties.configuration.ingress.fqdn}'
-output frontendUrl string = frontendUrl
+output frontendUrl string = frontendUsesStaticWebApp
+  ? 'https://${staticWebApp!.properties.defaultHostname}'
+  : 'https://${frontDoorEndpoint!.properties.hostName}'
 output keyVaultId string = keyVault.id
 output acrLoginServer string = '${acr.name}.azurecr.io'
 output applicationInsightsId string = appInsights.id

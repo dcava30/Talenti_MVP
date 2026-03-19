@@ -29,7 +29,7 @@ Talenti now uses a trunk-based release model on `main`.
   - Validates pinned model digests
   - Runs migrations once
   - Deploys DEV backend, worker, ACS worker, and frontend
-  - Smoke-checks backend `/health` and the Static Web App
+  - Smoke-checks backend `/health` and the DEV Static Web App
 - `release.yml`
   - Runs on pushes to `main`
   - Uses `release-please` with repo-root `VERSION` and `CHANGELOG.md`
@@ -42,6 +42,9 @@ Talenti now uses a trunk-based release model on `main`.
   - Allows manual promotion to UAT or PROD by release tag
   - Imports immutable image digests into the target ACR when needed
   - Reuses the release frontend artifact instead of rebuilding it
+  - Publishes UAT/PROD frontend assets to Azure Storage static website hosting
+  - Purges Azure Front Door Standard cache after upload
+  - Runs UAT on a self-hosted runner inside the allowlisted network
 
 ## Release Contract
 
@@ -69,14 +72,18 @@ Create `dev`, `uat`, and `prod` GitHub environments with these variables:
 - `AZURE_RESOURCE_GROUP`
 - `ACR_NAME`
 - `KEY_VAULT_NAME`
-- `STATIC_WEB_APP_NAME`
 - `BACKEND_APP`
 - `BACKEND_WORKER_APP`
 - `MODEL1_APP`
 - `MODEL2_APP`
 - `ACS_WORKER_APP`
 - `ALERT_EMAIL_ADDRESS`
+- `STATIC_WEB_APP_NAME` in `dev` only
 - `MODEL1_IMAGE_REF` and `MODEL2_IMAGE_REF` in `dev` only
+- `FRONTEND_STORAGE_ACCOUNT` in `uat` and `prod`
+- `FRONT_DOOR_PROFILE_NAME` in `uat` and `prod`
+- `FRONT_DOOR_ENDPOINT_NAME` in `uat` and `prod`
+- `FRONTEND_ALLOWED_CIDRS` in `uat` only, as a JSON array string such as `["203.0.113.0/24"]`
 
 Store these secrets per environment:
 
@@ -110,4 +117,6 @@ The Azure federated credential subject must match the GitHub environment form us
 - UAT is promoted from a published GitHub Release.
 - PROD is promoted manually by release tag.
 - Promotion always uses the manifest digests captured at release time.
+- UAT frontend traffic is restricted at Azure Front Door Standard with an IP allowlist custom WAF rule.
+- UAT promotion and frontend smoke checks require a self-hosted runner with the `uat` label on an allowlisted office/VPN network.
 - Roll back by rerunning `promote-release.yml` with an older `release_tag`.

@@ -8,6 +8,10 @@ param(
     [string]$OpenAIResource = "oai-talenti-dev-aue",
     [string]$OpenAIDeployment = "gpt-4o",
     [string]$StaticWebApp = "swa-talenti-dev-aue",
+    [ValidateSet("staticwebapp", "storage-frontdoor")]
+    [string]$FrontendHostingMode = "staticwebapp",
+    [string]$FrontDoorProfileName = "",
+    [string]$FrontDoorEndpointName = "",
     [string]$BackendApp = "ca-backend-dev",
     [string]$BackendWorkerApp = "ca-backend-worker-dev",
     [string]$Model1App = "ca-model1-dev",
@@ -102,13 +106,24 @@ function Resolve-FrontendOrigin {
     }
 
     if ($Profile -eq "deployed") {
-        $defaultHostname = Get-AzValue -Args @(
-            "staticwebapp", "show",
-            "--name", $StaticWebApp,
-            "--resource-group", $ResourceGroup,
-            "--query", "defaultHostname",
-            "-o", "tsv"
-        ) -AllowEmpty
+        if ($FrontendHostingMode -eq "storage-frontdoor") {
+            $defaultHostname = Get-AzValue -Args @(
+                "afd", "endpoint", "show",
+                "--profile-name", $FrontDoorProfileName,
+                "--endpoint-name", $FrontDoorEndpointName,
+                "--resource-group", $ResourceGroup,
+                "--query", "hostName",
+                "-o", "tsv"
+            ) -AllowEmpty
+        } else {
+            $defaultHostname = Get-AzValue -Args @(
+                "staticwebapp", "show",
+                "--name", $StaticWebApp,
+                "--resource-group", $ResourceGroup,
+                "--query", "defaultHostname",
+                "-o", "tsv"
+            ) -AllowEmpty
+        }
 
         if ($defaultHostname) {
             return "https://$defaultHostname"

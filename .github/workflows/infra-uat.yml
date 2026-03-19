@@ -23,6 +23,10 @@ jobs:
       AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
       ACR_NAME: ${{ vars.ACR_NAME }}
       KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
+      FRONTEND_STORAGE_ACCOUNT: ${{ vars.FRONTEND_STORAGE_ACCOUNT }}
+      FRONT_DOOR_PROFILE_NAME: ${{ vars.FRONT_DOOR_PROFILE_NAME }}
+      FRONT_DOOR_ENDPOINT_NAME: ${{ vars.FRONT_DOOR_ENDPOINT_NAME }}
+      FRONTEND_ALLOWED_CIDRS: ${{ vars.FRONTEND_ALLOWED_CIDRS }}
       BACKEND_APP: ${{ vars.BACKEND_APP }}
       BACKEND_WORKER_APP: ${{ vars.BACKEND_WORKER_APP }}
       MODEL1_APP: ${{ vars.MODEL1_APP }}
@@ -50,6 +54,10 @@ jobs:
             AZURE_RESOURCE_GROUP
             ACR_NAME
             KEY_VAULT_NAME
+            FRONTEND_STORAGE_ACCOUNT
+            FRONT_DOOR_PROFILE_NAME
+            FRONT_DOOR_ENDPOINT_NAME
+            FRONTEND_ALLOWED_CIDRS
             BACKEND_APP
             BACKEND_WORKER_APP
             MODEL1_APP
@@ -72,14 +80,52 @@ jobs:
       - name: Ensure resource group
         run: az group create --name "$AZURE_RESOURCE_GROUP" --location "$AZURE_LOCATION"
 
+      - name: Render Front Door CIDR parameters
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          raw = os.environ["FRONTEND_ALLOWED_CIDRS"]
+          try:
+              cidrs = json.loads(raw)
+          except json.JSONDecodeError as exc:
+              raise SystemExit(f"FRONTEND_ALLOWED_CIDRS must be a JSON array string: {exc}") from exc
+
+          if not isinstance(cidrs, list) or not all(isinstance(item, str) for item in cidrs):
+              raise SystemExit("FRONTEND_ALLOWED_CIDRS must be a JSON array of CIDR strings.")
+
+          Path("infra/uat/frontdoor-allowed-cidrs.parameters.json").write_text(
+              json.dumps({"frontDoorAllowedCidrs": {"value": cidrs}}),
+              encoding="utf-8",
+          )
+          PY
+
       - name: Deploy bicep
         run: |
           az deployment group create \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --template-file infra/uat/main.bicep \
             --parameters @infra/uat/parameters.uat.json \
+            --parameters @infra/uat/frontdoor-allowed-cidrs.parameters.json \
             --parameters postgresAdminPassword="${{ secrets.POSTGRES_ADMIN_PASSWORD }}" \
             --parameters alertEmailAddress="${{ vars.ALERT_EMAIL_ADDRESS }}"
+
+      - name: Enable static website hosting
+        run: |
+          FRONTEND_STORAGE_KEY=$(az storage account keys list \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --account-name "$FRONTEND_STORAGE_ACCOUNT" \
+            --query "[0].value" \
+            -o tsv)
+
+          az storage blob service-properties update \
+            --account-name "$FRONTEND_STORAGE_ACCOUNT" \
+            --account-key "$FRONTEND_STORAGE_KEY" \
+            --static-website true \
+            --index-document index.html \
+            --404-document index.html
 
       - name: Assign AcrPull and Key Vault Secrets User roles
         run: |

@@ -2,6 +2,8 @@ targetScope = 'resourceGroup'
 
 @description('Primary location for dev resources.')
 param location string = resourceGroup().location
+@description('Region for the DEV Static Web App resource.')
+param staticWebAppLocation string = 'eastasia'
 
 @secure()
 param postgresAdminPassword string
@@ -22,6 +24,8 @@ module platform '../modules/platform.bicep' = {
     postgresServerName: 'psql-talenti-dev-aue'
     backendDbName: 'talenti_backend_dev'
     staticWebAppName: 'swa-talenti-dev-aue'
+    frontendHostingMode: 'staticwebapp'
+    staticWebAppLocation: staticWebAppLocation
     backendAppName: 'ca-backend-dev'
     backendWorkerAppName: 'ca-backend-worker-dev'
     model1AppName: 'ca-model1-dev'

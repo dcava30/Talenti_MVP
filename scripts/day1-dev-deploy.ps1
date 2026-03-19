@@ -32,6 +32,7 @@ param(
     [string]$OpenAIDeployment = "gpt-4o",
 
     [string]$StaticWebApp = "swa-talenti-dev-aue",
+    [string]$StaticWebAppLocation = "eastasia",
 
     [string]$FrontendOrigin = "",
     [string]$JwtSecret = "",
@@ -160,7 +161,7 @@ az deployment group create `
     --resource-group $ResourceGroup `
     --template-file $infraTemplate `
     --parameters "@$parametersPath" `
-    --parameters "postgresAdminUser=$PostgresAdminUser" "postgresAdminPassword=$PostgresPasswordPlain" "alertEmailAddress=$AlertEmailAddress" | Out-Null
+    --parameters "postgresAdminUser=$PostgresAdminUser" "postgresAdminPassword=$PostgresPasswordPlain" "alertEmailAddress=$AlertEmailAddress" "staticWebAppLocation=$StaticWebAppLocation" | Out-Null
 
 Write-Section "Create ACS/Speech/OpenAI resources if missing"
 $null = az communication show --name $AcsResource --resource-group $ResourceGroup 2>$null
@@ -250,11 +251,18 @@ az containerapp ingress enable --name $Model1App --resource-group $ResourceGroup
 az containerapp ingress enable --name $Model2App --resource-group $ResourceGroup --type internal --target-port 8002 | Out-Null
 az containerapp ingress enable --name $AcsWorkerApp --resource-group $ResourceGroup --type internal --target-port 8000 | Out-Null
 
+Write-Section "Create Static Web App if missing"
+$null = az staticwebapp show --name $StaticWebApp --resource-group $ResourceGroup 2>$null
+if ($LASTEXITCODE -ne 0) {
+    az staticwebapp create --name $StaticWebApp --resource-group $ResourceGroup --location $StaticWebAppLocation --sku Standard | Out-Null
+}
+
 Write-Section "Resolve service URLs"
 $backendFqdn = az containerapp show --name $BackendApp --resource-group $ResourceGroup --query properties.configuration.ingress.fqdn -o tsv
 $model1Fqdn = az containerapp show --name $Model1App --resource-group $ResourceGroup --query properties.configuration.ingress.fqdn -o tsv
 $model2Fqdn = az containerapp show --name $Model2App --resource-group $ResourceGroup --query properties.configuration.ingress.fqdn -o tsv
 $workerFqdn = az containerapp show --name $AcsWorkerApp --resource-group $ResourceGroup --query properties.configuration.ingress.fqdn -o tsv
+$staticWebAppHostname = az staticwebapp show --name $StaticWebApp --resource-group $ResourceGroup --query defaultHostname -o tsv
 
 $publicBaseUrl = "https://$backendFqdn"
 $model1Url = "https://$model1Fqdn"
@@ -262,7 +270,10 @@ $model2Url = "https://$model2Fqdn"
 $workerUrl = "https://$workerFqdn"
 
 if (-not $FrontendOrigin) {
-    $FrontendOrigin = "https://$StaticWebApp.azurestaticapps.net"
+    if (-not $staticWebAppHostname) {
+        throw "Unable to resolve the DEV Static Web App hostname for '$StaticWebApp'."
+    }
+    $FrontendOrigin = "https://$staticWebAppHostname"
 }
 $allowedOriginsJson = "[`"$FrontendOrigin`"]"
 
@@ -334,12 +345,6 @@ az containerapp update --name $AcsWorkerApp --resource-group $ResourceGroup --se
     ACS_WORKER_SHARED_SECRET=secretref:acs-worker-shared-secret `
     ACS_CALLBACK_URL="$publicBaseUrl/api/v1/acs/webhook" `
     ENVIRONMENT=development | Out-Null
-
-Write-Section "Create Static Web App if missing"
-$null = az staticwebapp show --name $StaticWebApp --resource-group $ResourceGroup 2>$null
-if ($LASTEXITCODE -ne 0) {
-    az staticwebapp create --name $StaticWebApp --resource-group $ResourceGroup --location $Location --sku Standard | Out-Null
-}
 
 Write-Section "Configure GitHub deployment environment"
 & $setupAccessScript `

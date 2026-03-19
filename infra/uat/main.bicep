@@ -2,6 +2,8 @@ targetScope = 'resourceGroup'
 
 @description('Primary location for UAT resources.')
 param location string = resourceGroup().location
+@description('Allowlisted CIDR ranges for the UAT Front Door WAF policy.')
+param frontDoorAllowedCidrs array = []
 
 @secure()
 param postgresAdminPassword string
@@ -22,6 +24,10 @@ module platform '../modules/platform.bicep' = {
     postgresServerName: 'psql-talenti-uat-aue'
     backendDbName: 'talenti_backend_uat'
     staticWebAppName: 'swa-talenti-uat-aue'
+    frontendHostingMode: 'storage-frontdoor'
+    frontDoorProfileName: 'fdp-talenti-uat-aue'
+    frontDoorEndpointName: 'afd-talenti-uat-aue'
+    frontDoorAllowedCidrs: frontDoorAllowedCidrs
     backendAppName: 'ca-backend-uat'
     backendWorkerAppName: 'ca-backend-worker-uat'
     model1AppName: 'ca-model1-uat'

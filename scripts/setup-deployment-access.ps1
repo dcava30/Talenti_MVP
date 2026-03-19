@@ -12,7 +12,8 @@ param(
     [string]$BackendDatabaseUrl = "",
     [string]$JwtSecret = "",
     [string]$Model1ImageRef = "",
-    [string]$Model2ImageRef = ""
+    [string]$Model2ImageRef = "",
+    [string]$FrontEndAllowedCidrs = ""
 )
 
 Set-StrictMode -Version Latest
@@ -87,6 +88,28 @@ function Resolve-TenantId {
     return $resolvedTenant
 }
 
+function Normalize-CidrJson {
+    param([string]$Value)
+
+    try {
+        $parsed = $Value | ConvertFrom-Json
+    } catch {
+        throw "FrontEndAllowedCidrs must be a JSON array string such as [""203.0.113.0/24"",""198.51.100.0/24""]."
+    }
+
+    if (-not ($parsed -is [System.Array])) {
+        throw "FrontEndAllowedCidrs must be a JSON array string such as [""203.0.113.0/24"",""198.51.100.0/24""]."
+    }
+
+    foreach ($cidr in $parsed) {
+        if (-not ($cidr -is [string])) {
+            throw "FrontEndAllowedCidrs must contain only CIDR strings."
+        }
+    }
+
+    return ($parsed | ConvertTo-Json -Compress)
+}
+
 function Get-EnvironmentSettings {
     param(
         [ValidateSet("dev", "uat", "prod")]
@@ -101,6 +124,7 @@ function Get-EnvironmentSettings {
                 ResourceGroup = "rg-talenti-dev-aue"
                 AcrName = "acrtalentidev"
                 KeyVaultName = "kv-talenti-dev-aue"
+                FrontendStorageAccount = "sttalentidevaue"
                 StaticWebAppName = "swa-talenti-dev-aue"
                 BackendApp = "ca-backend-dev"
                 BackendWorkerApp = "ca-backend-worker-dev"
@@ -116,7 +140,10 @@ function Get-EnvironmentSettings {
                 ResourceGroup = "rg-talenti-uat-aue"
                 AcrName = "acrtalentiuat"
                 KeyVaultName = "kv-talenti-uat-aue"
+                FrontendStorageAccount = "sttalentiuataue"
                 StaticWebAppName = "swa-talenti-uat-aue"
+                FrontDoorProfileName = "fdp-talenti-uat-aue"
+                FrontDoorEndpointName = "afd-talenti-uat-aue"
                 BackendApp = "ca-backend-uat"
                 BackendWorkerApp = "ca-backend-worker-uat"
                 Model1App = "ca-model1-uat"
@@ -131,7 +158,10 @@ function Get-EnvironmentSettings {
                 ResourceGroup = "rg-talenti-prod-aue"
                 AcrName = "acrtalentiprod"
                 KeyVaultName = "kv-talenti-prod-aue"
+                FrontendStorageAccount = "sttalentiprodaue"
                 StaticWebAppName = "swa-talenti-prod-aue"
+                FrontDoorProfileName = "fdp-talenti-prod-aue"
+                FrontDoorEndpointName = "afd-talenti-prod-aue"
                 BackendApp = "ca-backend-prod"
                 BackendWorkerApp = "ca-backend-worker-prod"
                 Model1App = "ca-model1-prod"
@@ -202,6 +232,11 @@ if (-not $TenantId) {
     $TenantId = Resolve-TenantId -Subscription $SubscriptionId
 }
 
+$normalizedFrontEndAllowedCidrs = ""
+if ($FrontEndAllowedCidrs) {
+    $normalizedFrontEndAllowedCidrs = Normalize-CidrJson -Value $FrontEndAllowedCidrs
+}
+
 $pendingByEnvironment = @{}
 
 foreach ($environmentName in $EnvironmentNames) {
@@ -219,12 +254,19 @@ foreach ($environmentName in $EnvironmentNames) {
     Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "AZURE_RESOURCE_GROUP" -Value $settings.ResourceGroup
     Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "ACR_NAME" -Value $settings.AcrName
     Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "KEY_VAULT_NAME" -Value $settings.KeyVaultName
-    Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "STATIC_WEB_APP_NAME" -Value $settings.StaticWebAppName
     Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "BACKEND_APP" -Value $settings.BackendApp
     Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "BACKEND_WORKER_APP" -Value $settings.BackendWorkerApp
     Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "MODEL1_APP" -Value $settings.Model1App
     Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "MODEL2_APP" -Value $settings.Model2App
     Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "ACS_WORKER_APP" -Value $settings.AcsWorkerApp
+
+    if ($environmentName -eq "dev") {
+        Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "STATIC_WEB_APP_NAME" -Value $settings.StaticWebAppName
+    } else {
+        Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "FRONTEND_STORAGE_ACCOUNT" -Value $settings.FrontendStorageAccount
+        Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "FRONT_DOOR_PROFILE_NAME" -Value $settings.FrontDoorProfileName
+        Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "FRONT_DOOR_ENDPOINT_NAME" -Value $settings.FrontDoorEndpointName
+    }
 
     if ($AlertEmailAddress) {
         Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "ALERT_EMAIL_ADDRESS" -Value $AlertEmailAddress
@@ -243,6 +285,12 @@ foreach ($environmentName in $EnvironmentNames) {
             Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "MODEL2_IMAGE_REF" -Value $Model2ImageRef
         } else {
             $pending.Add("variable MODEL2_IMAGE_REF")
+        }
+    } elseif ($environmentName -eq "uat") {
+        if ($normalizedFrontEndAllowedCidrs) {
+            Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "FRONTEND_ALLOWED_CIDRS" -Value $normalizedFrontEndAllowedCidrs
+        } else {
+            $pending.Add("variable FRONTEND_ALLOWED_CIDRS")
         }
     }
 

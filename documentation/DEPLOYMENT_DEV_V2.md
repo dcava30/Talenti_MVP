@@ -3,7 +3,7 @@
 ## Topology
 
 - Public:
-  - Frontend (Static Web Apps)
+  - Frontend (Static Web Apps in `eastasia`; all core DEV infra remains in `australiaeast`)
   - Backend API (Container Apps external ingress)
 - Internal only:
   - backend-worker (`python -m app.worker_main`)
@@ -86,6 +86,8 @@
   - Uploads `release-manifest.json` and `frontend-dist.tgz` for promotion.
 - `promote-release.yml`:
   - Promotes the released digests and frontend artifact to UAT/PROD without rebuilding them.
+  - Uploads the frontend artifact to Azure Storage static website hosting and purges Azure Front Door Standard cache.
+  - Uses a self-hosted `uat` runner for restricted UAT frontend smoke tests.
 
 Seed the GitHub `dev` environment and Azure OIDC identity with:
 
@@ -96,7 +98,7 @@ Seed the GitHub `dev` environment and Azure OIDC identity with:
 For first-time DEV runtime bootstrap, use:
 
 ```powershell
-.\scripts\day1-dev-deploy.ps1 -SubscriptionId <sub-id>
+.\scripts\day1-dev-deploy.ps1 -SubscriptionId <sub-id> -StaticWebAppLocation eastasia
 ```
 
 ## Pinned Model Promotion Runbook
