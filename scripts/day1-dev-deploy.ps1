@@ -41,11 +41,15 @@ param(
     [string]$Model1ImageRef = "",
     [string]$Model2ImageRef = "",
 
+    [switch]$SkipInfraDeployment,
     [switch]$RunWorkflows
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
 
 function Write-Section {
     param([string]$Title)
@@ -140,8 +144,17 @@ if (-not $AlertEmailAddress) {
 }
 
 Write-Section "Login and prerequisites"
-az extension add --name containerapp --upgrade | Out-Null
-az extension add --name staticwebapp --upgrade | Out-Null
+az config set extension.use_dynamic_install=yes_without_prompt extension.dynamic_install_allow_preview=true | Out-Null
+try {
+    az extension add --name containerapp --upgrade 2>$null | Out-Null
+} catch {
+    Write-Warning "Unable to proactively install or upgrade the Azure CLI 'containerapp' extension. Continuing with dynamic install."
+}
+try {
+    az extension add --name staticwebapp --upgrade 2>$null | Out-Null
+} catch {
+    Write-Warning "Unable to proactively install or upgrade the Azure CLI 'staticwebapp' extension. Continuing with dynamic install."
+}
 az account set --subscription $SubscriptionId
 if (-not $TenantId) {
     $TenantId = az account show --subscription $SubscriptionId --query tenantId -o tsv
@@ -156,12 +169,17 @@ if ($LASTEXITCODE -ne 0) {
     throw "gh is not authenticated. Run 'gh auth login' and rerun."
 }
 
-Write-Section "Deploy infra (Bicep)"
-az deployment group create `
-    --resource-group $ResourceGroup `
-    --template-file $infraTemplate `
-    --parameters "@$parametersPath" `
-    --parameters "postgresAdminUser=$PostgresAdminUser" "postgresAdminPassword=$PostgresPasswordPlain" "alertEmailAddress=$AlertEmailAddress" "staticWebAppLocation=$StaticWebAppLocation" | Out-Null
+if (-not $SkipInfraDeployment) {
+    Write-Section "Deploy infra (Bicep)"
+    az deployment group create `
+        --resource-group $ResourceGroup `
+        --template-file $infraTemplate `
+        --parameters "@$parametersPath" `
+        --parameters "postgresAdminUser=$PostgresAdminUser" "postgresAdminPassword=$PostgresPasswordPlain" "alertEmailAddress=$AlertEmailAddress" "staticWebAppLocation=$StaticWebAppLocation" | Out-Null
+} else {
+    Write-Section "Deploy infra (Bicep)"
+    Write-Host "Skipping infra deployment and continuing with existing resources in $ResourceGroup."
+}
 
 Write-Section "Create ACS/Speech/OpenAI resources if missing"
 $null = az communication show --name $AcsResource --resource-group $ResourceGroup 2>$null
