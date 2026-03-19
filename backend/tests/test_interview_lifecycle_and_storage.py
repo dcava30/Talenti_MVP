@@ -45,6 +45,7 @@ def _create_user_and_token(db):
 def _create_application_graph(db, user_id: str) -> str:
     from app.models import Application, CandidateProfile, JobRole, Organisation
 
+    now = datetime.utcnow()
     organisation = Organisation(name="Talenti Org", values_framework='{"operating_environment": {"control_vs_autonomy": "full_ownership"}, "taxonomy": {"taxonomy_id": "tax", "version": "1.0", "signals": []}}')
     db.add(organisation)
     db.flush()
@@ -53,8 +54,8 @@ def _create_application_graph(db, user_id: str) -> str:
         organisation_id=organisation.id,
         title="Backend Engineer",
         description="Build APIs",
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=now,
+        updated_at=now,
     )
     db.add(role)
     db.flush()
@@ -62,8 +63,10 @@ def _create_application_graph(db, user_id: str) -> str:
     profile = CandidateProfile(
         user_id=user_id,
         email="storage-tester@example.com",
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        profile_confirmed_at=now,
+        profile_review_status="confirmed",
+        created_at=now,
+        updated_at=now,
     )
     db.add(profile)
     db.flush()
@@ -72,8 +75,10 @@ def _create_application_graph(db, user_id: str) -> str:
         job_role_id=role.id,
         candidate_profile_id=profile.id,
         status="invited",
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        profile_confirmed_at=now,
+        profile_review_status="confirmed",
+        created_at=now,
+        updated_at=now,
     )
     db.add(application)
     db.commit()
