@@ -33,7 +33,7 @@ jobs:
       MODEL2_APP: ${{ vars.MODEL2_APP }}
       ACS_WORKER_APP: ${{ vars.ACS_WORKER_APP }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Azure login (OIDC)
         uses: azure/login@v2
