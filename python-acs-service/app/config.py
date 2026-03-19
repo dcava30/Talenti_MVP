@@ -37,6 +37,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",
+        enable_decoding=False,
     )
 
     @field_validator("ALLOWED_ORIGINS", mode="before")
@@ -53,7 +54,8 @@ class Settings(BaseSettings):
             try:
                 parsed = json.loads(raw)
             except json.JSONDecodeError:
-                return [item.strip() for item in raw.split(",") if item.strip()]
+                inner = raw[1:-1].strip() if raw.endswith("]") else raw
+                return [item.strip().strip('"').strip("'") for item in inner.split(",") if item.strip()]
             return [item for item in parsed if isinstance(item, str)]
         return [item.strip() for item in raw.split(",") if item.strip()]
 
