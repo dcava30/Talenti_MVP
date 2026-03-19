@@ -12,7 +12,8 @@ param(
     [string]$PostgresUser = "postgres",
     [string]$PostgresPassword = "postgres",
     [string]$PostgresDb = "talenti",
-    [switch]$Detach
+    [switch]$Detach,
+    [switch]$SkipDependencyBootstrap
 )
 
 $ErrorActionPreference = "Stop"
@@ -195,52 +196,34 @@ $env:ACS_CALLBACK_URL = "http://localhost:$BackendPort/api/v1/acs/webhook"
 $env:BACKGROUND_WORKER_POLL_INTERVAL_SECONDS = "2.0"
 $env:AUTO_SCORE_INTERVIEWS = "false"
 
-Write-Section "Bootstrap backend dependencies"
 $backendPath = Join-Path $repoRootResolved "backend"
-$backendPython = Ensure-Venv (Join-Path $backendPath ".venv")
-Invoke-Checked $backendPython @("-m", "pip", "install", "--upgrade", "pip")
-$backendDeps = @(
-    "fastapi>=0.111.0",
-    "uvicorn[standard]>=0.30.0",
-    "sqlalchemy>=2.0.30",
-    "psycopg[binary]>=3.2.0",
-    "alembic>=1.13.1",
-    "pydantic>=2.8.2",
-    "pydantic-settings>=2.4.0",
-    "python-jose[cryptography]>=3.3.0",
-    "passlib[bcrypt]>=1.7.4",
-    "httpx>=0.27.0",
-    "python-multipart>=0.0.9",
-    "email-validator>=2.1.0",
-    "azure-identity>=1.16.0",
-    "azure-storage-blob>=12.20.0",
-    "azure-communication-identity>=1.3.0",
-    "openai>=1.35.0"
-)
-Invoke-Checked $backendPython (@("-m", "pip", "install") + $backendDeps)
-
-Write-Section "Bootstrap acs-worker dependencies"
 $acsWorkerPath = Join-Path $repoRootResolved "python-acs-service"
-$acsWorkerPython = Ensure-Venv (Join-Path $acsWorkerPath ".venv")
-Invoke-Checked $acsWorkerPython @("-m", "pip", "install", "--upgrade", "pip")
-Invoke-Checked $acsWorkerPython @("-m", "pip", "install", "-r", "requirements.txt") $acsWorkerPath
-
-Write-Section "Bootstrap model-service-1 dependencies"
 $ms1Path = Join-Path $repoRootResolved "model-service-1"
-Require-RepoDirectory -Path $ms1Path -Label "model-service-1"
-$ms1Python = Ensure-Venv (Join-Path $ms1Path ".venv")
-Invoke-Checked $ms1Python @("-m", "pip", "install", "--upgrade", "pip")
-Invoke-Checked $ms1Python @("-m", "pip", "install", "-r", "requirements.txt") $ms1Path
-
-Write-Section "Bootstrap model-service-2 dependencies"
 $ms2Path = Join-Path $repoRootResolved "model-service-2"
-Require-RepoDirectory -Path $ms2Path -Label "model-service-2"
-$ms2Python = Ensure-Venv (Join-Path $ms2Path ".venv")
-Invoke-Checked $ms2Python @("-m", "pip", "install", "--upgrade", "pip")
-Invoke-Checked $ms2Python @("-m", "pip", "install", "-r", "requirements.txt") $ms2Path
 
-Write-Section "Install frontend dependencies"
-Invoke-Checked "cmd.exe" @("/c", "npm", "install") $repoRootResolved
+if (-not $SkipDependencyBootstrap) {
+    Write-Section "Bootstrap local dependencies"
+    & (Join-Path $PSScriptRoot "bootstrap-local-deps.ps1") -RepoRoot $repoRootResolved
+}
+
+Require-RepoDirectory -Path $ms1Path -Label "model-service-1"
+Require-RepoDirectory -Path $ms2Path -Label "model-service-2"
+
+$backendPython = Join-Path $backendPath ".venv\Scripts\python.exe"
+$acsWorkerPython = Join-Path $acsWorkerPath ".venv\Scripts\python.exe"
+$ms1Python = Join-Path $ms1Path ".venv\Scripts\python.exe"
+$ms2Python = Join-Path $ms2Path ".venv\Scripts\python.exe"
+
+foreach ($runtime in @(
+    @{ Label = "backend"; Path = $backendPython },
+    @{ Label = "acs-worker"; Path = $acsWorkerPython },
+    @{ Label = "model-service-1"; Path = $ms1Python },
+    @{ Label = "model-service-2"; Path = $ms2Python }
+)) {
+    if (-not (Test-Path $runtime.Path)) {
+        throw "Missing $($runtime.Label) runtime at $($runtime.Path). Run .\scripts\bootstrap-local-deps.ps1 first or omit -SkipDependencyBootstrap."
+    }
+}
 
 $logsDir = Join-Path $repoRootResolved "logs\\start-local"
 New-Item -ItemType Directory -Force -Path $logsDir | Out-Null

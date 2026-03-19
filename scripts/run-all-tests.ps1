@@ -1,105 +1,24 @@
 param(
     [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
-    [string]$PythonExe = "python"
+    [string]$PythonExe = ""
 )
 
 $ErrorActionPreference = "Stop"
 
-function Write-Section {
-    param([string]$Title)
-    Write-Host "`n=== $Title ==="
-}
-
-function Invoke-Checked {
-    param(
-        [string]$Exe,
-        [string[]]$CommandArgs,
-        [string]$Workdir = ""
-    )
-
-    if ($Workdir) {
-        Push-Location $Workdir
-    }
-    try {
-        & $Exe @CommandArgs
-        if ($LASTEXITCODE -ne 0) {
-            throw "Command failed: $Exe $($CommandArgs -join ' ')"
-        }
-    } finally {
-        if ($Workdir) {
-            Pop-Location
-        }
-    }
-}
-
-function Wait-ForComposePostgres {
-    param(
-        [string]$Workdir,
-        [string]$User,
-        [string]$Database,
-        [int]$TimeoutSec = 180
-    )
-    $start = Get-Date
-    while ((Get-Date) - $start -lt [TimeSpan]::FromSeconds($TimeoutSec)) {
-        Push-Location $Workdir
-        try {
-            & docker compose exec -T postgres pg_isready -U $User -d $Database *> $null
-            if ($LASTEXITCODE -eq 0) {
-                return
-            }
-        } finally {
-            Pop-Location
-        }
-        Start-Sleep -Seconds 2
-    }
-    throw "Timed out waiting for local PostgreSQL readiness."
-}
-
-function Get-DatabaseNameFromUrl {
-    param([string]$DatabaseUrl)
-    $match = [regex]::Match($DatabaseUrl, "/([^/?]+)(\\?.*)?$")
-    if (-not $match.Success) {
-        throw "Could not determine database name from URL: $DatabaseUrl"
-    }
-    return $match.Groups[1].Value
-}
-
-function Ensure-ComposePostgresDatabase {
-    param(
-        [string]$Workdir,
-        [string]$User,
-        [string]$Database
-    )
-    $escapedDatabaseForLiteral = $Database.Replace("'", "''")
-    $escapedDatabaseForIdentifier = $Database.Replace('"', '""')
-    $existsQuery = "SELECT 1 FROM pg_database WHERE datname = '$escapedDatabaseForLiteral';"
-    Push-Location $Workdir
-    try {
-        $exists = & docker compose exec -T postgres psql -U $User -d postgres -tAc $existsQuery
-        if ($LASTEXITCODE -ne 0) {
-            throw "Failed to query PostgreSQL databases."
-        }
-        if (-not $exists.Trim()) {
-            & docker compose exec -T postgres psql -U $User -d postgres -c "CREATE DATABASE `"$escapedDatabaseForIdentifier`";" *> $null
-            if ($LASTEXITCODE -ne 0) {
-                throw "Failed to create PostgreSQL database '$Database'."
-            }
-        }
-    } finally {
-        Pop-Location
-    }
-}
+. (Join-Path $PSScriptRoot "local-common.ps1")
 
 $repoRootResolved = (Resolve-Path $RepoRoot).Path
-$backendPath = Join-Path $repoRootResolved "backend"
-$acsPath = Join-Path $repoRootResolved "python-acs-service"
 $modelRunner = Join-Path $repoRootResolved "scripts\run-model-tests.ps1"
+$backendRunner = Join-Path $repoRootResolved "scripts\run-backend-tests.ps1"
+$acsRunner = Join-Path $repoRootResolved "scripts\run-acs-tests.ps1"
+$frontendRunner = Join-Path $repoRootResolved "scripts\run-frontend-checks.ps1"
+$postgresRunner = Join-Path $repoRootResolved "scripts\start-local-postgres.ps1"
 $startedLocalPostgres = $false
 $originalTestDatabaseUrl = $env:TEST_DATABASE_URL
 $backendTestDatabaseUrl = $env:BACKEND_TEST_DATABASE_URL
 $acsTestDatabaseUrl = $env:ACS_TEST_DATABASE_URL
 
-foreach ($path in @($backendPath, $acsPath, $modelRunner)) {
+foreach ($path in @($backendRunner, $acsRunner, $frontendRunner, $modelRunner, $postgresRunner)) {
     if (-not (Test-Path $path)) {
         throw "Required path not found: $path"
     }
@@ -113,6 +32,7 @@ try {
             $backendTestDatabaseUrl = "postgresql+psycopg://postgres:postgres@localhost:5432/talenti_backend_test"
         }
     }
+
     if (-not $acsTestDatabaseUrl) {
         if ($env:ACS_TEST_DATABASE_URL) {
             $acsTestDatabaseUrl = $env:ACS_TEST_DATABASE_URL
@@ -124,33 +44,22 @@ try {
     }
 
     if (-not $env:BACKEND_TEST_DATABASE_URL -and -not $env:ACS_TEST_DATABASE_URL -and -not $env:TEST_DATABASE_URL) {
-        Write-Section "Start local PostgreSQL for tests"
-        $env:POSTGRES_USER = "postgres"
-        $env:POSTGRES_PASSWORD = "postgres"
-        $env:POSTGRES_DB = "postgres"
-        Invoke-Checked "docker" @("compose", "up", "-d", "postgres") $repoRootResolved
-        Wait-ForComposePostgres -Workdir $repoRootResolved -User $env:POSTGRES_USER -Database $env:POSTGRES_DB
-        Ensure-ComposePostgresDatabase -Workdir $repoRootResolved -User $env:POSTGRES_USER -Database (Get-DatabaseNameFromUrl $backendTestDatabaseUrl)
-        Ensure-ComposePostgresDatabase -Workdir $repoRootResolved -User $env:POSTGRES_USER -Database (Get-DatabaseNameFromUrl $acsTestDatabaseUrl)
+        & $postgresRunner `
+            -RepoRoot $repoRootResolved `
+            -PostgresUser "postgres" `
+            -PostgresPassword "postgres" `
+            -PostgresDb "postgres" `
+            -AdditionalDatabases @(
+                (Get-DatabaseNameFromUrl $backendTestDatabaseUrl),
+                (Get-DatabaseNameFromUrl $acsTestDatabaseUrl)
+            )
         $startedLocalPostgres = $true
     }
 
-    Write-Section "Frontend tests (Vitest)"
-    Invoke-Checked "npm.cmd" @("run", "test") $repoRootResolved
-
-    Write-Section "Backend tests (pytest)"
-    $env:TEST_DATABASE_URL = $backendTestDatabaseUrl
-    Invoke-Checked $PythonExe @("-m", "pytest", "-q", "tests") $backendPath
-
-    Write-Section "Python ACS service tests (pytest)"
-    $env:TEST_DATABASE_URL = $acsTestDatabaseUrl
-    Invoke-Checked $PythonExe @("-m", "pytest", "-q", "tests") $acsPath
-
-    Write-Section "Model service tests (pytest)"
-    & $modelRunner -RepoRoot $repoRootResolved -PythonExe $PythonExe
-    if ($LASTEXITCODE -ne 0) {
-        throw "Model service tests failed."
-    }
+    & $frontendRunner -RepoRoot $repoRootResolved -Mode test
+    & $backendRunner -RepoRoot $repoRootResolved -PythonExe $PythonExe -DatabaseUrl $backendTestDatabaseUrl -SkipDatabaseBootstrap
+    & $acsRunner -RepoRoot $repoRootResolved -PythonExe $PythonExe -DatabaseUrl $acsTestDatabaseUrl -SkipDatabaseBootstrap
+    & $modelRunner -RepoRoot $repoRootResolved -PythonExe $(if ($PythonExe) { $PythonExe } else { "python" })
 } finally {
     if ($startedLocalPostgres) {
         try {
@@ -160,6 +69,7 @@ try {
             Write-Host "Failed to stop local PostgreSQL: $_"
         }
     }
+
     if ($null -ne $originalTestDatabaseUrl) {
         $env:TEST_DATABASE_URL = $originalTestDatabaseUrl
     } else {

@@ -104,6 +104,56 @@ npm run dev
 .\scripts\start-local.ps1
 ```
 
+If you have already installed local dependencies once and only want to relaunch services:
+
+```powershell
+.\scripts\start-local.ps1 -SkipDependencyBootstrap
+```
+
+## Chunked Local Workflow
+
+Bootstrap local dependencies once:
+
+```powershell
+.\scripts\bootstrap-local-deps.ps1
+```
+
+Start local PostgreSQL only:
+
+```powershell
+.\scripts\start-local-postgres.ps1 -PostgresDb postgres -AdditionalDatabases talenti_backend_test,talenti_acs_test
+```
+
+Run backend tests only:
+
+```powershell
+.\scripts\run-backend-tests.ps1
+```
+
+Run ACS service tests only:
+
+```powershell
+.\scripts\run-acs-tests.ps1
+```
+
+Run frontend checks only:
+
+```powershell
+.\scripts\run-frontend-checks.ps1 -Mode all
+```
+
+Run just the frontend dev server:
+
+```powershell
+.\scripts\run-frontend-checks.ps1 -Mode dev
+```
+
+Run the full test suite through the smaller entry points:
+
+```powershell
+.\scripts\run-all-tests.ps1
+```
+
 External PostgreSQL mode:
 
 ```powershell

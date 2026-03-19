@@ -13,10 +13,16 @@ foreach ($svc in $services) {
         throw "Missing service directory: $path"
     }
 
+    $resolvedPython = $PythonExe
+    $venvPython = Join-Path $path ".venv\Scripts\python.exe"
+    if (Test-Path $venvPython) {
+        $resolvedPython = $venvPython
+    }
+
     Write-Host "Running tests in $svc..."
     Push-Location $path
     try {
-        & $PythonExe -m pytest -q
+        & $resolvedPython -m pytest -q
         if ($LASTEXITCODE -ne 0) {
             throw "Tests failed in $svc"
         }
