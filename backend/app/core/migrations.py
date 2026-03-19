@@ -12,6 +12,7 @@ STARTUP_MIGRATION_LOCK_KEY = 841937264102
 def _build_alembic_config() -> Config:
     backend_root = Path(__file__).resolve().parents[2]
     config = Config(str(backend_root / "alembic.ini"))
+    config.set_main_option("script_location", str(backend_root / "alembic"))
     config.set_main_option("sqlalchemy.url", settings.database_url)
     return config
 
