@@ -2,6 +2,12 @@
 
 Talenti runs with a FastAPI backend, a dedicated backend worker, a PostgreSQL database, and Azure service integrations.
 
+## Related Docs
+
+- [`ARCHITECTURE_DIAGRAM.md`](./ARCHITECTURE_DIAGRAM.md) for runtime, infrastructure, and release-flow diagrams
+- [`RELEASE_PIPELINE.md`](./RELEASE_PIPELINE.md) for the release contract and promotion rules
+- [`MONITORING.md`](./MONITORING.md) for observability and alerting
+
 ## Prerequisites
 
 - Python 3.11+
@@ -182,7 +188,7 @@ The backend worker also reads:
 
 Notes:
 
-- Deployed dev/staging/prod should use `/api/storage/upload-url` as the primary candidate CV upload flow.
+- Deployed dev/uat/prod should use `/api/storage/upload-url` as the primary candidate CV upload flow.
 - `/api/v1/candidates/cv` remains a local-development fallback when Blob credentials are unavailable.
 
 ## Auth Configuration

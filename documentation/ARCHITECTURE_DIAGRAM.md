@@ -1,341 +1,300 @@
-# Talenti Application Architecture Diagram
+# Talenti Architecture Views
 
-This draft reflects the platform as it currently stands across:
+This document refreshes the Talenti diagrams around the Azure-first platform that is now encoded in the repository. It separates the system into four views:
 
-- [documentation/ENV_SETUP.md](/c:/Users/Declan/Downloads/TalentiMatchFrontend/Talenti_MVP/documentation/ENV_SETUP.md)
-- [INTEGRATION_GUIDE.md](/c:/Users/Declan/Downloads/TalentiMatchFrontend/Talenti_MVP/INTEGRATION_GUIDE.md)
-- The frontend API modules in [`src/api`](/c:/Users/Declan/Downloads/TalentiMatchFrontend/Talenti_MVP/src/api)
-- The FastAPI routes in [`backend/app/api`](/c:/Users/Declan/Downloads/TalentiMatchFrontend/Talenti_MVP/backend/app/api)
-- The worker/runtime services in [`backend/app/services`](/c:/Users/Declan/Downloads/TalentiMatchFrontend/Talenti_MVP/backend/app/services)
-- The deployment topology in [docker-compose.yml](/c:/Users/Declan/Downloads/TalentiMatchFrontend/Talenti_MVP/docker-compose.yml)
+- high-level system design
+- runtime topology
+- environment and infrastructure layout
+- delivery and promotion flow
 
-## Mermaid Diagram
+## Source Of Truth
+
+These diagrams are based on:
+
+- [`infra/modules/platform.bicep`](../infra/modules/platform.bicep)
+- [`infra/dev/main.bicep`](../infra/dev/main.bicep)
+- [`infra/uat/main.bicep`](../infra/uat/main.bicep)
+- [`infra/prod/main.bicep`](../infra/prod/main.bicep)
+- [`deploy-dev.yml`](../.github/workflows/deploy-dev.yml)
+- [`release.yml`](../.github/workflows/release.yml)
+- [`promote-release.yml`](../.github/workflows/promote-release.yml)
+- [`backend/app/main.py`](../backend/app/main.py)
+- [`backend/app/services/job_handlers.py`](../backend/app/services/job_handlers.py)
+
+The older local `docker-compose` setup remains useful for development, but it is no longer the primary source of truth for deployed architecture.
+
+## 1. High-Level System Design
+
+This is the quickest view to use when we want to explain the platform in one diagram.
+
+```mermaid
+flowchart TB
+    recruiter["Recruiters and hiring teams"]
+    candidate["Candidates"]
+
+    subgraph edge["Frontend and edge"]
+        hosting["Frontend hosting<br/>DEV: Azure Static Web Apps<br/>UAT/PROD: Azure Front Door + Storage static website"]
+        spa["React + Vite SPA<br/>recruiter portal<br/>candidate portal<br/>live interview UI"]
+        browser["Browser runtime<br/>ACS calling, speech, avatar,<br/>file uploads"]
+    end
+
+    subgraph app["Application services"]
+        backend["FastAPI backend API<br/>auth, invitations, interviews,<br/>scoring, storage URLs, reporting"]
+        worker["backend-worker<br/>resume parsing, profile prefill,<br/>invite prep, auto-scoring"]
+        acsworker["python-acs-service<br/>call automation and recording"]
+    end
+
+    subgraph ai["AI and model layer"]
+        openai["Azure OpenAI<br/>AI interviewer chat"]
+        model1["model-service-1<br/>culture and communication scoring"]
+        model2["model-service-2<br/>technical and skills scoring"]
+        speech["Azure Speech + avatar relay"]
+        acs["Azure Communication Services"]
+    end
+
+    subgraph data["Data, storage, and operations"]
+        pg["Azure Database for PostgreSQL"]
+        blob["Azure Blob Storage"]
+        kv["Azure Key Vault"]
+        obs["Application Insights<br/>Log Analytics<br/>Azure Monitor alerts"]
+    end
+
+    recruiter --> hosting
+    candidate --> hosting
+    hosting --> spa
+    candidate --> browser
+
+    spa --> backend
+    browser --> backend
+
+    backend --> pg
+    backend --> blob
+    backend -. secret refs .-> kv
+    worker --> pg
+    worker --> blob
+    worker -. secret refs .-> kv
+    acsworker --> blob
+    acsworker -. secret refs .-> kv
+
+    backend --> openai
+    backend --> model1
+    backend --> model2
+    backend --> speech
+    backend --> acs
+    backend --> acsworker
+
+    worker --> model1
+    worker --> model2
+    worker --> acsworker
+    acsworker --> acs
+
+    browser --> speech
+    browser --> acs
+
+    obs -. monitors .-> backend
+    obs -. monitors .-> worker
+    obs -. monitors .-> model1
+    obs -. monitors .-> model2
+    obs -. monitors .-> acsworker
+```
+
+### System Design Notes
+
+- The frontend is a single SPA, but the hosting pattern changes by environment: Static Web Apps in `dev`, Storage static website plus Front Door in `uat` and `prod`.
+- The backend is the control plane for platform state, while `backend-worker` handles database-backed async orchestration.
+- The model services remain separate runtime resources so scoring can evolve independently from the main backend.
+- Azure Speech, avatar features, and Azure Communication Services are used both through backend-issued tokens and direct browser sessions.
+- PostgreSQL, Blob Storage, Key Vault, and Azure-native monitoring form the shared platform foundation across all environments.
+
+## 2. Runtime Topology
 
 ```mermaid
 flowchart LR
-    recruiter["Recruiter / Organisation User"]
-    candidate["Candidate User"]
+    recruiter["Recruiter / hiring team"]
+    candidate["Candidate"]
 
-    subgraph frontend["Frontend Client (React + Vite SPA)"]
-        org_ui["Organisation UI<br/>role dashboard, shortlist,<br/>resume review, invitations"]
-        candidate_ui["Candidate UI<br/>claim invite, profile review,<br/>portal, lobby, live interview"]
-        api["Frontend API modules<br/>auth, organisations, roles, candidates,<br/>interviews, invitations, resumeBatches,<br/>storage, scoring, shortlist, speech, acs"]
-        browser_runtime["Browser runtime layer<br/>ACS Calling SDK<br/>Azure Speech SDK<br/>Azure Avatar WebRTC<br/>Browser speech fallback"]
+    subgraph experience["Frontend experience"]
+        spa["React + Vite SPA<br/>recruiter portal, candidate portal,<br/>live interview, reporting"]
+        browser["Browser runtime<br/>ACS Calling SDK<br/>Azure Speech SDK<br/>avatar renderer<br/>browser speech fallback"]
     end
 
-    subgraph backend["Backend API (FastAPI :8000)"]
-        auth["Auth + Claim APIs<br/>/api/auth/register<br/>/api/auth/login<br/>/api/auth/claim-context<br/>/api/auth/claim-invite"]
-        org_role["Organisation + Role APIs<br/>/api/orgs/*<br/>/api/roles/*"]
-        resume_ingest["Resume ingestion APIs<br/>/api/v1/resume-batches/*"]
-        candidate_app["Candidate + Application APIs<br/>/api/v1/candidates/*<br/>/api/v1/applications/*<br/>/api/invitations*"]
-        interview_api["Interview lifecycle APIs<br/>/api/v1/interviews/start<br/>/api/v1/interviews/{id}/complete<br/>/api/v1/interview/chat<br/>/api/v1/interviews/*"]
-        scoring_api["Scoring + ranking APIs<br/>/api/v1/scoring/analyze<br/>/api/v1/shortlist/generate<br/>/api/v1/roles/extract-requirements"]
-        media_api["Azure token + call orchestration APIs<br/>/api/v1/acs/*<br/>/api/v1/speech/token<br/>/api/v1/call-automation/*"]
-        storage_api["Storage + audit + retention APIs<br/>/api/storage/upload-url<br/>/api/v1/audit-log/*<br/>/api/v1/data-retention/*"]
+    subgraph apps["Azure Container Apps environment"]
+        backend["backend API<br/>FastAPI control plane<br/>public ingress"]
+        worker["backend-worker<br/>claims jobs from PostgreSQL<br/>and persists async results"]
+        model1["model-service-1<br/>culture / communication scoring<br/>internal ingress"]
+        model2["model-service-2<br/>technical / skills scoring<br/>internal ingress"]
+        acsworker["python-acs-service<br/>call automation and recording<br/>internal ingress"]
     end
 
-    subgraph data["Persistence (PostgreSQL + Files)"]
-        pg["PostgreSQL<br/>users<br/>candidate_profiles<br/>applications<br/>invitations<br/>resume_ingestion_batches<br/>resume_ingestion_items<br/>parsed_profile_snapshots<br/>files<br/>interviews<br/>transcript_segments<br/>interview_scores<br/>score_dimensions<br/>background_jobs<br/>domain_events"]
-        blob["Azure Blob Storage<br/>candidate CVs<br/>resume batch uploads<br/>recordings<br/>future artifacts"]
-        localfs["Backend local filesystem<br/>data/uploads<br/>(local-only CV fallback)"]
+    subgraph state["State, files, and secrets"]
+        pg["Azure Database for PostgreSQL<br/>core entities<br/>background_jobs<br/>domain_events"]
+        blob["Azure Blob Storage<br/>resume uploads, CVs,<br/>recordings, artifacts"]
+        kv["Azure Key Vault<br/>runtime secrets"]
     end
 
-    subgraph ai_ml["AI / Model Layer"]
+    subgraph azure["Azure service integrations"]
+        acs["Azure Communication Services<br/>identity, calling, webhook events"]
+        speech["Azure Speech + avatar relay<br/>speech tokens, STT, TTS,<br/>avatar session setup"]
         openai["Azure OpenAI<br/>AI interviewer chat"]
-        model1["Model Service 1 :8001<br/>culture / communication scoring"]
-        model2["Model Service 2 :8002<br/>technical / competency scoring"]
-        parser["Async resume parsing + prefill logic<br/>heuristic parser now<br/>AI parser-ready pathway later"]
     end
 
-    subgraph workers["Background Services"]
-        backend_worker["backend-worker<br/>polls background_jobs<br/>handles:<br/>candidate_cv_postprocess<br/>bulk_resume_parse<br/>candidate_profile_prefill<br/>candidate_invite_prepare<br/>interview_start_orchestration<br/>interview_complete_orchestration<br/>scoring_run"]
-        acs_worker["python-acs-service<br/>ACS call automation<br/>recording lifecycle"]
-    end
+    recruiter --> spa
+    candidate --> spa
+    candidate --> browser
 
-    subgraph azure["Azure Runtime Services"]
-        acs_identity["Azure Communication Services<br/>identity + token issuance"]
-        acs_media["Azure Communication Services<br/>calling / media plane"]
-        speech["Azure Speech Services<br/>token, STT, TTS"]
-        avatar["Azure Avatar relay<br/>TURN / WebRTC"]
-        acs_events["ACS webhooks / worker callbacks"]
-    end
+    spa --> backend
+    browser --> backend
 
-    recruiter --> org_ui
-    candidate --> candidate_ui
+    backend -->|auth, CRUD, invitation state,<br/>interview lifecycle| pg
+    backend -->|enqueue jobs + domain events| pg
+    worker -->|claim jobs + persist outputs| pg
 
-    org_ui --> api
-    candidate_ui --> api
-    candidate_ui --> browser_runtime
+    backend -->|generate SAS upload URLs| blob
+    spa -->|direct upload/download via SAS| blob
+    worker -->|resume and recording IO| blob
+    acsworker -->|recordings| blob
 
-    api --> auth
-    api --> org_role
-    api --> resume_ingest
-    api --> candidate_app
-    api --> interview_api
-    api --> scoring_api
-    api --> media_api
-    api --> storage_api
+    backend -->|sync scoring| model1
+    backend -->|sync scoring| model2
+    worker -->|auto scoring| model1
+    worker -->|auto scoring| model2
 
-    auth --> pg
-    org_role --> pg
-    resume_ingest --> pg
-    candidate_app --> pg
-    interview_api --> pg
-    scoring_api --> pg
-    media_api --> pg
-    storage_api --> pg
+    backend -->|AI interviewer prompts| openai
+    backend -->|ACS token issuance| acs
+    backend -->|speech token issuance| speech
+    browser -->|live call media| acs
+    browser -->|speech + avatar session| speech
 
-    org_ui -->|request SAS URLs| storage_api
-    candidate_ui -->|request SAS URLs| storage_api
-    storage_api --> blob
+    backend -->|call automation requests| acsworker
+    worker -->|server-managed call and recording orchestration| acsworker
+    acs -->|webhook events| backend
+    acsworker -->|worker-events callback| backend
 
-    candidate_app -->|local dev fallback only| localfs
-
-    resume_ingest -->|file metadata + batch items| pg
-    resume_ingest -->|Blob-first upload contract| blob
-
-    candidate_app -->|claim/profile/app data| pg
-    interview_api -->|interview readiness gate| pg
-
-    interview_api --> openai
-    scoring_api --> model1
-    scoring_api --> model2
-
-    candidate_app --> backend_worker
-    resume_ingest --> backend_worker
-    interview_api --> backend_worker
-    backend_worker --> pg
-    backend_worker --> blob
-    backend_worker --> parser
-    parser --> blob
-    parser --> pg
-    backend_worker --> model1
-    backend_worker --> model2
-    backend_worker --> acs_worker
-
-    media_api --> acs_identity
-    media_api --> speech
-    media_api --> acs_worker
-
-    acs_worker --> acs_media
-    acs_worker --> blob
-    acs_events -->|/api/v1/acs/webhook| media_api
-    acs_worker -->|worker status callbacks| media_api
-
-    browser_runtime -->|ACS token from backend| media_api
-    browser_runtime -->|Speech token from backend| media_api
-    browser_runtime -->|live media session| acs_media
-    browser_runtime -->|speech recognition / TTS| speech
-    browser_runtime -->|avatar relay session| avatar
+    backend -. secret refs .-> kv
+    worker -. secret refs .-> kv
+    acsworker -. secret refs .-> kv
 ```
 
-## Current-State Notes
+### Runtime Notes
 
-- The backend is the control plane for auth, candidate/application state, invitations, interview lifecycle, scoring orchestration, storage URL issuance, and worker job creation.
-- Blob Storage is now the canonical upload path in deployed environments for both self-serve candidate CV uploads and organisation bulk resume ingestion.
-- `/api/v1/candidates/cv` still exists only as a local-development fallback when Blob Storage is not configured.
-- Resume ingestion is now a first-class platform capability:
-  - recruiters create role-linked `resume_ingestion_batches`
-  - files are uploaded to Blob
-  - each file becomes a `resume_ingestion_item`
-  - parsing results are stored in `parsed_profile_snapshots`
-  - candidate user/profile/application records are matched or created
-- Organisation-uploaded candidates can now exist as dormant accounts before the candidate has ever visited the platform.
-- Dormant invited candidate accounts are keyed by resume email and require `claim-invite` before normal login is allowed.
-- Invitation validation now returns claim state, profile-confirmation state, and interview unlock state.
-- The AI interview is gated by:
-  - valid invitation
-  - account claimed when required
-  - profile confirmation completed when required
-- Candidate profile confirmation is now an explicit lifecycle step before interview start for prefilled invite flows.
-- Candidate CV upload and organisation bulk resume upload both feed the same async prefill architecture through `background_jobs`.
-- `backend-worker` is now the general async platform worker; `python-acs-service` remains specialized for ACS call and recording tasks.
-- Async scoring scaffolding is present through `scoring_run`, while synchronous `/api/v1/scoring/analyze` remains available.
-- Resume parsing is currently a best-effort backend parser with PDF/DOCX/text extraction and structured prefill logic. The architecture is intentionally ready for a future AI parser to replace or augment this layer.
+- Only `backend` has public ingress in the deployed Container Apps environment.
+- `backend-worker`, `model-service-1`, `model-service-2`, and `python-acs-service` are internal services.
+- Async orchestration is database-backed through `background_jobs` and `domain_events`; there is no separate queue broker in the current platform.
+- Blob Storage is the canonical deployed upload and recording store. `/api/v1/candidates/cv` remains only as a local fallback when blob configuration is absent.
+- The backend can score interviews synchronously through `/api/v1/scoring/analyze`, while `backend-worker` can also run asynchronous scoring when `AUTO_SCORE_INTERVIEWS` is enabled.
 
-## Sequence Diagram: Bulk Resume Ingestion and Invite Preparation
+## 3. Environment And Infrastructure Topology
 
 ```mermaid
-sequenceDiagram
-    actor Recruiter
-    participant UI as React Frontend
-    participant API as FastAPI Backend
-    participant Blob as Azure Blob Storage
-    participant DB as PostgreSQL
-    participant BW as backend-worker
-
-    Recruiter->>UI: Open role and bulk upload resumes
-    UI->>API: POST /api/v1/resume-batches
-    API->>DB: Create resume_ingestion_batch
-    API-->>UI: batch_id
-
-    loop For each uploaded resume
-        UI->>API: POST /api/v1/resume-batches/{id}/items/upload-url
-        API->>DB: Create file + resume_ingestion_item
-        API-->>UI: SAS upload_url + item_id + file_id
-        UI->>Blob: PUT resume file
+flowchart TB
+    subgraph github["GitHub control plane"]
+        envs["GitHub environments<br/>dev, uat, prod<br/>vars + secrets"]
+        infrawf["infra-dev / infra-uat / infra-prod"]
+        deploydev["deploy-dev"]
+        promote["promote-release"]
     end
 
-    UI->>API: POST /api/v1/resume-batches/{id}/process
-    API->>DB: Enqueue bulk_resume_parse jobs
-    API-->>UI: queued_items
+    oidc["OIDC federation<br/>azure/login"]
+    module["Shared Bicep platform module<br/>infra/modules/platform.bicep"]
 
-    loop Worker processing
-        BW->>DB: Claim bulk_resume_parse
-        BW->>Blob: Download resume
-        BW->>BW: Parse text and normalize structured data
-        BW->>DB: Save parsed_profile_snapshot
-        BW->>DB: Create or match user/profile/application
-        BW->>DB: Update resume_ingestion_item
-        BW->>DB: Enqueue candidate_profile_prefill
+    envs --> infrawf
+    envs --> deploydev
+    envs --> promote
+    infrawf --> oidc
+    deploydev --> oidc
+    promote --> oidc
+    oidc --> module
+
+    subgraph dev["DEV resource group"]
+        devedge["Frontend hosting<br/>Azure Static Web Apps"]
+        devapps["Azure Container Apps<br/>backend<br/>backend-worker<br/>model1<br/>model2<br/>acs-worker"]
+        devcore["Azure Container Registry<br/>Key Vault<br/>Storage account<br/>PostgreSQL"]
+        devobs["Log Analytics<br/>Application Insights<br/>synthetic tests and alerts"]
     end
 
-    BW->>DB: Claim candidate_profile_prefill
-    BW->>DB: Prefill candidate profile, skills, experience, education
+    subgraph uat["UAT resource group"]
+        uatedge["Frontend hosting<br/>Storage static website<br/>Azure Front Door Standard<br/>WAF IP allowlist"]
+        uatapps["Azure Container Apps<br/>backend<br/>backend-worker<br/>model1<br/>model2<br/>acs-worker"]
+        uatcore["Azure Container Registry<br/>Key Vault<br/>Storage account<br/>PostgreSQL"]
+        uatobs["Log Analytics<br/>Application Insights<br/>synthetic tests and alerts"]
+    end
 
-    Recruiter->>UI: Review parsed queue
-    UI->>API: GET /api/v1/resume-batches/{id}/items
-    API->>DB: Load review queue
-    API-->>UI: parsed candidates, errors, statuses
+    subgraph prod["PROD resource group"]
+        prodedge["Frontend hosting<br/>Storage static website<br/>Azure Front Door Standard"]
+        prodapps["Azure Container Apps<br/>backend<br/>backend-worker<br/>model1<br/>model2<br/>acs-worker"]
+        prodcore["Azure Container Registry<br/>Key Vault<br/>Storage account<br/>PostgreSQL"]
+        prodobs["Log Analytics<br/>Application Insights<br/>synthetic tests and alerts"]
+    end
 
-    Recruiter->>UI: Approve selected candidates
-    UI->>API: PATCH /api/v1/resume-batches/items/{item_id}
-    API->>DB: Mark approved
+    module --> devedge
+    module --> devapps
+    module --> devcore
+    module --> devobs
 
-    Recruiter->>UI: Queue invitations
-    UI->>API: POST /api/v1/resume-batches/{id}/invite
-    API->>DB: Enqueue candidate_invite_prepare jobs
+    module --> uatedge
+    module --> uatapps
+    module --> uatcore
+    module --> uatobs
 
-    BW->>DB: Claim candidate_invite_prepare
-    BW->>DB: Create invitation linked to application + candidate email
-    BW->>DB: Mark item invited, application invited
+    module --> prodedge
+    module --> prodapps
+    module --> prodcore
+    module --> prodobs
 ```
 
-## Sequence Diagram: Candidate Claim, Profile Confirmation, and Interview Unlock
+### Environment Notes
+
+- Each stage is a separate Azure resource group with its own Container Apps environment, ACR, Key Vault, Storage account, PostgreSQL server, Log Analytics workspace, Application Insights component, and alert rules.
+- `dev` serves the SPA from Azure Static Web Apps.
+- `uat` and `prod` serve the SPA from Azure Storage static website hosting behind Azure Front Door Standard.
+- `uat` adds a Front Door WAF IP allowlist so promotion and smoke checks must run from an allowlisted network.
+- After infra deployment, the workflows assign `AcrPull` and `Key Vault Secrets User` to the five Container Apps so images and secret references work without embedded credentials.
+
+## 4. Delivery And Promotion Architecture
 
 ```mermaid
-sequenceDiagram
-    actor Candidate
-    participant UI as React Frontend
-    participant API as FastAPI Backend
-    participant DB as PostgreSQL
+flowchart LR
+    pr["Feature PR"] --> validate["pr-validate<br/>title policy, tests, build"]
+    validate --> main["Merge to main"]
 
-    Candidate->>UI: Open /invite/{token}
-    UI->>API: GET /api/v1/invitations/validate?token=...
-    API->>DB: Load invitation, application, profile, user
-    API-->>UI: valid + candidate_email + claim_required + profile_completion_required + interview_unlocked
+    main --> ci["ci<br/>frontend + backend checks"]
+    main --> release["release<br/>release-please"]
 
-    alt Dormant account must be claimed
-        Candidate->>UI: Set password using resume email
-        UI->>API: POST /api/auth/claim-invite
-        API->>DB: Verify token + email
-        API->>DB: Set password, clear password_setup_required, mark claimed
-        API-->>UI: access token
-    end
+    ci --> deploydev["deploy-dev"]
+    deploydev --> build["Build backend and acs-worker images<br/>tag with commit SHA"]
+    build --> devacr["DEV ACR"]
+    deploydev --> modelrefs["Use pinned model digests<br/>from GitHub dev environment"]
+    deploydev --> migdev["Run migrations once"]
+    deploydev --> devapps["Update DEV Container Apps"]
+    deploydev --> devfront["Deploy frontend to Static Web Apps"]
+    deploydev --> devsmoke["DEV smoke tests"]
 
-    alt Profile still needs confirmation
-        Candidate->>UI: Review prefilled profile
-        UI->>API: POST /api/v1/candidates/profile
-        API->>DB: Save candidate edits
-        Candidate->>UI: Confirm profile
-        UI->>API: POST /api/v1/candidates/profile/confirm
-        API->>DB: Mark candidate_profile and application confirmed
-        API-->>UI: interview_unlocked = true
-    end
+    release --> tag["Git tag + GitHub Release"]
+    tag --> waitdigests["Wait for backend and acs-worker digests<br/>for the release SHA in DEV ACR"]
+    devacr --> waitdigests
+    waitdigests --> assets["Release assets<br/>release-manifest.json<br/>frontend-dist.tgz"]
 
-    Candidate->>UI: Proceed to device check
-    UI->>API: GET /api/v1/invitations/validate?token=...
-    API-->>UI: interview_unlocked = true
+    assets --> uatpromo["Automatic UAT promotion<br/>self-hosted allowlisted runner"]
+    assets --> prodpromo["Manual PROD promotion<br/>workflow_dispatch by release tag"]
+
+    uatpromo --> import["Import pinned digests into target ACR"]
+    prodpromo --> import
+    import --> mig["Run migrations"]
+    mig --> targetapps["Update target Container Apps"]
+    targetapps --> web["Publish frontend-dist.tgz<br/>to Storage static website"]
+    web --> purge["Purge Azure Front Door cache"]
+    purge --> origins["Update backend ALLOWED_ORIGINS"]
+    origins --> smoke["Environment smoke tests"]
 ```
 
-## Sequence Diagram: Live Interview and Scoring Flow
+### Pipeline Notes
 
-```mermaid
-sequenceDiagram
-    actor Candidate
-    participant UI as React Frontend
-    participant API as FastAPI Backend
-    participant DB as PostgreSQL
-    participant BW as backend-worker
-    participant OAI as Azure OpenAI
-    participant ACS as Azure Communication Services
-    participant Speech as Azure Speech Services
-    participant Avatar as Azure Avatar Relay
-    participant M1 as Model Service 1
-    participant M2 as Model Service 2
+- `deploy-dev` builds only the backend and ACS worker from this repository. The two model services are injected as immutable digest references from the `dev` GitHub environment.
+- `release.yml` waits for the backend and ACS worker images for the release SHA to exist in the DEV ACR, then writes that immutable contract into `release-manifest.json`.
+- `release-manifest.json` is the promotion handoff. It captures backend, ACS worker, and model image digests plus the frontend source SHA.
+- `promote-release.yml` does not rebuild application artifacts for UAT or PROD. It imports pinned images into the target ACR and reuses the packaged frontend artifact.
+- UAT is auto-promoted from a published release. PROD is promoted manually by release tag.
 
-    Candidate->>UI: Start interview from lobby
-    UI->>API: POST /api/v1/interviews/start
-    API->>DB: Validate profile confirmed + invitation/application state
-    API->>DB: Create/resume interview, mark in_progress
-    API->>DB: Emit domain event + enqueue interview_start_orchestration
-    API-->>UI: interview metadata
+## Summary
 
-    BW->>DB: Claim interview_start_orchestration
-    Note over BW: If no server-managed call metadata exists,<br/>fallback is browser-managed interview mode
-
-    UI->>API: POST /api/v1/acs/token
-    API->>ACS: Issue ACS identity token
-    ACS-->>API: ACS token
-    API-->>UI: token + identity
-
-    UI->>API: POST /api/v1/speech/token
-    API->>Speech: Request speech token
-    Speech-->>API: Speech token
-    API-->>UI: token + region
-
-    UI->>ACS: Join live call via SDK
-    UI->>Speech: Start STT / TTS
-    UI->>Avatar: Start avatar relay session
-
-    loop Interview conversation
-        Candidate->>UI: Speak response
-        UI->>Speech: Stream mic audio
-        Speech-->>UI: Transcript text
-        UI->>API: POST /api/v1/interview/chat
-        API->>OAI: chat completion request
-        OAI-->>API: AI interviewer reply
-        API-->>UI: Next prompt
-        UI->>Speech: Speak AI reply
-        UI->>API: POST /api/v1/interviews/{id}/transcripts
-        API->>DB: Save transcript segment
-    end
-
-    UI->>API: POST /api/v1/interviews/{id}/complete
-    API->>DB: Mark interview complete, application scoring
-    API->>DB: Emit interview.completed + scoring.requested
-    API->>DB: Enqueue interview_complete_orchestration + scoring_run
-
-    opt Auto-score enabled
-        BW->>DB: Claim scoring_run
-        par Culture / communication model
-            BW->>M1: POST /predict
-            M1-->>BW: score output
-        and Technical / competency model
-            BW->>M2: POST /predict/transcript
-            M2-->>BW: score output
-        end
-        BW->>DB: Persist interview score + dimensions
-    end
-
-    opt Manual review scoring
-        UI->>API: POST /api/v1/scoring/analyze
-        API->>M1: POST /predict
-        API->>M2: POST /predict/transcript
-        API-->>UI: merged score output
-        UI->>API: POST /api/v1/interviews/{id}/scores
-        API->>DB: Persist final score
-    end
-```
-
-## Implementation Notes
-
-- `call-automation` is not treated as a normal user-facing frontend surface. Candidate interview start triggers orchestration, and any server-managed call work stays behind the backend and workers.
-- The frontend now directly uses `/api/v1/resume-batches/*` for recruiter bulk upload/review and `/api/auth/claim-invite` plus `/api/v1/candidates/profile/confirm` for the prefilled candidate invite flow.
-- The current recruiter bulk upload UI queues invite preparation but does not yet include outbound email delivery infrastructure in the repo; invitation records and tokens are created and stored.
-- Because candidate accounts are keyed by resume email, invitation messaging should continue to instruct invited candidates to use the email address from their resume when claiming the account.
-- The architecture now clearly separates:
-  - synchronous control-plane APIs
-  - DB-backed async orchestration in `backend-worker`
-  - specialized ACS media/call handling in `python-acs-service`
-  - browser-direct media/speech runtime traffic to Azure
+The platform is now best understood as an Azure Container Apps control plane with PostgreSQL-backed orchestration, Blob-backed file storage, and GitHub Actions-managed promotion between isolated Azure environments. The key architectural distinction from the older diagrams is that deployment automation, environment isolation, and immutable release promotion are now first-class parts of the system design, not side notes.
