@@ -55,6 +55,16 @@ function Ensure-GhEnvironment {
     gh api --method PUT -H "Accept: application/vnd.github+json" "repos/$RepoName/environments/$EnvironmentName" | Out-Null
 }
 
+function Ensure-GhWorkflowPermissions {
+    param([string]$RepoName)
+
+    gh api --method PUT `
+        -H "Accept: application/vnd.github+json" `
+        "repos/$RepoName/actions/permissions/workflow" `
+        -f default_workflow_permissions=write `
+        -F can_approve_pull_request_reviews=true | Out-Null
+}
+
 function Ensure-GhEnvironmentSecret {
     param(
         [string]$RepoName,
@@ -225,6 +235,9 @@ $null = gh auth status 2>$null
 if ($LASTEXITCODE -ne 0) {
     throw "gh is not authenticated. Run 'gh auth login' and rerun."
 }
+
+Write-Section "Configure GitHub Actions permissions"
+Ensure-GhWorkflowPermissions -RepoName $Repo
 
 Write-Section "Resolve Azure account context"
 az account set --subscription $SubscriptionId

@@ -13,6 +13,9 @@ Talenti now uses a trunk-based release model on `main`.
   - `pr-validate` is required before merge
   - squash merge is allowed
   - direct pushes to `main` are blocked
+- Configure GitHub Actions workflow permissions so:
+  - default workflow permissions are `Read and write`
+  - `Allow GitHub Actions to create and approve pull requests` is enabled
 
 ## Workflows
 
@@ -99,12 +102,15 @@ Optional repository or environment secret:
 - `RELEASE_PLEASE_TOKEN`
 
 Use a PAT for `RELEASE_PLEASE_TOKEN` if you want downstream workflows to respond to release publication automatically. Without it, manual promotion still works.
+The repository-level GitHub Actions workflow permissions above are still required so `release.yml` can create or update the release PR with `release-please`.
 
 To create the environments and seed their OIDC secrets from the command line, use:
 
 ```powershell
 .\scripts\setup-deployment-access.ps1 -SubscriptionId <sub-id> -AlertEmailAddress <team-email>
 ```
+
+That setup script also configures the repository GitHub Actions workflow permission model needed by [`release.yml`](/c:/Users/Declan/Downloads/TalentiMatchFrontend/Talenti_MVP/.github/workflows/release.yml).
 
 The Azure federated credential subject must match the GitHub environment form used by the workflows:
 
