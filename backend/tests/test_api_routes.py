@@ -1,5 +1,6 @@
 import importlib
 import sys
+from datetime import datetime
 
 import pytest
 
@@ -22,6 +23,23 @@ def create_client() -> TestClient:
 
     importlib.reload(main)
     return TestClient(main.app)
+
+
+def _create_user_and_token(db):
+    from app.core.security import create_access_token, hash_password
+    from app.models import User
+
+    user = User(
+        email="api-routes@example.com",
+        password_hash=hash_password("password"),
+        full_name="API Routes Tester",
+        created_at=datetime.utcnow(),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    token = create_access_token(user.id)
+    return user, token
 
 
 def test_health_endpoint() -> None:
@@ -72,3 +90,23 @@ def test_protected_routes_exist() -> None:
         json={"interview_id": "int-1", "messages": [{"role": "user", "content": "Hi"}]},
     )
     assert response.status_code == 401
+
+
+def test_call_automation_disabled_returns_503(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ENABLE_ACS_CALL_AUTOMATION", "false")
+    client = create_client()
+    client.get("/health")
+
+    from app.db import SessionLocal
+
+    with SessionLocal() as db:
+        _, token = _create_user_and_token(db)
+
+    response = client.post(
+        "/api/v1/call-automation/calls",
+        json={"interview_id": "int-1", "target_identity": "8:acs:user"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 503
+    assert "disabled" in response.json().get("detail", "").lower()

@@ -2,8 +2,25 @@ targetScope = 'resourceGroup'
 
 @description('Primary location for UAT resources.')
 param location string = resourceGroup().location
-@description('Allowlisted CIDR ranges for the UAT Front Door WAF policy.')
-param frontDoorAllowedCidrs array = []
+@description('Frontend edge mode for UAT. Use storage-appgateway for the lower-cost regional path, or storage-frontdoor for the future-state global edge.')
+@allowed([
+  'storage-frontdoor'
+  'storage-appgateway'
+])
+param frontendHostingMode string = 'storage-frontdoor'
+@description('Allowlisted CIDR ranges for the UAT frontend WAF policy.')
+param frontendAllowedCidrs array = []
+@description('Application Gateway name to use when frontendHostingMode is storage-appgateway.')
+param applicationGatewayName string = 'agw-talenti-uat-aue'
+@description('Application Gateway public IP resource name to use when frontendHostingMode is storage-appgateway.')
+param applicationGatewayPublicIpName string = 'pip-talenti-uat-aue-agw'
+@description('Public frontend hostname served by the Application Gateway listener when frontendHostingMode is storage-appgateway.')
+param applicationGatewayFrontendHostName string = ''
+
+@secure()
+param applicationGatewaySslCertificateData string = ''
+@secure()
+param applicationGatewaySslCertificatePassword string = ''
 
 @secure()
 param postgresAdminPassword string
@@ -24,10 +41,16 @@ module platform '../modules/platform.bicep' = {
     postgresServerName: 'psql-talenti-uat-aue'
     backendDbName: 'talenti_backend_uat'
     staticWebAppName: 'swa-talenti-uat-aue'
-    frontendHostingMode: 'storage-frontdoor'
+    frontendHostingMode: frontendHostingMode
     frontDoorProfileName: 'fdp-talenti-uat-aue'
     frontDoorEndpointName: 'afd-talenti-uat-aue'
-    frontDoorAllowedCidrs: frontDoorAllowedCidrs
+    frontDoorAllowedCidrs: frontendAllowedCidrs
+    applicationGatewayName: applicationGatewayName
+    applicationGatewayPublicIpName: applicationGatewayPublicIpName
+    applicationGatewayFrontendHostName: applicationGatewayFrontendHostName
+    applicationGatewaySslCertificateData: applicationGatewaySslCertificateData
+    applicationGatewaySslCertificatePassword: applicationGatewaySslCertificatePassword
+    applicationGatewayAllowedCidrs: frontendAllowedCidrs
     backendAppName: 'ca-backend-uat'
     backendWorkerAppName: 'ca-backend-worker-uat'
     model1AppName: 'ca-model1-uat'

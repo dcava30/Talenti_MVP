@@ -13,12 +13,21 @@ router = APIRouter(prefix="/api/v1/scoring", tags=["scoring"])
 logger = logging.getLogger(__name__)
 
 
+def _ensure_live_scoring_enabled() -> None:
+    if not settings.enable_live_scoring:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Live scoring is disabled in this environment.",
+        )
+
+
 @router.post("/analyze", response_model=ScoringResponse)
 async def score_interview(
     payload: ScoringRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ScoringResponse:
+    _ensure_live_scoring_enabled()
     if not payload.transcript:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Transcript required")
 

@@ -16,6 +16,7 @@ permissions:
 
 jobs:
   deploy-infra:
+    if: vars.ENABLE_NON_DEV_DEPLOYS == 'true'
     runs-on: ubuntu-latest
     environment: prod
     env:
@@ -24,8 +25,13 @@ jobs:
       ACR_NAME: ${{ vars.ACR_NAME }}
       KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
       FRONTEND_STORAGE_ACCOUNT: ${{ vars.FRONTEND_STORAGE_ACCOUNT }}
+      FRONTEND_HOSTING_MODE: ${{ vars.FRONTEND_HOSTING_MODE }}
+      FRONTEND_HOST_NAME: ${{ vars.FRONTEND_HOST_NAME }}
       FRONT_DOOR_PROFILE_NAME: ${{ vars.FRONT_DOOR_PROFILE_NAME }}
       FRONT_DOOR_ENDPOINT_NAME: ${{ vars.FRONT_DOOR_ENDPOINT_NAME }}
+      APPLICATION_GATEWAY_NAME: ${{ vars.APPLICATION_GATEWAY_NAME }}
+      APPLICATION_GATEWAY_PUBLIC_IP_NAME: ${{ vars.APPLICATION_GATEWAY_PUBLIC_IP_NAME }}
+      FRONTEND_ALLOWED_CIDRS: ${{ vars.FRONTEND_ALLOWED_CIDRS }}
       BACKEND_APP: ${{ vars.BACKEND_APP }}
       BACKEND_WORKER_APP: ${{ vars.BACKEND_WORKER_APP }}
       MODEL1_APP: ${{ vars.MODEL1_APP }}
@@ -44,6 +50,11 @@ jobs:
       - name: Ensure Azure CLI extensions
         run: az extension add --name containerapp --upgrade
 
+      - name: Resolve frontend hosting mode
+        run: |
+          RESOLVED_MODE="${FRONTEND_HOSTING_MODE:-storage-frontdoor}"
+          echo "FRONTEND_HOSTING_MODE_RESOLVED=$RESOLVED_MODE" >> "$GITHUB_ENV"
+
       - name: Validate infra inputs
         run: |
           set -euo pipefail
@@ -54,8 +65,6 @@ jobs:
             ACR_NAME
             KEY_VAULT_NAME
             FRONTEND_STORAGE_ACCOUNT
-            FRONT_DOOR_PROFILE_NAME
-            FRONT_DOOR_ENDPOINT_NAME
             BACKEND_APP
             BACKEND_WORKER_APP
             MODEL1_APP
@@ -75,17 +84,82 @@ jobs:
             exit 1
           fi
 
+          case "$FRONTEND_HOSTING_MODE_RESOLVED" in
+            storage-frontdoor)
+              if [[ -z "${FRONT_DOOR_PROFILE_NAME:-}" || -z "${FRONT_DOOR_ENDPOINT_NAME:-}" ]]; then
+                echo "FRONT_DOOR_PROFILE_NAME and FRONT_DOOR_ENDPOINT_NAME are required for storage-frontdoor mode."
+                exit 1
+              fi
+              ;;
+            storage-appgateway)
+              if [[ -z "${APPLICATION_GATEWAY_NAME:-}" || -z "${APPLICATION_GATEWAY_PUBLIC_IP_NAME:-}" || -z "${FRONTEND_HOST_NAME:-}" ]]; then
+                echo "APPLICATION_GATEWAY_NAME, APPLICATION_GATEWAY_PUBLIC_IP_NAME, and FRONTEND_HOST_NAME are required for storage-appgateway mode."
+                exit 1
+              fi
+              if [[ -z "${{ secrets.APP_GATEWAY_SSL_CERTIFICATE_DATA }}" || -z "${{ secrets.APP_GATEWAY_SSL_CERTIFICATE_PASSWORD }}" ]]; then
+                echo "APP_GATEWAY_SSL_CERTIFICATE_DATA and APP_GATEWAY_SSL_CERTIFICATE_PASSWORD secrets are required for storage-appgateway mode."
+                exit 1
+              fi
+              ;;
+            *)
+              echo "Unsupported FRONTEND_HOSTING_MODE: $FRONTEND_HOSTING_MODE_RESOLVED"
+              exit 1
+              ;;
+          esac
+
       - name: Ensure resource group
         run: az group create --name "$AZURE_RESOURCE_GROUP" --location "$AZURE_LOCATION"
 
+      - name: Render frontend CIDR parameters
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          raw = os.environ.get("FRONTEND_ALLOWED_CIDRS", "") or "[]"
+          try:
+              cidrs = json.loads(raw)
+          except json.JSONDecodeError as exc:
+              raise SystemExit(f"FRONTEND_ALLOWED_CIDRS must be a JSON array string: {exc}") from exc
+
+          if not isinstance(cidrs, list) or not all(isinstance(item, str) for item in cidrs):
+              raise SystemExit("FRONTEND_ALLOWED_CIDRS must be a JSON array of CIDR strings.")
+
+          Path("infra/prod/frontend-allowed-cidrs.parameters.json").write_text(
+              json.dumps({"frontendAllowedCidrs": {"value": cidrs}}),
+              encoding="utf-8",
+          )
+          PY
+
       - name: Deploy bicep
         run: |
-          az deployment group create \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --template-file infra/prod/main.bicep \
-            --parameters @infra/prod/parameters.prod.json \
-            --parameters postgresAdminPassword="${{ secrets.POSTGRES_ADMIN_PASSWORD }}" \
+          deploy_args=(
+            --resource-group "$AZURE_RESOURCE_GROUP"
+            --template-file infra/prod/main.bicep
+            --parameters @infra/prod/parameters.prod.json
+            --parameters @infra/prod/frontend-allowed-cidrs.parameters.json
+            --parameters frontendHostingMode="$FRONTEND_HOSTING_MODE_RESOLVED"
+            --parameters postgresAdminPassword="${{ secrets.POSTGRES_ADMIN_PASSWORD }}"
             --parameters alertEmailAddress="${{ vars.ALERT_EMAIL_ADDRESS }}"
+          )
+
+          if [[ "$FRONTEND_HOSTING_MODE_RESOLVED" == "storage-frontdoor" ]]; then
+            deploy_args+=(
+              --parameters frontDoorProfileName="$FRONT_DOOR_PROFILE_NAME"
+              --parameters frontDoorEndpointName="$FRONT_DOOR_ENDPOINT_NAME"
+            )
+          else
+            deploy_args+=(
+              --parameters applicationGatewayName="$APPLICATION_GATEWAY_NAME"
+              --parameters applicationGatewayPublicIpName="$APPLICATION_GATEWAY_PUBLIC_IP_NAME"
+              --parameters applicationGatewayFrontendHostName="$FRONTEND_HOST_NAME"
+              --parameters applicationGatewaySslCertificateData="${{ secrets.APP_GATEWAY_SSL_CERTIFICATE_DATA }}"
+              --parameters applicationGatewaySslCertificatePassword="${{ secrets.APP_GATEWAY_SSL_CERTIFICATE_PASSWORD }}"
+            )
+          fi
+
+          az deployment group create "${deploy_args[@]}"
 
       - name: Enable static website hosting
         run: |

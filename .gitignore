@@ -22,6 +22,7 @@ pytest-cache-files-*/
 .venv/
 model-service-1/
 model-service-2/
+.azure-cli-temp/
 
 # Editor directories and files
 .vscode/*

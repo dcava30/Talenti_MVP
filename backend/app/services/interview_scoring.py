@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models import (
     Application,
     Interview,
@@ -163,6 +164,9 @@ def persist_interview_score(
 
 
 async def run_auto_scoring_for_interview(db: Session, interview_id: str) -> dict[str, Any]:
+    if not settings.enable_live_scoring:
+        raise InterviewScoringError("Live scoring is disabled in this environment.")
+
     interview = db.get(Interview, interview_id)
     if not interview:
         raise InterviewScoringError("Interview not found")

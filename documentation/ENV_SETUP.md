@@ -1,12 +1,12 @@
 # Environment Setup
 
-Talenti runs with a FastAPI backend, a dedicated backend worker, a PostgreSQL database, and Azure service integrations.
+Talenti currently runs as a lean cloud `dev` footprint with a FastAPI backend, PostgreSQL, Azure service integrations, and local/on-demand async services.
 
 ## Related Docs
 
 - [`ARCHITECTURE_DIAGRAM.md`](./ARCHITECTURE_DIAGRAM.md) for runtime, infrastructure, and release-flow diagrams
 - [`RELEASE_PIPELINE.md`](./RELEASE_PIPELINE.md) for the release contract and promotion rules
-- [`MONITORING.md`](./MONITORING.md) for observability and alerting
+- [`MONITORING.md`](./MONITORING.md) for observability guidance in the current minimal dev footprint
 
 ## Prerequisites
 
@@ -41,23 +41,23 @@ Copy-Item .env.example .env
 
 - `DATABASE_URL` (PostgreSQL DSN)
 - `JWT_SECRET`
-- `MODEL_SERVICE_1_URL` and `MODEL_SERVICE_2_URL`
 - Azure credentials (ACS, Speech, OpenAI, Blob Storage) for cloud-backed features
+- `MODEL_SERVICE_1_URL`, `MODEL_SERVICE_2_URL`, and `ACS_WORKER_URL` only when you plan to run the local/on-demand services
 
 ## Azure CLI Provisioning + Env Export
 
 If you want Azure to create the backing services first, use the existing Azure CLI provisioning script:
 
 ```powershell
-.\scripts\day1-dev-deploy.ps1 -SubscriptionId <sub-id>
+.\scripts\day1-dev-deploy.ps1 -SubscriptionId <sub-id> -FrontendOrigin https://witty-bush-06941cf00.4.azurestaticapps.net -ApiBaseUrl https://ca-backend-dev.delightfulground-722f8c60.australiaeast.azurecontainerapps.io
 ```
 
-That script provisions the dev Azure resources, stores the resulting secrets in Key Vault, and syncs the GitHub `dev` environment for the deployment workflows.
+That script provisions the lean dev Azure resources, stores the resulting secrets in Key Vault, and syncs the GitHub `dev` environment for the deployment workflows.
 
 If you want to create the GitHub environments plus Azure OIDC identities before the first deployment:
 
 ```powershell
-.\scripts\setup-deployment-access.ps1 -SubscriptionId <sub-id> -AlertEmailAddress <team-email>
+.\scripts\setup-deployment-access.ps1 -SubscriptionId <sub-id> -EnvironmentNames dev -DevFrontendOrigin https://witty-bush-06941cf00.4.azurestaticapps.net -DevApiBaseUrl https://ca-backend-dev.delightfulground-722f8c60.australiaeast.azurecontainerapps.io
 ```
 
 To write those Azure-backed values into a local env file after provisioning:
@@ -69,7 +69,7 @@ To write those Azure-backed values into a local env file after provisioning:
 Profiles:
 
 - `local` (default): writes Azure credentials + database URL, but keeps backend/model/worker URLs on `localhost`
-- `deployed`: writes Azure service URLs for the deployed Container Apps as well
+- `deployed`: writes Azure service URLs for the deployed Azure-hosted dev backend and frontend
 
 Example for deployed URLs:
 
@@ -77,7 +77,7 @@ Example for deployed URLs:
 .\scripts\export-azure-env.ps1 -SubscriptionId <sub-id> -Profile deployed -OutputPath .env.azure
 ```
 
-The generated env file includes backend worker toggles:
+The generated env file includes worker-related toggles:
 
 - `BACKGROUND_WORKER_POLL_INTERVAL_SECONDS`
 - `AUTO_SCORE_INTERVIEWS`
@@ -89,7 +89,7 @@ cd backend
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-4. Start the backend worker in a second terminal:
+4. Start the backend worker in a second terminal only if you need queued async processing locally:
 
 ```powershell
 cd backend
@@ -181,7 +181,7 @@ Uploads in deployed environments are stored in Azure Blob Storage. Set:
 - `AZURE_STORAGE_ACCOUNT_KEY`
 - `AZURE_STORAGE_CONTAINER`
 
-The backend worker also reads:
+When the local worker is running, it also reads:
 
 - `BACKGROUND_WORKER_POLL_INTERVAL_SECONDS`
 - `AUTO_SCORE_INTERVIEWS`
@@ -190,6 +190,15 @@ Notes:
 
 - Deployed dev/uat/prod should use `/api/storage/upload-url` as the primary candidate CV upload flow.
 - `/api/v1/candidates/cv` remains a local-development fallback when Blob credentials are unavailable.
+
+## Current Cloud Dev State
+
+- `dev` is the only active Azure environment.
+- Current public frontend URL: `https://witty-bush-06941cf00.4.azurestaticapps.net`
+- Current public backend URL: `https://ca-backend-dev.delightfulground-722f8c60.australiaeast.azurecontainerapps.io`
+- Cloudflare and custom hostnames are not configured in the live dev environment right now.
+- The cloud footprint currently excludes `backend-worker`, `model-service-1`, `model-service-2`, and `python-acs-service`.
+- Queue-backed processing, live scoring, and ACS call automation require local/on-demand services when you need those flows.
 
 ## Auth Configuration
 

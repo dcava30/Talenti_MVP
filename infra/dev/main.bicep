@@ -8,7 +8,8 @@ param staticWebAppLocation string = 'eastasia'
 @secure()
 param postgresAdminPassword string
 param postgresAdminUser string = 'talentiadmin'
-param alertEmailAddress string
+param alertEmailAddress string = ''
+param backendAllowedCidrs array = []
 
 module platform '../modules/platform.bicep' = {
   name: 'talenti-dev-platform'
@@ -31,6 +32,14 @@ module platform '../modules/platform.bicep' = {
     model1AppName: 'ca-model1-dev'
     model2AppName: 'ca-model2-dev'
     acsWorkerAppName: 'ca-acs-worker-dev'
+    deployBackendWorker: false
+    deployModelServices: false
+    deployAcsWorker: false
+    enableAlerts: false
+    enableSyntheticTests: false
+    backendMinReplicas: 0
+    backendMaxReplicas: 1
+    backendAllowedCidrs: backendAllowedCidrs
     postgresAdminPassword: postgresAdminPassword
     postgresAdminUser: postgresAdminUser
     alertEmailAddress: alertEmailAddress

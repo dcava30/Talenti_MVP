@@ -206,3 +206,41 @@ def test_scoring_normalizes_model_score_ranges(monkeypatch: pytest.MonkeyPatch) 
     data = response.json()
     dimensions = {dim["name"]: dim["score"] for dim in data["dimensions"]}
     assert dimensions["autonomy"] == 81
+
+
+def test_scoring_disabled_returns_503(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ENABLE_LIVE_SCORING", "false")
+    client = create_client()
+    client.get("/health")
+    from app.db import SessionLocal
+
+    with SessionLocal() as db:
+        _, token = _create_user_and_token(db)
+
+    response = client.post(
+        "/api/v1/scoring/analyze",
+        json={
+            "interview_id": "int-1",
+            "transcript": [{"speaker": "candidate", "content": "Test response."}],
+            "operating_environment": {
+                "control_vs_autonomy": "full_ownership",
+                "outcome_vs_process": "results_first",
+                "conflict_style": "healthy_debate",
+                "decision_reality": "speed_led",
+                "ambiguity_load": "ambiguous",
+                "high_performance_archetype": "strong_owner",
+                "dimension_weights": {"autonomy": 1.0},
+                "fatal_risks": [],
+                "coachable_risks": [],
+            },
+            "taxonomy": {
+                "taxonomy_id": "test_taxonomy",
+                "version": "1.0.0",
+                "signals": [],
+            },
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 503
+    assert "disabled" in response.json().get("detail", "").lower()

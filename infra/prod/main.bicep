@@ -2,6 +2,25 @@ targetScope = 'resourceGroup'
 
 @description('Primary location for production resources.')
 param location string = resourceGroup().location
+@description('Frontend edge mode for production. Use storage-appgateway for the lower-cost regional path, or storage-frontdoor for the future-state global edge.')
+@allowed([
+  'storage-frontdoor'
+  'storage-appgateway'
+])
+param frontendHostingMode string = 'storage-frontdoor'
+@description('Allowlisted CIDR ranges for the production frontend WAF policy.')
+param frontendAllowedCidrs array = []
+@description('Application Gateway name to use when frontendHostingMode is storage-appgateway.')
+param applicationGatewayName string = 'agw-talenti-prod-aue'
+@description('Application Gateway public IP resource name to use when frontendHostingMode is storage-appgateway.')
+param applicationGatewayPublicIpName string = 'pip-talenti-prod-aue-agw'
+@description('Public frontend hostname served by the Application Gateway listener when frontendHostingMode is storage-appgateway.')
+param applicationGatewayFrontendHostName string = ''
+
+@secure()
+param applicationGatewaySslCertificateData string = ''
+@secure()
+param applicationGatewaySslCertificatePassword string = ''
 
 @secure()
 param postgresAdminPassword string
@@ -22,9 +41,16 @@ module platform '../modules/platform.bicep' = {
     postgresServerName: 'psql-talenti-prod-aue'
     backendDbName: 'talenti_backend_prod'
     staticWebAppName: 'swa-talenti-prod-aue'
-    frontendHostingMode: 'storage-frontdoor'
+    frontendHostingMode: frontendHostingMode
     frontDoorProfileName: 'fdp-talenti-prod-aue'
     frontDoorEndpointName: 'afd-talenti-prod-aue'
+    frontDoorAllowedCidrs: frontendAllowedCidrs
+    applicationGatewayName: applicationGatewayName
+    applicationGatewayPublicIpName: applicationGatewayPublicIpName
+    applicationGatewayFrontendHostName: applicationGatewayFrontendHostName
+    applicationGatewaySslCertificateData: applicationGatewaySslCertificateData
+    applicationGatewaySslCertificatePassword: applicationGatewaySslCertificatePassword
+    applicationGatewayAllowedCidrs: frontendAllowedCidrs
     backendAppName: 'ca-backend-prod'
     backendWorkerAppName: 'ca-backend-worker-prod'
     model1AppName: 'ca-model1-prod'

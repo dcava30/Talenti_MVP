@@ -11,7 +11,8 @@ Talenti is a FastAPI + PostgreSQL backend with a React (Vite) frontend and Azure
 ## Target architecture
 
 - FastAPI backend with PostgreSQL.
-- Dedicated backend worker for DB-backed jobs and domain events.
+- Lean Azure `dev` footprint: Static Web Apps + one backend Container App + PostgreSQL + Storage + Key Vault + ACR.
+- Queue-backed worker and other async services stay local/on-demand in the current phase.
 - React frontend (JavaScript/JSX).
 - Azure Cognitive Services integrations.
 
@@ -130,11 +131,18 @@ This project is built with:
 
 ## How can I deploy this project?
 
-Deploy the FastAPI service, backend worker, and Vite frontend using your preferred infrastructure (container platform, VM, or PaaS).
-Ensure both backend runtimes have access to the PostgreSQL DSN and required Azure credentials.
+Current deployment posture is intentionally `dev`-only.
+`uat` and `prod` remain future-state templates in the repo, but their workflows are gated off by default so they do not create Azure cost until explicitly enabled.
+
+Deploy the FastAPI backend and Vite frontend using the repo automation in a lean `dev`-only posture.
+The currently active cloud footprint is Azure Static Web Apps plus one backend Container App, PostgreSQL, Blob Storage, Key Vault, ACR, Log Analytics, and Application Insights.
+Current demo URLs use the Azure-generated hostnames:
+- Frontend: `https://witty-bush-06941cf00.4.azurestaticapps.net`
+- Backend: `https://ca-backend-dev.delightfulground-722f8c60.australiaeast.azurecontainerapps.io`
+Queue-backed async processing is run locally/on demand with [`start-dev-worker-local.ps1`](/c:/Users/Declan/Downloads/TalentiMatchFrontend/Talenti_MVP/scripts/start-dev-worker-local.ps1) instead of an always-on cloud worker.
 In deployed dev/staging/prod, candidate CV uploads should use Blob-first upload via `/api/storage/upload-url`; the direct `/api/v1/candidates/cv` route is only a local fallback.
 
-For the GitHub Actions release flow, start with [CODEX_CAPABILITY_SETUP.md](documentation/CODEX_CAPABILITY_SETUP.md), [RELEASE_PIPELINE.md](documentation/RELEASE_PIPELINE.md), [DEPLOYMENT_DEV_V2.md](documentation/DEPLOYMENT_DEV_V2.md), and [MONITORING.md](documentation/MONITORING.md). DEV keeps Azure Static Web Apps with a separate hosting region, while UAT/PROD use Azure Storage static website hosting in `australiaeast` behind Azure Front Door Standard.
+For the GitHub Actions release flow, start with [CODEX_CAPABILITY_SETUP.md](documentation/CODEX_CAPABILITY_SETUP.md), [RELEASE_PIPELINE.md](documentation/RELEASE_PIPELINE.md), [DEPLOYMENT_DEV_V2.md](documentation/DEPLOYMENT_DEV_V2.md), and [MONITORING.md](documentation/MONITORING.md). DEV currently runs on raw Azure hostnames without Cloudflare or custom domains. UAT/PROD storage-edge templates remain in the repo for a later Front Door or Application Gateway rollout, but they are gated off and should remain inactive until explicitly approved.
 
 
 

@@ -18,6 +18,7 @@ jobs:
       ACR_NAME: ${{ vars.ACR_NAME }}
       MODEL1_IMAGE: ${{ vars.MODEL1_IMAGE_REF }}
       MODEL2_IMAGE: ${{ vars.MODEL2_IMAGE_REF }}
+      ENABLE_NON_DEV_DEPLOYS: ${{ vars.ENABLE_NON_DEV_DEPLOYS }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
@@ -27,27 +28,27 @@ jobs:
           manifest-file: .release-please-manifest.json
 
       - name: Checkout release commit
-        if: steps.release.outputs.release_created == 'true'
+        if: steps.release.outputs.release_created == 'true' && env.ENABLE_NON_DEV_DEPLOYS == 'true'
         uses: actions/checkout@v5
         with:
           ref: ${{ steps.release.outputs.tag_name }}
 
       - name: Setup Node.js
-        if: steps.release.outputs.release_created == 'true'
+        if: steps.release.outputs.release_created == 'true' && env.ENABLE_NON_DEV_DEPLOYS == 'true'
         uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: npm
 
       - name: Build frontend release artifact
-        if: steps.release.outputs.release_created == 'true'
+        if: steps.release.outputs.release_created == 'true' && env.ENABLE_NON_DEV_DEPLOYS == 'true'
         run: |
           npm ci
           npm run build
           tar -czf frontend-dist.tgz -C dist .
 
       - name: Azure login (OIDC)
-        if: steps.release.outputs.release_created == 'true'
+        if: steps.release.outputs.release_created == 'true' && env.ENABLE_NON_DEV_DEPLOYS == 'true'
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -55,7 +56,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Wait for release images in ACR
-        if: steps.release.outputs.release_created == 'true'
+        if: steps.release.outputs.release_created == 'true' && env.ENABLE_NON_DEV_DEPLOYS == 'true'
         run: |
           set -euo pipefail
           RELEASE_SHA=$(git rev-list -n 1 "${{ steps.release.outputs.tag_name }}")
@@ -87,7 +88,7 @@ jobs:
           exit 1
 
       - name: Create release manifest
-        if: steps.release.outputs.release_created == 'true'
+        if: steps.release.outputs.release_created == 'true' && env.ENABLE_NON_DEV_DEPLOYS == 'true'
         run: |
           RELEASE_VERSION="${{ steps.release.outputs.tag_name }}"
           RELEASE_VERSION="${RELEASE_VERSION#v}"
@@ -102,7 +103,7 @@ jobs:
             --output release-manifest.json
 
       - name: Upload release assets
-        if: steps.release.outputs.release_created == 'true'
+        if: steps.release.outputs.release_created == 'true' && env.ENABLE_NON_DEV_DEPLOYS == 'true'
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN != '' && secrets.RELEASE_PLEASE_TOKEN || github.token }}
         run: |

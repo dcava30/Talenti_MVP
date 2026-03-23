@@ -29,14 +29,10 @@ jobs:
       AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
       ACR_NAME: ${{ vars.ACR_NAME }}
       BACKEND_APP: ${{ vars.BACKEND_APP }}
-      BACKEND_WORKER_APP: ${{ vars.BACKEND_WORKER_APP }}
-      MODEL1_APP: ${{ vars.MODEL1_APP }}
-      MODEL2_APP: ${{ vars.MODEL2_APP }}
-      ACS_WORKER_APP: ${{ vars.ACS_WORKER_APP }}
       STATIC_WEB_APP_NAME: ${{ vars.STATIC_WEB_APP_NAME }}
       KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
-      MODEL1_IMAGE: ${{ vars.MODEL1_IMAGE_REF }}
-      MODEL2_IMAGE: ${{ vars.MODEL2_IMAGE_REF }}
+      DEV_FRONTEND_ORIGIN: ${{ vars.DEV_FRONTEND_ORIGIN }}
+      DEV_API_BASE_URL: ${{ vars.DEV_API_BASE_URL }}
     steps:
       - name: Resolve source sha
         id: source
@@ -82,14 +78,10 @@ jobs:
             AZURE_RESOURCE_GROUP
             ACR_NAME
             BACKEND_APP
-            BACKEND_WORKER_APP
-            MODEL1_APP
-            MODEL2_APP
-            ACS_WORKER_APP
             STATIC_WEB_APP_NAME
             KEY_VAULT_NAME
-            MODEL1_IMAGE
-            MODEL2_IMAGE
+            DEV_FRONTEND_ORIGIN
+            DEV_API_BASE_URL
           )
 
           for name in "${required_vars[@]}"; do
@@ -103,34 +95,10 @@ jobs:
           az acr show --name "$ACR_NAME" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
           az keyvault show --name "$KEY_VAULT_NAME" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
           az containerapp show --name "$BACKEND_APP" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
-          az containerapp show --name "$BACKEND_WORKER_APP" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
-          az containerapp show --name "$MODEL1_APP" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
-          az containerapp show --name "$MODEL2_APP" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
-          az containerapp show --name "$ACS_WORKER_APP" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
           az staticwebapp show --name "$STATIC_WEB_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
 
       - name: ACR login
         run: az acr login --name "$ACR_NAME"
-
-      - name: Validate pinned model image digests
-        run: |
-          set -euo pipefail
-
-          model1_pattern="^${ACR_NAME}\\.azurecr\\.io/talenti/model-service-1@sha256:[a-f0-9]{64}$"
-          model2_pattern="^${ACR_NAME}\\.azurecr\\.io/talenti/model-service-2@sha256:[a-f0-9]{64}$"
-
-          if ! [[ "$MODEL1_IMAGE" =~ $model1_pattern ]]; then
-            echo "MODEL1_IMAGE is invalid: $MODEL1_IMAGE"
-            exit 1
-          fi
-
-          if ! [[ "$MODEL2_IMAGE" =~ $model2_pattern ]]; then
-            echo "MODEL2_IMAGE is invalid: $MODEL2_IMAGE"
-            exit 1
-          fi
-
-          docker manifest inspect "$MODEL1_IMAGE" > /dev/null
-          docker manifest inspect "$MODEL2_IMAGE" > /dev/null
 
       - name: Build and push backend image
         run: |
@@ -138,13 +106,6 @@ jobs:
           docker build -t "$BACKEND_IMAGE" backend
           docker push "$BACKEND_IMAGE"
           echo "BACKEND_IMAGE=$BACKEND_IMAGE" >> $GITHUB_ENV
-
-      - name: Build and push acs-worker image
-        run: |
-          ACS_IMAGE="$ACR_NAME.azurecr.io/talenti/acs-worker:${{ steps.source.outputs.sha }}"
-          docker build -t "$ACS_IMAGE" python-acs-service
-          docker push "$ACS_IMAGE"
-          echo "ACS_IMAGE=$ACS_IMAGE" >> $GITHUB_ENV
 
       - name: Run backend migrations (single job)
         run: |
@@ -154,18 +115,41 @@ jobs:
           export JWT_SECRET="${{ secrets.JWT_SECRET }}"
           python backend/scripts/run_migrations.py
 
-      - name: Deploy internal services
-        run: |
-          az containerapp update --name "$BACKEND_WORKER_APP" --resource-group "$AZURE_RESOURCE_GROUP" --image "$BACKEND_IMAGE"
-          az containerapp update --name "$MODEL1_APP" --resource-group "$AZURE_RESOURCE_GROUP" --image "$MODEL1_IMAGE"
-          az containerapp update --name "$MODEL2_APP" --resource-group "$AZURE_RESOURCE_GROUP" --image "$MODEL2_IMAGE"
-          az containerapp update --name "$ACS_WORKER_APP" --resource-group "$AZURE_RESOURCE_GROUP" --image "$ACS_IMAGE"
-
       - name: Deploy backend
         run: az containerapp update --name "$BACKEND_APP" --resource-group "$AZURE_RESOURCE_GROUP" --image "$BACKEND_IMAGE"
 
+      - name: Configure backend runtime
+        run: |
+          set -euo pipefail
+          ALLOWED_ORIGINS_JSON=$(printf '["%s"]' "$DEV_FRONTEND_ORIGIN")
+          az containerapp update \
+            --name "$BACKEND_APP" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --set-env-vars \
+              DATABASE_URL=secretref:database-url \
+              JWT_SECRET=secretref:jwt-secret \
+              ENVIRONMENT=development \
+              ALLOWED_ORIGINS="$ALLOWED_ORIGINS_JSON" \
+              MODEL_SERVICE_1_URL= \
+              MODEL_SERVICE_2_URL= \
+              ACS_WORKER_URL= \
+              ACS_WORKER_SHARED_SECRET=secretref:acs-worker-shared-secret \
+              PUBLIC_BASE_URL="$DEV_API_BASE_URL" \
+              AZURE_ACS_CONNECTION_STRING=secretref:azure-acs-connection-string \
+              AZURE_SPEECH_KEY=secretref:azure-speech-key \
+              AZURE_OPENAI_ENDPOINT=secretref:azure-openai-endpoint \
+              AZURE_OPENAI_API_KEY=secretref:azure-openai-api-key \
+              AZURE_STORAGE_ACCOUNT=secretref:azure-storage-account \
+              AZURE_STORAGE_ACCOUNT_KEY=secretref:azure-storage-account-key \
+              AZURE_STORAGE_CONTAINER=uploads \
+              BACKGROUND_WORKER_POLL_INTERVAL_SECONDS=2.0 \
+              AUTO_SCORE_INTERVIEWS=false \
+              ENABLE_LIVE_SCORING=false \
+              ENABLE_ACS_CALL_AUTOMATION=false
+
       - name: Build frontend artifact
         run: |
+          export VITE_API_BASE_URL="$DEV_API_BASE_URL"
           npm ci
           npm run build
 
@@ -190,22 +174,19 @@ jobs:
 
       - name: Resolve smoke test URLs
         run: |
-          BACKEND_FQDN=$(az containerapp show \
-            --name "$BACKEND_APP" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --query properties.configuration.ingress.fqdn \
-            -o tsv)
-          FRONTEND_HOST=$(az staticwebapp show \
-            --name "$STATIC_WEB_APP_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --query defaultHostname \
-            -o tsv)
-
-          echo "BACKEND_HEALTH_URL=https://${BACKEND_FQDN}/health" >> "$GITHUB_ENV"
-          echo "FRONTEND_URL=https://${FRONTEND_HOST}" >> "$GITHUB_ENV"
+          echo "BACKEND_HEALTH_URL=${DEV_API_BASE_URL%/}/health" >> "$GITHUB_ENV"
+          echo "FRONTEND_URL=${DEV_FRONTEND_ORIGIN%/}" >> "$GITHUB_ENV"
 
       - name: Smoke check backend health
-        run: curl -fsS "$BACKEND_HEALTH_URL"
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6 7 8; do
+            if curl -fsS "$BACKEND_HEALTH_URL" > /dev/null; then
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          curl -fsS "$BACKEND_HEALTH_URL"
 
       - name: Smoke check frontend availability
         run: curl -fsS "$FRONTEND_URL" > /dev/null

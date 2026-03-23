@@ -1,14 +1,19 @@
-Talenti Azure Setup Guide (DEV, UAT, PROD)
-==========================================
+Talenti Azure Setup Guide (Current Dev-Only Posture + Future UAT/PROD)
+=====================================================================
 
 Purpose
 -------
-This checklist is for deploying the Talenti stack to Azure across three environments:
-- DEV
-- UAT
-- PROD
+Current live posture:
+- DEV is the only active Azure environment.
+- UAT and PROD remain future-state templates in the repo and should stay undeployed until explicitly approved.
 
-Use one environment-specific deployment for each stage, then promote the same immutable release artifacts from DEV -> UAT -> PROD.
+Current live dev URLs:
+- Frontend: https://witty-bush-06941cf00.4.azurestaticapps.net
+- Backend: https://ca-backend-dev.delightfulground-722f8c60.australiaeast.azurecontainerapps.io
+
+Use this checklist as:
+- current-state guidance for the lean DEV footprint
+- future-state guidance for UAT/PROD when non-dev deployment is approved
 
 
 1) Environment Strategy
@@ -21,16 +26,17 @@ Recommended:
 - Optionally separate subscription for PROD.
 - Keep naming consistent across all environments.
 
+Current operating note:
+- Only `rg-talenti-dev-aue` should exist in active use right now if the goal is zero non-dev Azure spend.
 
-2) Azure Resources To Create (Per Environment)
-----------------------------------------------
-Core hosting and runtime:
+
+2) Azure Resources To Create
+----------------------------
+Current lean DEV footprint:
+- Azure Static Web Apps
 - Azure Container Apps Environment
 - Azure Container Apps:
   - backend
-  - model-service-1
-  - model-service-2
-  - python-acs-service (optional, only if using ACS call automation/recording paths)
 - Azure Container Registry (shared or per environment)
 
 Data and secrets:
@@ -47,20 +53,24 @@ AI and communication dependencies:
 Observability:
 - Log Analytics Workspace
 - Application Insights
-- Azure Monitor Action Group
-- Synthetic availability tests
+- Azure Monitor Action Group (future-state, currently not active in live dev)
+- Synthetic availability tests (future-state, currently not active in live dev)
 
 Frontend hosting:
 - DEV: Azure Static Web Apps in a supported region such as `eastasia`
 - UAT and PROD: Azure Storage static website hosting in `australiaeast`
-- UAT and PROD edge: Azure Front Door Standard
-- UAT restriction: Front Door custom WAF IP allowlist rule
+- UAT and PROD current low-cost edge: Azure Application Gateway WAF v2
+- UAT and PROD future-state edge: Azure Front Door Standard
+- UAT restriction: WAF IP allowlist rule at the selected edge
 
 
 3) Container App Deployment Topology
 ------------------------------------
-Deploy these services as separate container apps:
+Current live dev deploys:
 - backend (FastAPI)
+
+Local/on-demand services that are not currently deployed in Azure:
+- backend-worker
 - model-service-1
 - model-service-2
 - optional python-acs-service
@@ -68,6 +78,8 @@ Deploy these services as separate container apps:
 Configure backend app settings to point to model service URLs:
 - MODEL_SERVICE_1_URL=https://<model-service-1-url>
 - MODEL_SERVICE_2_URL=https://<model-service-2-url>
+
+Current lean dev values leave model and ACS worker URLs blank unless those local services are being used.
 
 Health endpoints to use in probes:
 - backend: /health
@@ -94,6 +106,8 @@ Set these for backend (from .env.example and backend config):
 - AZURE_STORAGE_ACCOUNT
 - AZURE_STORAGE_ACCOUNT_KEY
 - AZURE_STORAGE_CONTAINER
+- ENABLE_LIVE_SCORING=false in the lean cloud baseline
+- ENABLE_ACS_CALL_AUTOMATION=false in the lean cloud baseline
 
 Set these for frontend build/runtime:
 - VITE_API_BASE_URL
@@ -141,13 +155,15 @@ Example:
 
 Recommended split:
 - DEV keeps Azure Static Web Apps for speed of iteration.
-- UAT/PROD use Azure Storage static website hosting plus Azure Front Door Standard.
-- Use Azure-managed Front Door hostnames first; add custom domains later.
-- Because UAT is IP-restricted at Front Door, run UAT promotion/frontend smoke checks from a self-hosted runner on the allowlisted office/VPN network.
+- UAT/PROD keep Azure Storage static website hosting and choose the edge tier by cost and maturity:
+  - Azure Application Gateway WAF v2 for the current lower-cost regional setup.
+  - Azure Front Door Standard when global routing, edge caching, or the broader future-state footprint is justified.
+- Application Gateway does not provide the same turnkey managed HTTPS hostname that Front Door does, so plan on a custom frontend domain plus TLS certificate before cutting over to that mode.
+- Because UAT can be IP-restricted at the edge WAF, run UAT promotion/frontend smoke checks from a self-hosted runner on the allowlisted office/VPN network.
 
 
 7) CI/CD Promotion Flow
------------------------
+----------------------
 Recommended flow:
 1. Open PRs against `main` and use Conventional Commit PR titles.
 2. Merge with squash after `pr-validate` passes.
@@ -156,8 +172,8 @@ Recommended flow:
 5. Merge the release PR to create a GitHub Release and upload:
    - `release-manifest.json`
    - `frontend-dist.tgz`
-6. Published release promotes automatically to UAT.
-7. After UAT signoff, manually run `promote-release.yml` for PROD.
+6. Keep UAT and PROD parked while `ENABLE_NON_DEV_DEPLOYS=false`.
+7. After non-dev is approved, use `promote-release.yml` for UAT and later PROD.
 8. Promote the same release manifest digests between environments. Do not rebuild per stage.
 
 Security recommendation:
@@ -171,9 +187,9 @@ Security recommendation:
 8) Validation Checklist Per Environment
 ---------------------------------------
 After deployment:
-1. Confirm all container apps are healthy.
+1. Confirm the expected container apps are healthy for that environment.
 2. Check backend /health endpoint.
-3. Verify backend can call model-service-1 and model-service-2.
+3. In current lean dev, verify model-service and ACS calls are intentionally disabled unless the local services are running.
 4. Verify auth works (register/login/token refresh).
 5. Verify Blob upload URL generation works.
 6. Verify Speech token issuance works.
@@ -181,7 +197,7 @@ After deployment:
 8. Verify Azure OpenAI scoring path works.
 9. Confirm frontend can call backend APIs end-to-end.
 10. Confirm logs/metrics arrive in Log Analytics/App Insights.
-11. Confirm Azure Monitor alert rules and Action Group delivery are configured.
+11. If alerting is enabled for that environment, confirm Azure Monitor alert rules and Action Group delivery are configured.
 
 
 9) Environment Matrix Template
@@ -189,10 +205,10 @@ After deployment:
 Copy this section and fill values for each stage.
 
 [DEV]
-- Frontend URL:
-- Backend URL:
-- Model Service 1 URL:
-- Model Service 2 URL:
+- Frontend URL: https://witty-bush-06941cf00.4.azurestaticapps.net
+- Backend URL: https://ca-backend-dev.delightfulground-722f8c60.australiaeast.azurecontainerapps.io
+- Model Service 1 URL: local/on-demand only
+- Model Service 2 URL: local/on-demand only
 - ACS Resource:
 - Speech Resource:
 - OpenAI Resource + Deployment:

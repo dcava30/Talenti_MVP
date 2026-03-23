@@ -78,6 +78,6 @@ http://<backend-host>:8000
 - The backend uses PostgreSQL; configure `DATABASE_URL` in `.env`.
 - Uploads are stored in Azure Blob Storage in deployed environments (see `.env.example`).
 - Candidate CV upload in deployed environments is: request `/api/storage/upload-url` -> upload directly to Blob -> save `cv_file_id` on the candidate profile.
-- Interview start/complete lifecycle endpoints trigger DB-backed background jobs processed by `backend-worker`.
+- Interview start/complete lifecycle endpoints trigger DB-backed background jobs. Those jobs are processed when `backend-worker` is running; in the current lean cloud setup that worker is started locally on demand.
 
 

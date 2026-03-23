@@ -5,7 +5,7 @@ param(
     [string]$TenantId = "",
     [string]$Repo = "dcava30/Talenti_MVP",
     [ValidateSet("dev", "uat", "prod")]
-    [string[]]$EnvironmentNames = @("dev", "uat", "prod"),
+    [string[]]$EnvironmentNames = @("dev"),
     [string]$Location = "australiaeast",
     [string]$AlertEmailAddress = "",
     [string]$PostgresAdminPassword = "",
@@ -13,7 +13,12 @@ param(
     [string]$JwtSecret = "",
     [string]$Model1ImageRef = "",
     [string]$Model2ImageRef = "",
-    [string]$FrontEndAllowedCidrs = ""
+    [string]$FrontEndAllowedCidrs = "",
+    [string]$DevFrontendOrigin = "",
+    [string]$DevApiBaseUrl = "",
+    [string]$BackendAllowedCidrs = "",
+    [ValidateSet("true", "false")]
+    [string]$EnableNonDevDeploys = "false"
 )
 
 Set-StrictMode -Version Latest
@@ -120,6 +125,34 @@ function Normalize-CidrJson {
     return ($parsed | ConvertTo-Json -Compress)
 }
 
+function Get-DefaultCloudflareCidrsJson {
+    $cidrs = @(
+        "173.245.48.0/20",
+        "103.21.244.0/22",
+        "103.22.200.0/22",
+        "103.31.4.0/22",
+        "141.101.64.0/18",
+        "108.162.192.0/18",
+        "190.93.240.0/20",
+        "188.114.96.0/20",
+        "197.234.240.0/22",
+        "198.41.128.0/17",
+        "162.158.0.0/15",
+        "104.16.0.0/13",
+        "104.24.0.0/14",
+        "172.64.0.0/13",
+        "131.0.72.0/22",
+        "2400:cb00::/32",
+        "2606:4700::/32",
+        "2803:f800::/32",
+        "2405:b500::/32",
+        "2405:8100::/32",
+        "2a06:98c0::/29",
+        "2c0f:f248::/32"
+    )
+    return ($cidrs | ConvertTo-Json -Compress)
+}
+
 function Get-EnvironmentSettings {
     param(
         [ValidateSet("dev", "uat", "prod")]
@@ -135,6 +168,7 @@ function Get-EnvironmentSettings {
                 AcrName = "acrtalentidev"
                 KeyVaultName = "kv-talenti-dev-aue"
                 FrontendStorageAccount = "sttalentidevaue"
+                FrontendHostingMode = "staticwebapp"
                 StaticWebAppName = "swa-talenti-dev-aue"
                 BackendApp = "ca-backend-dev"
                 BackendWorkerApp = "ca-backend-worker-dev"
@@ -152,8 +186,11 @@ function Get-EnvironmentSettings {
                 KeyVaultName = "kv-talenti-uat-aue"
                 FrontendStorageAccount = "sttalentiuataue"
                 StaticWebAppName = "swa-talenti-uat-aue"
+                FrontendHostingMode = "storage-frontdoor"
                 FrontDoorProfileName = "fdp-talenti-uat-aue"
                 FrontDoorEndpointName = "afd-talenti-uat-aue"
+                ApplicationGatewayName = "agw-talenti-uat-aue"
+                ApplicationGatewayPublicIpName = "pip-talenti-uat-aue-agw"
                 BackendApp = "ca-backend-uat"
                 BackendWorkerApp = "ca-backend-worker-uat"
                 Model1App = "ca-model1-uat"
@@ -170,8 +207,11 @@ function Get-EnvironmentSettings {
                 KeyVaultName = "kv-talenti-prod-aue"
                 FrontendStorageAccount = "sttalentiprodaue"
                 StaticWebAppName = "swa-talenti-prod-aue"
+                FrontendHostingMode = "storage-frontdoor"
                 FrontDoorProfileName = "fdp-talenti-prod-aue"
                 FrontDoorEndpointName = "afd-talenti-prod-aue"
+                ApplicationGatewayName = "agw-talenti-prod-aue"
+                ApplicationGatewayPublicIpName = "pip-talenti-prod-aue-agw"
                 BackendApp = "ca-backend-prod"
                 BackendWorkerApp = "ca-backend-worker-prod"
                 Model1App = "ca-model1-prod"
@@ -250,6 +290,12 @@ if ($FrontEndAllowedCidrs) {
     $normalizedFrontEndAllowedCidrs = Normalize-CidrJson -Value $FrontEndAllowedCidrs
 }
 
+$normalizedBackendAllowedCidrs = if ($BackendAllowedCidrs) {
+    Normalize-CidrJson -Value $BackendAllowedCidrs
+} else {
+    Get-DefaultCloudflareCidrsJson
+}
+
 $pendingByEnvironment = @{}
 
 foreach ($environmentName in $EnvironmentNames) {
@@ -272,34 +318,37 @@ foreach ($environmentName in $EnvironmentNames) {
     Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "MODEL1_APP" -Value $settings.Model1App
     Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "MODEL2_APP" -Value $settings.Model2App
     Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "ACS_WORKER_APP" -Value $settings.AcsWorkerApp
+    Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "FRONTEND_HOSTING_MODE" -Value $settings.FrontendHostingMode
+    Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "ENABLE_NON_DEV_DEPLOYS" -Value $EnableNonDevDeploys
 
     if ($environmentName -eq "dev") {
         Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "STATIC_WEB_APP_NAME" -Value $settings.StaticWebAppName
+        Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "BACKEND_ALLOWED_CIDRS" -Value $normalizedBackendAllowedCidrs
+        if ($DevFrontendOrigin) {
+            Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "DEV_FRONTEND_ORIGIN" -Value $DevFrontendOrigin
+        } else {
+            $pending.Add("variable DEV_FRONTEND_ORIGIN")
+        }
+        if ($DevApiBaseUrl) {
+            Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "DEV_API_BASE_URL" -Value $DevApiBaseUrl
+        } else {
+            $pending.Add("variable DEV_API_BASE_URL")
+        }
     } else {
         Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "FRONTEND_STORAGE_ACCOUNT" -Value $settings.FrontendStorageAccount
         Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "FRONT_DOOR_PROFILE_NAME" -Value $settings.FrontDoorProfileName
         Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "FRONT_DOOR_ENDPOINT_NAME" -Value $settings.FrontDoorEndpointName
+        Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "APPLICATION_GATEWAY_NAME" -Value $settings.ApplicationGatewayName
+        Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "APPLICATION_GATEWAY_PUBLIC_IP_NAME" -Value $settings.ApplicationGatewayPublicIpName
     }
 
     if ($AlertEmailAddress) {
         Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "ALERT_EMAIL_ADDRESS" -Value $AlertEmailAddress
-    } else {
+    } elseif ($environmentName -ne "dev") {
         $pending.Add("variable ALERT_EMAIL_ADDRESS")
     }
 
-    if ($environmentName -eq "dev") {
-        if ($Model1ImageRef) {
-            Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "MODEL1_IMAGE_REF" -Value $Model1ImageRef
-        } else {
-            $pending.Add("variable MODEL1_IMAGE_REF")
-        }
-
-        if ($Model2ImageRef) {
-            Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "MODEL2_IMAGE_REF" -Value $Model2ImageRef
-        } else {
-            $pending.Add("variable MODEL2_IMAGE_REF")
-        }
-    } elseif ($environmentName -eq "uat") {
+    if ($environmentName -eq "uat") {
         if ($normalizedFrontEndAllowedCidrs) {
             Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "FRONTEND_ALLOWED_CIDRS" -Value $normalizedFrontEndAllowedCidrs
         } else {

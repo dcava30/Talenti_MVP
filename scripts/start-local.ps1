@@ -188,6 +188,8 @@ Set-Or-AppendEnvKey -EnvPath $envPath -Key "ACS_WORKER_SHARED_SECRET" -Value $ac
 Set-Or-AppendEnvKey -EnvPath $envPath -Key "PUBLIC_BASE_URL" -Value "http://localhost:$BackendPort"
 Set-Or-AppendEnvKey -EnvPath $envPath -Key "BACKGROUND_WORKER_POLL_INTERVAL_SECONDS" -Value "2.0"
 Set-Or-AppendEnvKey -EnvPath $envPath -Key "AUTO_SCORE_INTERVIEWS" -Value "false"
+Set-Or-AppendEnvKey -EnvPath $envPath -Key "ENABLE_LIVE_SCORING" -Value "true"
+Set-Or-AppendEnvKey -EnvPath $envPath -Key "ENABLE_ACS_CALL_AUTOMATION" -Value "true"
 
 $env:DATABASE_URL = $databaseUrl
 $env:ACS_WORKER_SHARED_SECRET = $acsWorkerSecret
@@ -195,6 +197,8 @@ $env:BACKEND_INTERNAL_URL = "http://localhost:$BackendPort"
 $env:ACS_CALLBACK_URL = "http://localhost:$BackendPort/api/v1/acs/webhook"
 $env:BACKGROUND_WORKER_POLL_INTERVAL_SECONDS = "2.0"
 $env:AUTO_SCORE_INTERVIEWS = "false"
+$env:ENABLE_LIVE_SCORING = "true"
+$env:ENABLE_ACS_CALL_AUTOMATION = "true"
 
 $backendPath = Join-Path $repoRootResolved "backend"
 $acsWorkerPath = Join-Path $repoRootResolved "python-acs-service"

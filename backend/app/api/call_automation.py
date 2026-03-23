@@ -24,6 +24,14 @@ from app.core.config import settings
 router = APIRouter(prefix="/api/v1/call-automation", tags=["call-automation"])
 
 
+def _ensure_call_automation_enabled() -> None:
+    if not settings.enable_acs_call_automation:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Call automation is disabled in this environment.",
+        )
+
+
 def _callback_url() -> str:
     if not settings.public_base_url:
         raise HTTPException(
@@ -39,6 +47,7 @@ async def create_interview_call(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> CreateCallResponse:
+    _ensure_call_automation_enabled()
     interview = db.get(Interview, payload.interview_id)
     if not interview:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
@@ -70,6 +79,7 @@ async def hangup_interview_call(
     call_connection_id: str,
     user: User = Depends(get_current_user),
 ) -> dict:
+    _ensure_call_automation_enabled()
     try:
         await hangup_call(call_connection_id)
     except AcsWorkerError as exc:
@@ -83,6 +93,7 @@ async def start_interview_recording(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> StartRecordingResponse:
+    _ensure_call_automation_enabled()
     interview = db.get(Interview, payload.interview_id)
     if not interview:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
@@ -120,6 +131,7 @@ async def stop_interview_recording(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> StopRecordingResponse:
+    _ensure_call_automation_enabled()
     interview = db.query(Interview).filter(Interview.recording_id == recording_id).first()
     if not interview:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found for recording")

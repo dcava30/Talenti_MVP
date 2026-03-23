@@ -35,6 +35,8 @@ param(
     [string]$StaticWebAppLocation = "eastasia",
 
     [string]$FrontendOrigin = "",
+    [string]$ApiBaseUrl = "",
+    [string]$BackendAllowedCidrs = "",
     [string]$JwtSecret = "",
     [string]$AcsWorkerSharedSecret = "",
     [string]$AlertEmailAddress = "",
@@ -139,10 +141,6 @@ if (-not $PostgresAdminPassword) {
 }
 $PostgresPasswordPlain = Convert-SecureToPlain -Value $PostgresAdminPassword
 
-if (-not $AlertEmailAddress) {
-    throw "AlertEmailAddress is required because infra/dev/main.bicep provisions Azure Monitor alerting resources."
-}
-
 Write-Section "Login and prerequisites"
 az config set extension.use_dynamic_install=yes_without_prompt extension.dynamic_install_allow_preview=true | Out-Null
 try {
@@ -175,7 +173,7 @@ if (-not $SkipInfraDeployment) {
         --resource-group $ResourceGroup `
         --template-file $infraTemplate `
         --parameters "@$parametersPath" `
-        --parameters "postgresAdminUser=$PostgresAdminUser" "postgresAdminPassword=$PostgresPasswordPlain" "alertEmailAddress=$AlertEmailAddress" "staticWebAppLocation=$StaticWebAppLocation" | Out-Null
+        --parameters "postgresAdminUser=$PostgresAdminUser" "postgresAdminPassword=$PostgresPasswordPlain" "staticWebAppLocation=$StaticWebAppLocation" | Out-Null
 } else {
     Write-Section "Deploy infra (Bicep)"
     Write-Host "Skipping infra deployment and continuing with existing resources in $ResourceGroup."
@@ -255,8 +253,8 @@ az keyvault secret set --vault-name $KeyVaultName --name "azure-storage-connecti
 Write-Section "Assign AcrPull and Key Vault roles to container apps"
 $acrId = az acr show --name $AcrName --resource-group $ResourceGroup --query id -o tsv
 $kvId = az keyvault show --name $KeyVaultName --resource-group $ResourceGroup --query id -o tsv
-foreach ($app in @($BackendApp, $BackendWorkerApp, $Model1App, $Model2App, $AcsWorkerApp)) {
-    $principal = az containerapp show --name $app --resource-group $ResourceGroup --query identity.principalId -o tsv
+foreach ($app in @($BackendApp)) {
+    $principal = az containerapp show --name $app --resource-group $ResourceGroup --query identity.principalId -o tsv 2>$null
     if ($principal) {
         Ensure-AzRoleAssignment -PrincipalId $principal -Role "AcrPull" -Scope $acrId
         Ensure-AzRoleAssignment -PrincipalId $principal -Role "Key Vault Secrets User" -Scope $kvId
@@ -265,9 +263,6 @@ foreach ($app in @($BackendApp, $BackendWorkerApp, $Model1App, $Model2App, $AcsW
 
 Write-Section "Configure ingress modes"
 az containerapp ingress enable --name $BackendApp --resource-group $ResourceGroup --type external --target-port 8000 | Out-Null
-az containerapp ingress enable --name $Model1App --resource-group $ResourceGroup --type internal --target-port 8001 | Out-Null
-az containerapp ingress enable --name $Model2App --resource-group $ResourceGroup --type internal --target-port 8002 | Out-Null
-az containerapp ingress enable --name $AcsWorkerApp --resource-group $ResourceGroup --type internal --target-port 8000 | Out-Null
 
 Write-Section "Create Static Web App if missing"
 $null = az staticwebapp show --name $StaticWebApp --resource-group $ResourceGroup 2>$null
@@ -275,17 +270,21 @@ if ($LASTEXITCODE -ne 0) {
     az staticwebapp create --name $StaticWebApp --resource-group $ResourceGroup --location $StaticWebAppLocation --sku Standard | Out-Null
 }
 
+if ($FrontendOrigin) {
+    Write-Section "Configure Static Web App custom hostname"
+    $frontendUri = [Uri]$FrontendOrigin
+    $frontendHost = $frontendUri.Host
+    $null = az staticwebapp hostname show --name $StaticWebApp --resource-group $ResourceGroup --hostname $frontendHost 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        az staticwebapp hostname set --name $StaticWebApp --resource-group $ResourceGroup --hostname $frontendHost | Out-Null
+    }
+}
+
 Write-Section "Resolve service URLs"
 $backendFqdn = az containerapp show --name $BackendApp --resource-group $ResourceGroup --query properties.configuration.ingress.fqdn -o tsv
-$model1Fqdn = az containerapp show --name $Model1App --resource-group $ResourceGroup --query properties.configuration.ingress.fqdn -o tsv
-$model2Fqdn = az containerapp show --name $Model2App --resource-group $ResourceGroup --query properties.configuration.ingress.fqdn -o tsv
-$workerFqdn = az containerapp show --name $AcsWorkerApp --resource-group $ResourceGroup --query properties.configuration.ingress.fqdn -o tsv
 $staticWebAppHostname = az staticwebapp show --name $StaticWebApp --resource-group $ResourceGroup --query defaultHostname -o tsv
 
-$publicBaseUrl = "https://$backendFqdn"
-$model1Url = "https://$model1Fqdn"
-$model2Url = "https://$model2Fqdn"
-$workerUrl = "https://$workerFqdn"
+$publicBaseUrl = if ($ApiBaseUrl) { $ApiBaseUrl } else { "https://$backendFqdn" }
 
 if (-not $FrontendOrigin) {
     if (-not $staticWebAppHostname) {
@@ -307,27 +306,15 @@ az containerapp secret set --name $BackendApp --resource-group $ResourceGroup --
     azure-storage-account="keyvaultref:https://$KeyVaultName.vault.azure.net/secrets/azure-storage-account,identityref:system" `
     azure-storage-account-key="keyvaultref:https://$KeyVaultName.vault.azure.net/secrets/azure-storage-account-key,identityref:system" | Out-Null
 
-az containerapp secret set --name $BackendWorkerApp --resource-group $ResourceGroup --secrets `
-    database-url="keyvaultref:https://$KeyVaultName.vault.azure.net/secrets/backend-database-url,identityref:system" `
-    jwt-secret="keyvaultref:https://$KeyVaultName.vault.azure.net/secrets/jwt-secret,identityref:system" `
-    acs-worker-shared-secret="keyvaultref:https://$KeyVaultName.vault.azure.net/secrets/acs-worker-shared-secret,identityref:system" `
-    azure-storage-account="keyvaultref:https://$KeyVaultName.vault.azure.net/secrets/azure-storage-account,identityref:system" `
-    azure-storage-account-key="keyvaultref:https://$KeyVaultName.vault.azure.net/secrets/azure-storage-account-key,identityref:system" | Out-Null
-
-az containerapp secret set --name $AcsWorkerApp --resource-group $ResourceGroup --secrets `
-    acs-connection-string="keyvaultref:https://$KeyVaultName.vault.azure.net/secrets/azure-acs-connection-string,identityref:system" `
-    az-storage-connection="keyvaultref:https://$KeyVaultName.vault.azure.net/secrets/azure-storage-connection,identityref:system" `
-    acs-worker-shared-secret="keyvaultref:https://$KeyVaultName.vault.azure.net/secrets/acs-worker-shared-secret,identityref:system" | Out-Null
-
 Write-Section "Set Container App environment variables"
 az containerapp update --name $BackendApp --resource-group $ResourceGroup --set-env-vars `
     DATABASE_URL=secretref:database-url `
     JWT_SECRET=secretref:jwt-secret `
     ENVIRONMENT=development `
     ALLOWED_ORIGINS=$allowedOriginsJson `
-    MODEL_SERVICE_1_URL=$model1Url `
-    MODEL_SERVICE_2_URL=$model2Url `
-    ACS_WORKER_URL=$workerUrl `
+    "MODEL_SERVICE_1_URL=" `
+    "MODEL_SERVICE_2_URL=" `
+    "ACS_WORKER_URL=" `
     ACS_WORKER_SHARED_SECRET=secretref:acs-worker-shared-secret `
     PUBLIC_BASE_URL=$publicBaseUrl `
     AZURE_ACS_CONNECTION_STRING=secretref:azure-acs-connection-string `
@@ -338,31 +325,11 @@ az containerapp update --name $BackendApp --resource-group $ResourceGroup --set-
     AZURE_OPENAI_DEPLOYMENT=$OpenAIDeployment `
     AZURE_STORAGE_ACCOUNT=secretref:azure-storage-account `
     AZURE_STORAGE_ACCOUNT_KEY=secretref:azure-storage-account-key `
-    AZURE_STORAGE_CONTAINER=uploads | Out-Null
-
-az containerapp update --name $BackendWorkerApp --resource-group $ResourceGroup --set-env-vars `
-    DATABASE_URL=secretref:database-url `
-    JWT_SECRET=secretref:jwt-secret `
-    ENVIRONMENT=development `
-    MODEL_SERVICE_1_URL=$model1Url `
-    MODEL_SERVICE_2_URL=$model2Url `
-    ACS_WORKER_URL=$workerUrl `
-    ACS_WORKER_SHARED_SECRET=secretref:acs-worker-shared-secret `
-    PUBLIC_BASE_URL=$publicBaseUrl `
-    AZURE_STORAGE_ACCOUNT=secretref:azure-storage-account `
-    AZURE_STORAGE_ACCOUNT_KEY=secretref:azure-storage-account-key `
     AZURE_STORAGE_CONTAINER=uploads `
     BACKGROUND_WORKER_POLL_INTERVAL_SECONDS=2.0 `
-    AUTO_SCORE_INTERVIEWS=false | Out-Null
-
-az containerapp update --name $AcsWorkerApp --resource-group $ResourceGroup --set-env-vars `
-    ACS_CONNECTION_STRING=secretref:acs-connection-string `
-    AZURE_STORAGE_CONNECTION_STRING=secretref:az-storage-connection `
-    RECORDING_CONTAINER=recordings `
-    BACKEND_INTERNAL_URL=$publicBaseUrl `
-    ACS_WORKER_SHARED_SECRET=secretref:acs-worker-shared-secret `
-    ACS_CALLBACK_URL="$publicBaseUrl/api/v1/acs/webhook" `
-    ENVIRONMENT=development | Out-Null
+    AUTO_SCORE_INTERVIEWS=false `
+    ENABLE_LIVE_SCORING=false `
+    ENABLE_ACS_CALL_AUTOMATION=false | Out-Null
 
 Write-Section "Configure GitHub deployment environment"
 & $setupAccessScript `
@@ -371,12 +338,12 @@ Write-Section "Configure GitHub deployment environment"
     -Repo $Repo `
     -EnvironmentNames @($GitHubEnvironment) `
     -Location $Location `
-    -AlertEmailAddress $AlertEmailAddress `
     -PostgresAdminPassword $PostgresPasswordPlain `
     -BackendDatabaseUrl $databaseUrl `
     -JwtSecret $JwtSecret `
-    -Model1ImageRef $Model1ImageRef `
-    -Model2ImageRef $Model2ImageRef
+    -DevFrontendOrigin $FrontendOrigin `
+    -DevApiBaseUrl $publicBaseUrl `
+    -BackendAllowedCidrs $BackendAllowedCidrs
 
 if ($RunWorkflows) {
     Write-Section "Trigger GitHub workflows"
@@ -386,14 +353,10 @@ if ($RunWorkflows) {
 
 Write-Section "Done"
 Write-Host "Backend URL: $publicBaseUrl"
-Write-Host "Backend worker app: $BackendWorkerApp"
-Write-Host "Model1 URL (internal): $model1Url"
-Write-Host "Model2 URL (internal): $model2Url"
-Write-Host "ACS Worker URL (internal): $workerUrl"
 Write-Host "Frontend origin configured: $FrontendOrigin"
 Write-Host ""
 Write-Host "Next:"
-Write-Host "1) Set MODEL1_IMAGE_REF and MODEL2_IMAGE_REF in GitHub environment 'dev' if you did not pass them today."
-Write-Host "2) Ensure ALERT_EMAIL_ADDRESS is set in GitHub environment 'dev' if you did not pass it today."
-Write-Host "3) Run deploy-dev workflow if not triggered."
-Write-Host "4) Verify $publicBaseUrl/health returns 200."
+Write-Host "1) Ensure Cloudflare DNS and Access are configured for $FrontendOrigin and $publicBaseUrl."
+Write-Host "2) Run deploy-dev workflow if not triggered."
+Write-Host "3) Verify $publicBaseUrl/health returns 200 through Cloudflare."
+Write-Host "4) Use scripts\\start-dev-worker-local.ps1 when you need queue-backed async processing."

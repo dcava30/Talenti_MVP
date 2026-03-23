@@ -23,10 +23,9 @@ jobs:
       ACR_NAME: ${{ vars.ACR_NAME }}
       KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
       BACKEND_APP: ${{ vars.BACKEND_APP }}
-      BACKEND_WORKER_APP: ${{ vars.BACKEND_WORKER_APP }}
-      MODEL1_APP: ${{ vars.MODEL1_APP }}
-      MODEL2_APP: ${{ vars.MODEL2_APP }}
-      ACS_WORKER_APP: ${{ vars.ACS_WORKER_APP }}
+      STATIC_WEB_APP_NAME: ${{ vars.STATIC_WEB_APP_NAME }}
+      DEV_FRONTEND_ORIGIN: ${{ vars.DEV_FRONTEND_ORIGIN }}
+      BACKEND_ALLOWED_CIDRS: ${{ vars.BACKEND_ALLOWED_CIDRS }}
     environment: dev
     steps:
       - uses: actions/checkout@v5
@@ -39,7 +38,9 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Ensure Azure CLI extensions
-        run: az extension add --name containerapp --upgrade
+        run: |
+          az extension add --name containerapp --upgrade
+          az extension add --name staticwebapp --upgrade
 
       - name: Validate infra inputs
         run: |
@@ -51,10 +52,9 @@ jobs:
             ACR_NAME
             KEY_VAULT_NAME
             BACKEND_APP
-            BACKEND_WORKER_APP
-            MODEL1_APP
-            MODEL2_APP
-            ACS_WORKER_APP
+            STATIC_WEB_APP_NAME
+            DEV_FRONTEND_ORIGIN
+            BACKEND_ALLOWED_CIDRS
           )
 
           for name in "${required_vars[@]}"; do
@@ -64,13 +64,30 @@ jobs:
             fi
           done
 
-          if [[ -z "${{ vars.ALERT_EMAIL_ADDRESS }}" ]]; then
-            echo "Missing required environment variable: ALERT_EMAIL_ADDRESS"
-            exit 1
-          fi
-
       - name: Ensure resource group
         run: az group create --name "$AZURE_RESOURCE_GROUP" --location "$AZURE_LOCATION"
+
+      - name: Render backend CIDR parameters
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          raw = os.environ["BACKEND_ALLOWED_CIDRS"]
+          try:
+              cidrs = json.loads(raw)
+          except json.JSONDecodeError as exc:
+              raise SystemExit(f"BACKEND_ALLOWED_CIDRS must be a JSON array string: {exc}") from exc
+
+          if not isinstance(cidrs, list) or not all(isinstance(item, str) for item in cidrs):
+              raise SystemExit("BACKEND_ALLOWED_CIDRS must be a JSON array of CIDR strings.")
+
+          Path("infra/dev/backend-allowed-cidrs.parameters.json").write_text(
+              json.dumps({"backendAllowedCidrs": {"value": cidrs}}),
+              encoding="utf-8",
+          )
+          PY
 
       - name: Deploy bicep
         run: |
@@ -78,17 +95,32 @@ jobs:
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --template-file infra/dev/main.bicep \
             --parameters @infra/dev/parameters.dev.json \
-            --parameters postgresAdminPassword="${{ secrets.POSTGRES_ADMIN_PASSWORD }}" \
-            --parameters alertEmailAddress="${{ vars.ALERT_EMAIL_ADDRESS }}"
+            --parameters @infra/dev/backend-allowed-cidrs.parameters.json \
+            --parameters postgresAdminPassword="${{ secrets.POSTGRES_ADMIN_PASSWORD }}"
+
+      - name: Configure Static Web App custom hostname
+        run: |
+          set -euo pipefail
+
+          FRONTEND_HOST=$(printf '%s' "$DEV_FRONTEND_ORIGIN" | sed -E 's#^https?://([^/]+).*$#\1#')
+          if [[ -z "$FRONTEND_HOST" || "$FRONTEND_HOST" == "$DEV_FRONTEND_ORIGIN" ]]; then
+            echo "DEV_FRONTEND_ORIGIN must be an absolute URL, got: $DEV_FRONTEND_ORIGIN"
+            exit 1
+          fi
+
+          if ! az staticwebapp hostname show --name "$STATIC_WEB_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --hostname "$FRONTEND_HOST" > /dev/null 2>&1; then
+            az staticwebapp hostname set \
+              --name "$STATIC_WEB_APP_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --hostname "$FRONTEND_HOST"
+          fi
 
       - name: Assign AcrPull and Key Vault Secrets User roles
         run: |
           ACR_ID=$(az acr show --name "$ACR_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
           KV_ID=$(az keyvault show --name "$KEY_VAULT_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
-          for APP in "$BACKEND_APP" "$BACKEND_WORKER_APP" "$MODEL1_APP" "$MODEL2_APP" "$ACS_WORKER_APP"; do
-            PRINCIPAL_ID=$(az containerapp show --name "$APP" --resource-group "$AZURE_RESOURCE_GROUP" --query identity.principalId -o tsv)
-            if [ -n "$PRINCIPAL_ID" ]; then
-              az role assignment create --assignee-object-id "$PRINCIPAL_ID" --assignee-principal-type ServicePrincipal --role AcrPull --scope "$ACR_ID" || true
-              az role assignment create --assignee-object-id "$PRINCIPAL_ID" --assignee-principal-type ServicePrincipal --role "Key Vault Secrets User" --scope "$KV_ID" || true
-            fi
-          done
+          PRINCIPAL_ID=$(az containerapp show --name "$BACKEND_APP" --resource-group "$AZURE_RESOURCE_GROUP" --query identity.principalId -o tsv)
+          if [ -n "$PRINCIPAL_ID" ]; then
+            az role assignment create --assignee-object-id "$PRINCIPAL_ID" --assignee-principal-type ServicePrincipal --role AcrPull --scope "$ACR_ID" || true
+            az role assignment create --assignee-object-id "$PRINCIPAL_ID" --assignee-principal-type ServicePrincipal --role "Key Vault Secrets User" --scope "$KV_ID" || true
+          fi

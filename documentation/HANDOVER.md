@@ -6,7 +6,7 @@ This handover describes the current Talenti platform architecture: **React front
 
 - **Frontend:** React (Vite) + Tailwind CSS
 - **Backend:** FastAPI (Python) + PostgreSQL
-- **Backend worker:** Shared backend runtime for DB-backed jobs/events
+- **Backend worker:** Local/on-demand runtime for DB-backed jobs/events in the current cost-controlled setup
 - **Auth:** JWT issued and validated by FastAPI
 - **Storage:** Azure Blob Storage
 - **AI + Comms:** Azure OpenAI, Azure Communication Services, Azure Speech
@@ -62,17 +62,22 @@ npm run dev
 
 ## 6. Deployment Notes
 
-- Ensure the PostgreSQL instance is reachable from the server.
-- Configure all Azure environment variables for both backend runtimes.
+- Current live cloud deployment is `dev` only.
+- The public demo currently uses the raw Azure URLs:
+  - Frontend: `https://witty-bush-06941cf00.4.azurestaticapps.net`
+  - Backend: `https://ca-backend-dev.delightfulground-722f8c60.australiaeast.azurecontainerapps.io`
+- Ensure the PostgreSQL instance is reachable from the backend.
+- Configure Azure environment variables for the backend.
 - Use a secure JWT secret in production.
-- Deploy `backend-worker` alongside the backend API or `background_jobs` will stall.
+- `background_jobs` remain pending unless a developer starts the local worker with [`start-dev-worker-local.ps1`](/c:/Users/Declan/Downloads/TalentiMatchFrontend/Talenti_MVP/scripts/start-dev-worker-local.ps1).
+- Live scoring and ACS call automation are disabled in the lean cloud baseline.
 
 ## 7. Operational Runbook (Quick)
 
 - **Health check:** `GET /health`
 - **Auth issues:** verify JWT settings and user table migrations.
 - **Storage issues:** verify Azure Blob credentials and container name.
-- **Stuck orchestration jobs:** verify `backend-worker` is deployed and can reach PostgreSQL.
+- **Stuck orchestration jobs:** start the local `backend-worker` and verify it can reach PostgreSQL.
 - **AI issues:** verify Azure OpenAI credentials and deployment name.
 - **Speech issues:** verify Azure Speech key/region.
 

@@ -15,12 +15,21 @@ param staticWebAppName string
 @allowed([
   'staticwebapp'
   'storage-frontdoor'
+  'storage-appgateway'
 ])
 param frontendHostingMode string = 'staticwebapp'
 param staticWebAppLocation string = location
 param frontDoorProfileName string = ''
 param frontDoorEndpointName string = ''
 param frontDoorAllowedCidrs array = []
+param applicationGatewayName string = ''
+param applicationGatewayPublicIpName string = ''
+param applicationGatewayFrontendHostName string = ''
+@secure()
+param applicationGatewaySslCertificateData string = ''
+@secure()
+param applicationGatewaySslCertificatePassword string = ''
+param applicationGatewayAllowedCidrs array = []
 
 param backendAppName string
 param backendWorkerAppName string
@@ -37,7 +46,15 @@ param acsWorkerImage string = 'mcr.microsoft.com/azuredocs/containerapps-hellowo
 @secure()
 param postgresAdminPassword string
 param postgresAdminUser string = 'talentiadmin'
-param alertEmailAddress string
+param alertEmailAddress string = ''
+param deployBackendWorker bool = true
+param deployModelServices bool = true
+param deployAcsWorker bool = true
+param enableAlerts bool = true
+param enableSyntheticTests bool = true
+param backendMinReplicas int = 1
+param backendMaxReplicas int = 2
+param backendAllowedCidrs array = []
 
 var monitoringTag = {
   environment: environmentName
@@ -47,8 +64,16 @@ var monitoringTag = {
 
 var frontendUsesStaticWebApp = frontendHostingMode == 'staticwebapp'
 var frontendUsesFrontDoor = frontendHostingMode == 'storage-frontdoor'
+var frontendUsesAppGateway = frontendHostingMode == 'storage-appgateway'
 var resolvedFrontDoorProfileName = empty(frontDoorProfileName) ? 'fdp-talenti-${environmentName}' : frontDoorProfileName
 var resolvedFrontDoorEndpointName = empty(frontDoorEndpointName) ? 'afd-talenti-${environmentName}' : frontDoorEndpointName
+var resolvedApplicationGatewayName = empty(applicationGatewayName) ? 'agw-talenti-${environmentName}' : applicationGatewayName
+var resolvedApplicationGatewayPublicIpName = empty(applicationGatewayPublicIpName) ? 'pip-talenti-${environmentName}-agw' : applicationGatewayPublicIpName
+var applicationGatewayVnetName = 'vnet-talenti-${environmentName}-edge'
+var applicationGatewaySubnetName = 'snet-appgateway'
+var applicationGatewayWafPolicyName = 'waf-agw-talenti-${environmentName}'
+var applicationGatewayProbeName = 'probe-frontend-${environmentName}'
+var applicationGatewayRedirectName = 'redirect-https-${environmentName}'
 var frontDoorWafPolicyName = 'waf-talenti-${environmentName}'
 var frontDoorSecurityPolicyName = 'security-talenti-${environmentName}'
 var backendAvailabilityTestName = 'wt-talenti-backend-${environmentName}'
@@ -57,33 +82,52 @@ var backendAvailabilityTestId = guid(resourceGroup().id, backendAvailabilityTest
 var frontendAvailabilityTestId = guid(resourceGroup().id, frontendAvailabilityTestName)
 var backendHealthUrl = 'https://${backendApp.properties.configuration.ingress.fqdn}/health'
 var storageStaticWebsiteHost = replace(replace(storage.properties.primaryEndpoints.web, 'https://', ''), '/', '')
+var frontendPublicUrl = frontendUsesStaticWebApp
+  ? 'https://${staticWebApp!.properties.defaultHostname}'
+  : frontendUsesFrontDoor
+      ? 'https://${frontDoorEndpoint!.properties.hostName}'
+      : 'https://${applicationGatewayFrontendHostName}'
+var backendIpSecurityRestrictions = [for (cidr, idx) in backendAllowedCidrs: {
+  name: 'allow-${idx + 1}'
+  description: 'Allow proxied ingress CIDR ${cidr}'
+  ipAddressRange: cidr
+  action: 'Allow'
+}]
 var syntheticLocations = [
   {
     Id: 'us-tx-sn1-azr'
   }
 ]
-var monitoredApps = [
-  {
-    name: backendAppName
-    resourceId: backendApp.id
-  }
-  {
-    name: backendWorkerAppName
-    resourceId: backendWorkerApp.id
-  }
-  {
-    name: model1AppName
-    resourceId: model1App.id
-  }
-  {
-    name: model2AppName
-    resourceId: model2App.id
-  }
-  {
-    name: acsWorkerAppName
-    resourceId: acsWorkerApp.id
-  }
-]
+var monitoredApps = concat(
+  [
+    {
+      name: backendAppName
+      resourceId: backendApp.id
+    }
+  ],
+  deployBackendWorker ? [
+    {
+      name: backendWorkerAppName
+      resourceId: backendWorkerApp.id
+    }
+  ] : [],
+  deployModelServices ? [
+    {
+      name: model1AppName
+      resourceId: model1App.id
+    }
+    {
+      name: model2AppName
+      resourceId: model2App.id
+    }
+  ] : [],
+  deployAcsWorker ? [
+    {
+      name: acsWorkerAppName
+      resourceId: acsWorkerApp.id
+    }
+  ] : []
+)
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
   name: logAnalyticsName
@@ -108,7 +152,7 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   }
 }
 
-resource actionGroup 'Microsoft.Insights/actionGroups@2023-01-01' = {
+resource actionGroup 'Microsoft.Insights/actionGroups@2023-01-01' = if (enableAlerts) {
   name: 'ag-talenti-${environmentName}'
   location: 'global'
   tags: monitoringTag
@@ -244,6 +288,7 @@ resource backendApp 'Microsoft.App/containerApps@2023-05-01' = {
         external: true
         targetPort: 8000
         transport: 'auto'
+        ipSecurityRestrictions: backendIpSecurityRestrictions
       }
       registries: [
         {
@@ -288,14 +333,14 @@ resource backendApp 'Microsoft.App/containerApps@2023-05-01' = {
         }
       ]
       scale: {
-        minReplicas: 1
-        maxReplicas: 2
+        minReplicas: backendMinReplicas
+        maxReplicas: backendMaxReplicas
       }
     }
   }
 }
 
-resource backendWorkerApp 'Microsoft.App/containerApps@2023-05-01' = {
+resource backendWorkerApp 'Microsoft.App/containerApps@2023-05-01' = if (deployBackendWorker) {
   name: backendWorkerAppName
   location: location
   tags: monitoringTag
@@ -336,7 +381,7 @@ resource backendWorkerApp 'Microsoft.App/containerApps@2023-05-01' = {
   }
 }
 
-resource model1App 'Microsoft.App/containerApps@2023-05-01' = {
+resource model1App 'Microsoft.App/containerApps@2023-05-01' = if (deployModelServices) {
   name: model1AppName
   location: location
   tags: monitoringTag
@@ -400,7 +445,7 @@ resource model1App 'Microsoft.App/containerApps@2023-05-01' = {
   }
 }
 
-resource model2App 'Microsoft.App/containerApps@2023-05-01' = {
+resource model2App 'Microsoft.App/containerApps@2023-05-01' = if (deployModelServices) {
   name: model2AppName
   location: location
   tags: monitoringTag
@@ -464,7 +509,7 @@ resource model2App 'Microsoft.App/containerApps@2023-05-01' = {
   }
 }
 
-resource acsWorkerApp 'Microsoft.App/containerApps@2023-05-01' = {
+resource acsWorkerApp 'Microsoft.App/containerApps@2023-05-01' = if (deployAcsWorker) {
   name: acsWorkerAppName
   location: location
   tags: monitoringTag
@@ -668,6 +713,263 @@ resource frontDoorSecurityPolicy 'Microsoft.Cdn/profiles/securityPolicies@2024-0
   }
 }
 
+resource applicationGatewayVnet 'Microsoft.Network/virtualNetworks@2023-09-01' = if (frontendUsesAppGateway) {
+  name: applicationGatewayVnetName
+  location: location
+  tags: monitoringTag
+  properties: {
+    addressSpace: {
+      addressPrefixes: [
+        '10.42.0.0/24'
+      ]
+    }
+  }
+}
+
+resource applicationGatewaySubnet 'Microsoft.Network/virtualNetworks/subnets@2023-09-01' = if (frontendUsesAppGateway) {
+  parent: applicationGatewayVnet
+  name: applicationGatewaySubnetName
+  properties: {
+    addressPrefix: '10.42.0.0/27'
+  }
+}
+
+resource applicationGatewayPublicIp 'Microsoft.Network/publicIPAddresses@2023-09-01' = if (frontendUsesAppGateway) {
+  name: resolvedApplicationGatewayPublicIpName
+  location: location
+  tags: monitoringTag
+  sku: {
+    name: 'Standard'
+  }
+  properties: {
+    publicIPAllocationMethod: 'Static'
+  }
+}
+
+resource applicationGatewayWafPolicy 'Microsoft.Network/ApplicationGatewayWebApplicationFirewallPolicies@2023-09-01' = if (frontendUsesAppGateway) {
+  name: applicationGatewayWafPolicyName
+  location: location
+  tags: monitoringTag
+  properties: {
+    customRules: length(applicationGatewayAllowedCidrs) > 0 ? [
+      {
+        name: 'AllowApprovedCidrsOnly'
+        priority: 1
+        ruleType: 'MatchRule'
+        action: 'Block'
+        state: 'Enabled'
+        matchConditions: [
+          {
+            matchVariables: [
+              {
+                variableName: 'RemoteAddr'
+              }
+            ]
+            operator: 'IPMatch'
+            negationConditon: true
+            matchValues: applicationGatewayAllowedCidrs
+          }
+        ]
+      }
+    ] : []
+    managedRules: {
+      managedRuleSets: [
+        {
+          ruleSetType: 'OWASP'
+          ruleSetVersion: '3.2'
+        }
+      ]
+    }
+    policySettings: {
+      state: 'Enabled'
+      mode: 'Prevention'
+      requestBodyCheck: true
+      maxRequestBodySizeInKb: 128
+      fileUploadLimitInMb: 100
+    }
+  }
+}
+
+resource applicationGateway 'Microsoft.Network/applicationGateways@2023-09-01' = if (frontendUsesAppGateway) {
+  name: resolvedApplicationGatewayName
+  location: location
+  tags: monitoringTag
+  properties: {
+    sku: {
+      name: 'WAF_v2'
+      tier: 'WAF_v2'
+      capacity: 1
+    }
+    gatewayIPConfigurations: [
+      {
+        name: 'gateway-ip-config'
+        properties: {
+          subnet: {
+            id: applicationGatewaySubnet.id
+          }
+        }
+      }
+    ]
+    frontendIPConfigurations: [
+      {
+        name: 'frontend-ip'
+        properties: {
+          publicIPAddress: {
+            id: applicationGatewayPublicIp.id
+          }
+        }
+      }
+    ]
+    frontendPorts: [
+      {
+        name: 'port-80'
+        properties: {
+          port: 80
+        }
+      }
+      {
+        name: 'port-443'
+        properties: {
+          port: 443
+        }
+      }
+    ]
+    sslCertificates: [
+      {
+        name: 'frontend-cert'
+        properties: {
+          data: applicationGatewaySslCertificateData
+          password: applicationGatewaySslCertificatePassword
+        }
+      }
+    ]
+    backendAddressPools: [
+      {
+        name: 'frontend-storage-pool'
+        properties: {
+          backendAddresses: [
+            {
+              fqdn: storageStaticWebsiteHost
+            }
+          ]
+        }
+      }
+    ]
+    probes: [
+      {
+        name: applicationGatewayProbeName
+        properties: {
+          protocol: 'Https'
+          path: '/'
+          interval: 120
+          timeout: 30
+          unhealthyThreshold: 3
+          pickHostNameFromBackendHttpSettings: true
+          match: {
+            statusCodes: [
+              '200-399'
+            ]
+          }
+        }
+      }
+    ]
+    backendHttpSettingsCollection: [
+      {
+        name: 'frontend-storage-https'
+        properties: {
+          port: 443
+          protocol: 'Https'
+          cookieBasedAffinity: 'Disabled'
+          requestTimeout: 120
+          pickHostNameFromBackendAddress: true
+          probe: {
+            id: resourceId('Microsoft.Network/applicationGateways/probes', resolvedApplicationGatewayName, applicationGatewayProbeName)
+          }
+        }
+      }
+    ]
+    httpListeners: [
+      {
+        name: 'listener-http'
+        properties: {
+          frontendIPConfiguration: {
+            id: resourceId('Microsoft.Network/applicationGateways/frontendIPConfigurations', resolvedApplicationGatewayName, 'frontend-ip')
+          }
+          frontendPort: {
+            id: resourceId('Microsoft.Network/applicationGateways/frontendPorts', resolvedApplicationGatewayName, 'port-80')
+          }
+          protocol: 'Http'
+          hostName: applicationGatewayFrontendHostName
+        }
+      }
+      {
+        name: 'listener-https'
+        properties: {
+          frontendIPConfiguration: {
+            id: resourceId('Microsoft.Network/applicationGateways/frontendIPConfigurations', resolvedApplicationGatewayName, 'frontend-ip')
+          }
+          frontendPort: {
+            id: resourceId('Microsoft.Network/applicationGateways/frontendPorts', resolvedApplicationGatewayName, 'port-443')
+          }
+          protocol: 'Https'
+          hostName: applicationGatewayFrontendHostName
+          sslCertificate: {
+            id: resourceId('Microsoft.Network/applicationGateways/sslCertificates', resolvedApplicationGatewayName, 'frontend-cert')
+          }
+        }
+      }
+    ]
+    redirectConfigurations: [
+      {
+        name: applicationGatewayRedirectName
+        properties: {
+          redirectType: 'Permanent'
+          targetListener: {
+            id: resourceId('Microsoft.Network/applicationGateways/httpListeners', resolvedApplicationGatewayName, 'listener-https')
+          }
+          includePath: true
+          includeQueryString: true
+        }
+      }
+    ]
+    requestRoutingRules: [
+      {
+        name: 'rule-http-redirect'
+        properties: {
+          ruleType: 'Basic'
+          priority: 100
+          httpListener: {
+            id: resourceId('Microsoft.Network/applicationGateways/httpListeners', resolvedApplicationGatewayName, 'listener-http')
+          }
+          redirectConfiguration: {
+            id: resourceId('Microsoft.Network/applicationGateways/redirectConfigurations', resolvedApplicationGatewayName, applicationGatewayRedirectName)
+          }
+        }
+      }
+      {
+        name: 'rule-frontend-https'
+        properties: {
+          ruleType: 'Basic'
+          priority: 200
+          httpListener: {
+            id: resourceId('Microsoft.Network/applicationGateways/httpListeners', resolvedApplicationGatewayName, 'listener-https')
+          }
+          backendAddressPool: {
+            id: resourceId('Microsoft.Network/applicationGateways/backendAddressPools', resolvedApplicationGatewayName, 'frontend-storage-pool')
+          }
+          backendHttpSettings: {
+            id: resourceId('Microsoft.Network/applicationGateways/backendHttpSettingsCollection', resolvedApplicationGatewayName, 'frontend-storage-https')
+          }
+        }
+      }
+    ]
+    enableHttp2: true
+    firewallPolicy: {
+      id: applicationGatewayWafPolicy.id
+    }
+  }
+}
+
 resource staticWebApp 'Microsoft.Web/staticSites@2022-09-01' = if (frontendUsesStaticWebApp) {
   name: staticWebAppName
   location: staticWebAppLocation
@@ -679,7 +981,7 @@ resource staticWebApp 'Microsoft.Web/staticSites@2022-09-01' = if (frontendUsesS
   properties: {}
 }
 
-resource backendAvailabilityWebTest 'Microsoft.Insights/webtests@2022-06-15' = {
+resource backendAvailabilityWebTest 'Microsoft.Insights/webtests@2022-06-15' = if (enableSyntheticTests) {
   name: backendAvailabilityTestName
   location: location
   kind: 'ping'
@@ -701,7 +1003,7 @@ resource backendAvailabilityWebTest 'Microsoft.Insights/webtests@2022-06-15' = {
   }
 }
 
-resource frontendAvailabilityWebTestStatic 'Microsoft.Insights/webtests@2022-06-15' = if (frontendUsesStaticWebApp) {
+resource frontendAvailabilityWebTestStatic 'Microsoft.Insights/webtests@2022-06-15' = if (enableSyntheticTests && (frontendUsesStaticWebApp || frontendUsesFrontDoor || frontendUsesAppGateway)) {
   name: frontendAvailabilityTestName
   location: location
   kind: 'ping'
@@ -718,34 +1020,12 @@ resource frontendAvailabilityWebTestStatic 'Microsoft.Insights/webtests@2022-06-
     RetryEnabled: true
     Locations: syntheticLocations
     Configuration: {
-      WebTest: '<WebTest Name="${frontendAvailabilityTestName}" Id="${frontendAvailabilityTestId}" Enabled="True" Timeout="30" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010"><Items><Request Method="GET" Guid="${frontendAvailabilityTestId}" Version="1.1" Url="https://${staticWebApp!.properties.defaultHostname}" ThinkTime="0" Timeout="30" ParseDependentRequests="False" FollowRedirects="True" RecordResult="True" Cache="False" ExpectedHttpStatusCode="200" IgnoreHttpStatusCode="False" /></Items></WebTest>'
+      WebTest: '<WebTest Name="${frontendAvailabilityTestName}" Id="${frontendAvailabilityTestId}" Enabled="True" Timeout="30" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010"><Items><Request Method="GET" Guid="${frontendAvailabilityTestId}" Version="1.1" Url="${frontendPublicUrl}" ThinkTime="0" Timeout="30" ParseDependentRequests="False" FollowRedirects="True" RecordResult="True" Cache="False" ExpectedHttpStatusCode="200" IgnoreHttpStatusCode="False" /></Items></WebTest>'
     }
   }
 }
 
-resource frontendAvailabilityWebTestFrontDoor 'Microsoft.Insights/webtests@2022-06-15' = if (frontendUsesFrontDoor) {
-  name: frontendAvailabilityTestName
-  location: location
-  kind: 'ping'
-  tags: union(monitoringTag, {
-    'hidden-link:${appInsights.id}': 'Resource'
-  })
-  properties: {
-    SyntheticMonitorId: frontendAvailabilityTestName
-    Name: frontendAvailabilityTestName
-    Enabled: true
-    Frequency: 300
-    Timeout: 30
-    Kind: 'ping'
-    RetryEnabled: true
-    Locations: syntheticLocations
-    Configuration: {
-      WebTest: '<WebTest Name="${frontendAvailabilityTestName}" Id="${frontendAvailabilityTestId}" Enabled="True" Timeout="30" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010"><Items><Request Method="GET" Guid="${frontendAvailabilityTestId}" Version="1.1" Url="https://${frontDoorEndpoint!.properties.hostName}" ThinkTime="0" Timeout="30" ParseDependentRequests="False" FollowRedirects="True" RecordResult="True" Cache="False" ExpectedHttpStatusCode="200" IgnoreHttpStatusCode="False" /></Items></WebTest>'
-    }
-  }
-}
-
-resource backendAvailabilityAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+resource backendAvailabilityAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = if (enableAlerts && enableSyntheticTests) {
   name: 'alert-backend-availability-${environmentName}'
   location: location
   tags: monitoringTag
@@ -783,7 +1063,7 @@ resource backendAvailabilityAlert 'Microsoft.Insights/scheduledQueryRules@2023-0
   }
 }
 
-resource frontendAvailabilityAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+resource frontendAvailabilityAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = if (enableAlerts && enableSyntheticTests) {
   name: 'alert-frontend-availability-${environmentName}'
   location: location
   tags: monitoringTag
@@ -821,7 +1101,7 @@ resource frontendAvailabilityAlert 'Microsoft.Insights/scheduledQueryRules@2023-
   }
 }
 
-resource jobQueueBacklogAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+resource jobQueueBacklogAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = if (enableAlerts && deployBackendWorker) {
   name: 'alert-job-queue-backlog-${environmentName}'
   location: location
   tags: monitoringTag
@@ -859,7 +1139,7 @@ resource jobQueueBacklogAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15
   }
 }
 
-resource jobQueueAgeAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+resource jobQueueAgeAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = if (enableAlerts && deployBackendWorker) {
   name: 'alert-job-queue-age-${environmentName}'
   location: location
   tags: monitoringTag
@@ -897,7 +1177,7 @@ resource jobQueueAgeAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pre
   }
 }
 
-resource backend5xxAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
+resource backend5xxAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = if (enableAlerts) {
   name: 'alert-backend-5xx-${environmentName}'
   location: 'global'
   tags: monitoringTag
@@ -943,7 +1223,7 @@ resource backend5xxAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
   }
 }
 
-resource backendLatencyAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
+resource backendLatencyAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = if (enableAlerts) {
   name: 'alert-backend-latency-${environmentName}'
   location: 'global'
   tags: monitoringTag
@@ -980,7 +1260,7 @@ resource backendLatencyAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
   }
 }
 
-resource restartAlerts 'Microsoft.Insights/metricAlerts@2018-03-01' = [for app in monitoredApps: {
+resource restartAlerts 'Microsoft.Insights/metricAlerts@2018-03-01' = [for app in monitoredApps: if (enableAlerts) {
   name: 'alert-${app.name}-restarts'
   location: 'global'
   tags: monitoringTag
@@ -1018,9 +1298,7 @@ resource restartAlerts 'Microsoft.Insights/metricAlerts@2018-03-01' = [for app i
 }]
 
 output backendUrl string = 'https://${backendApp.properties.configuration.ingress.fqdn}'
-output frontendUrl string = frontendUsesStaticWebApp
-  ? 'https://${staticWebApp!.properties.defaultHostname}'
-  : 'https://${frontDoorEndpoint!.properties.hostName}'
+output frontendUrl string = frontendPublicUrl
 output keyVaultId string = keyVault.id
 output acrLoginServer string = '${acr.name}.azurecr.io'
 output applicationInsightsId string = appInsights.id

@@ -8,10 +8,12 @@ param(
     [string]$OpenAIResource = "oai-talenti-dev-aue",
     [string]$OpenAIDeployment = "gpt-4o",
     [string]$StaticWebApp = "swa-talenti-dev-aue",
-    [ValidateSet("staticwebapp", "storage-frontdoor")]
+    [ValidateSet("staticwebapp", "storage-frontdoor", "storage-appgateway")]
     [string]$FrontendHostingMode = "staticwebapp",
     [string]$FrontDoorProfileName = "",
     [string]$FrontDoorEndpointName = "",
+    [string]$ApplicationGatewayName = "",
+    [string]$FrontendHostName = "",
     [string]$BackendApp = "ca-backend-dev",
     [string]$BackendWorkerApp = "ca-backend-worker-dev",
     [string]$Model1App = "ca-model1-dev",
@@ -23,6 +25,7 @@ param(
 
     [string]$OutputPath = ".env.azure",
     [string]$FrontendOrigin = "",
+    [string]$ApiBaseUrl = "",
     [int]$FrontendPort = 5173,
     [int]$BackendPort = 8000,
     [int]$Model1Port = 8001,
@@ -115,6 +118,12 @@ function Resolve-FrontendOrigin {
                 "--query", "hostName",
                 "-o", "tsv"
             ) -AllowEmpty
+        } elseif ($FrontendHostingMode -eq "storage-appgateway") {
+            if ($FrontendHostName) {
+                $defaultHostname = $FrontendHostName
+            } else {
+                $defaultHostname = ""
+            }
         } else {
             $defaultHostname = Get-AzValue -Args @(
                 "staticwebapp", "show",
@@ -177,17 +186,21 @@ if (-not $speechRegion) {
 $frontendOriginResolved = Resolve-FrontendOrigin
 
 if ($Profile -eq "deployed") {
-    $publicBaseUrl = Resolve-ContainerAppUrl -AppName $BackendApp -Fallback "http://localhost:$BackendPort"
-    $model1Url = Resolve-ContainerAppUrl -AppName $Model1App -Fallback "http://localhost:$Model1Port"
-    $model2Url = Resolve-ContainerAppUrl -AppName $Model2App -Fallback "http://localhost:$Model2Port"
-    $acsWorkerUrl = Resolve-ContainerAppUrl -AppName $AcsWorkerApp -Fallback "http://localhost:$AcsWorkerPort"
+    $publicBaseUrl = if ($ApiBaseUrl) { $ApiBaseUrl } else { Resolve-ContainerAppUrl -AppName $BackendApp -Fallback "http://localhost:$BackendPort" }
+    $model1Url = ""
+    $model2Url = ""
+    $acsWorkerUrl = ""
     $viteApiBaseUrl = $publicBaseUrl
+    $enableLiveScoring = "false"
+    $enableAcsCallAutomation = "false"
 } else {
     $publicBaseUrl = "http://localhost:$BackendPort"
     $model1Url = "http://localhost:$Model1Port"
     $model2Url = "http://localhost:$Model2Port"
     $acsWorkerUrl = "http://localhost:$AcsWorkerPort"
     $viteApiBaseUrl = "http://localhost:$BackendPort"
+    $enableLiveScoring = "true"
+    $enableAcsCallAutomation = "true"
 }
 
 $allowedOriginsJson = "[`"$frontendOriginResolved`"]"
@@ -210,6 +223,8 @@ $envLines = @(
     "PUBLIC_BASE_URL=$publicBaseUrl"
     "BACKGROUND_WORKER_POLL_INTERVAL_SECONDS=2.0"
     "AUTO_SCORE_INTERVIEWS=false"
+    "ENABLE_LIVE_SCORING=$enableLiveScoring"
+    "ENABLE_ACS_CALL_AUTOMATION=$enableAcsCallAutomation"
     ""
     "# Backend worker"
     "# Uses the same backend runtime env vars above and starts with: python -m app.worker_main"

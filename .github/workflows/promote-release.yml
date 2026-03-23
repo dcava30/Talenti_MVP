@@ -24,6 +24,7 @@ permissions:
 
 jobs:
   promote:
+    if: vars.ENABLE_NON_DEV_DEPLOYS == 'true'
     runs-on: ${{ fromJSON((github.event_name == 'release' || inputs.target_environment == 'uat') && '["self-hosted","uat"]' || '["ubuntu-latest"]') }}
     environment: ${{ github.event_name == 'release' && 'uat' || inputs.target_environment }}
     env:
@@ -36,8 +37,11 @@ jobs:
       MODEL2_APP: ${{ vars.MODEL2_APP }}
       ACS_WORKER_APP: ${{ vars.ACS_WORKER_APP }}
       FRONTEND_STORAGE_ACCOUNT: ${{ vars.FRONTEND_STORAGE_ACCOUNT }}
+      FRONTEND_HOSTING_MODE: ${{ vars.FRONTEND_HOSTING_MODE }}
+      FRONTEND_HOST_NAME: ${{ vars.FRONTEND_HOST_NAME }}
       FRONT_DOOR_PROFILE_NAME: ${{ vars.FRONT_DOOR_PROFILE_NAME }}
       FRONT_DOOR_ENDPOINT_NAME: ${{ vars.FRONT_DOOR_ENDPOINT_NAME }}
+      APPLICATION_GATEWAY_NAME: ${{ vars.APPLICATION_GATEWAY_NAME }}
       KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
     steps:
       - uses: actions/checkout@v5
@@ -61,6 +65,11 @@ jobs:
           az extension add --name containerapp --upgrade
           az extension add --name front-door --upgrade
 
+      - name: Resolve frontend hosting mode
+        run: |
+          RESOLVED_MODE="${FRONTEND_HOSTING_MODE:-storage-frontdoor}"
+          echo "FRONTEND_HOSTING_MODE_RESOLVED=$RESOLVED_MODE" >> "$GITHUB_ENV"
+
       - name: Preflight Azure resources
         run: |
           set -euo pipefail
@@ -75,8 +84,6 @@ jobs:
             MODEL2_APP
             ACS_WORKER_APP
             FRONTEND_STORAGE_ACCOUNT
-            FRONT_DOOR_PROFILE_NAME
-            FRONT_DOOR_ENDPOINT_NAME
             KEY_VAULT_NAME
           )
 
@@ -96,8 +103,27 @@ jobs:
           az containerapp show --name "$MODEL2_APP" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
           az containerapp show --name "$ACS_WORKER_APP" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
           az storage account show --name "$FRONTEND_STORAGE_ACCOUNT" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
-          az afd profile show --profile-name "$FRONT_DOOR_PROFILE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
-          az afd endpoint show --profile-name "$FRONT_DOOR_PROFILE_NAME" --endpoint-name "$FRONT_DOOR_ENDPOINT_NAME" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
+          case "$FRONTEND_HOSTING_MODE_RESOLVED" in
+            storage-frontdoor)
+              if [[ -z "${FRONT_DOOR_PROFILE_NAME:-}" || -z "${FRONT_DOOR_ENDPOINT_NAME:-}" ]]; then
+                echo "FRONT_DOOR_PROFILE_NAME and FRONT_DOOR_ENDPOINT_NAME are required for storage-frontdoor mode."
+                exit 1
+              fi
+              az afd profile show --profile-name "$FRONT_DOOR_PROFILE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
+              az afd endpoint show --profile-name "$FRONT_DOOR_PROFILE_NAME" --endpoint-name "$FRONT_DOOR_ENDPOINT_NAME" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
+              ;;
+            storage-appgateway)
+              if [[ -z "${APPLICATION_GATEWAY_NAME:-}" || -z "${FRONTEND_HOST_NAME:-}" ]]; then
+                echo "APPLICATION_GATEWAY_NAME and FRONTEND_HOST_NAME are required for storage-appgateway mode."
+                exit 1
+              fi
+              az network application-gateway show --name "$APPLICATION_GATEWAY_NAME" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
+              ;;
+            *)
+              echo "Unsupported FRONTEND_HOSTING_MODE: $FRONTEND_HOSTING_MODE_RESOLVED"
+              exit 1
+              ;;
+          esac
 
       - name: Download release assets
         env:
@@ -198,12 +224,16 @@ jobs:
             --account-name "$FRONTEND_STORAGE_ACCOUNT" \
             --query "[0].value" \
             -o tsv)
-          FRONTEND_HOST=$(az afd endpoint show \
-            --profile-name "$FRONT_DOOR_PROFILE_NAME" \
-            --endpoint-name "$FRONT_DOOR_ENDPOINT_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --query hostName \
-            -o tsv)
+          if [[ "$FRONTEND_HOSTING_MODE_RESOLVED" == "storage-frontdoor" ]]; then
+            FRONTEND_HOST=$(az afd endpoint show \
+              --profile-name "$FRONT_DOOR_PROFILE_NAME" \
+              --endpoint-name "$FRONT_DOOR_ENDPOINT_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --query hostName \
+              -o tsv)
+          else
+            FRONTEND_HOST="$FRONTEND_HOST_NAME"
+          fi
           echo "FRONTEND_STORAGE_KEY=$STORAGE_KEY" >> "$GITHUB_ENV"
           echo "FRONTEND_HOST=$FRONTEND_HOST" >> "$GITHUB_ENV"
 
@@ -218,6 +248,10 @@ jobs:
 
       - name: Purge Front Door cache
         run: |
+          if [[ "$FRONTEND_HOSTING_MODE_RESOLVED" != "storage-frontdoor" ]]; then
+            exit 0
+          fi
+
           az afd endpoint purge \
             --profile-name "$FRONT_DOOR_PROFILE_NAME" \
             --endpoint-name "$FRONT_DOOR_ENDPOINT_NAME" \

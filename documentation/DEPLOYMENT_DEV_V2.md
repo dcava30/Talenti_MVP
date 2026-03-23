@@ -1,32 +1,39 @@
-# Dev Deployment v3 (Main-Based Release Candidate Flow)
+# Dev Deployment v3 (Current Lean Dev State)
 
 ## Topology
 
 - Public:
-  - Frontend (Static Web Apps in `eastasia`; all core DEV infra remains in `australiaeast`)
-  - Backend API (Container Apps external ingress)
-- Internal only:
-  - backend-worker (`python -m app.worker_main`)
-  - model-service-1
-  - model-service-2
-  - acs-worker (`python-acs-service`)
+  - Frontend (`Azure Static Web Apps` in `eastasia`)
+  - Backend API (`Azure Container Apps` with external ingress)
+- Local/on-demand:
+  - `backend-worker` (`python -m app.worker_main`)
+  - `model-service-1`
+  - `model-service-2`
+  - `acs-worker` (`python-acs-service`)
+
+Current public dev URLs:
+
+- Frontend: `https://witty-bush-06941cf00.4.azurestaticapps.net`
+- Backend: `https://ca-backend-dev.delightfulground-722f8c60.australiaeast.azurecontainerapps.io`
 
 ## Database
 
 - Backend is the only system-of-record.
 - Use PostgreSQL database: `talenti_backend_dev`.
-- Backend worker and ACS worker both use backend-managed state; neither requires a separate database.
+- Local worker and ACS worker both use backend-managed state; neither requires a separate database.
 
 ## Required Backend App Settings
 
 - `DATABASE_URL`
 - `JWT_SECRET`
 - `ALLOWED_ORIGINS`
-- `MODEL_SERVICE_1_URL`
-- `MODEL_SERVICE_2_URL`
-- `ACS_WORKER_URL`
-- `ACS_WORKER_SHARED_SECRET`
+- `MODEL_SERVICE_1_URL` (blank in the lean cloud baseline unless local scoring is in use)
+- `MODEL_SERVICE_2_URL` (blank in the lean cloud baseline unless local scoring is in use)
+- `ACS_WORKER_URL` (blank in the lean cloud baseline unless local ACS worker is in use)
+- `ACS_WORKER_SHARED_SECRET` (only needed when the local ACS worker is in use)
 - `PUBLIC_BASE_URL`
+- `ENABLE_LIVE_SCORING=false`
+- `ENABLE_ACS_CALL_AUTOMATION=false`
 - `LOG_LEVEL`
 - Existing Azure settings:
   - `AZURE_ACS_CONNECTION_STRING`
@@ -39,81 +46,42 @@
   - `AZURE_STORAGE_ACCOUNT_KEY`
   - `AZURE_STORAGE_CONTAINER`
 
-## Required Backend Worker App Settings
+## Local Worker Settings
 
-- `DATABASE_URL`
-- `JWT_SECRET`
-- `ENVIRONMENT`
-- `MODEL_SERVICE_1_URL`
-- `MODEL_SERVICE_2_URL`
-- `ACS_WORKER_URL`
-- `ACS_WORKER_SHARED_SECRET`
-- `PUBLIC_BASE_URL`
-- `AZURE_STORAGE_ACCOUNT`
-- `AZURE_STORAGE_ACCOUNT_KEY`
-- `AZURE_STORAGE_CONTAINER`
-- `BACKGROUND_WORKER_POLL_INTERVAL_SECONDS`
-- `BACKGROUND_WORKER_METRICS_LOG_INTERVAL_SECONDS`
-- `AUTO_SCORE_INTERVIEWS`
-- `LOG_LEVEL`
-
-## Required ACS Worker App Settings
-
-- `ACS_CONNECTION_STRING`
-- `AZURE_STORAGE_CONNECTION_STRING`
-- `RECORDING_CONTAINER=recordings`
-- `BACKEND_INTERNAL_URL`
-- `ACS_WORKER_SHARED_SECRET`
-- `ACS_CALLBACK_URL` (set to backend public callback endpoint)
+- Use [`start-dev-worker-local.ps1`](/c:/Users/Declan/Downloads/TalentiMatchFrontend/Talenti_MVP/scripts/start-dev-worker-local.ps1) to export the Azure-backed env file and start `backend-worker` locally against the shared DEV PostgreSQL and Storage resources.
+- Leave `AUTO_SCORE_INTERVIEWS=false` for the lean cloud baseline; opt into local model/ACS runtime only when needed.
+- Without the local worker, queued jobs remain pending in PostgreSQL and any scoring or call-automation flows that depend on the local services return explicit `503` responses.
 
 ## CI/CD
 
 - `pr-validate.yml`: validates Conventional Commit PR titles and runs CI for PRs to `main`.
 - `ci.yml`: runs on pushes to `main` and is the gate for DEV deployment.
-- `infra-dev.yml`: deploys DEV Bicep infra with OIDC and alerting resources.
+- `infra-dev.yml`: deploys the lean DEV Bicep infra with OIDC.
 - `deploy-dev.yml`:
   - Runs after successful `ci` on `main`.
-  - Builds/pushes backend and ACS worker images from this repo.
-  - Deploys the same backend image to both `backend` and `backend-worker`.
-  - Consumes pinned model images from GitHub environment `dev` variables:
-    - `MODEL1_IMAGE_REF`
-    - `MODEL2_IMAGE_REF`
-  - Fails fast if model refs are missing, malformed, or unresolved in ACR.
-  - Preflight-checks the resource group, ACR, Key Vault, Container Apps, and Static Web App.
-  - Runs backend migrations once, deploys internal services then backend, deploys frontend, and smoke-checks backend/frontend availability.
+  - Builds/pushes the backend image from this repo.
+  - Preflight-checks the resource group, ACR, Key Vault, backend Container App, and Static Web App.
+  - Runs backend migrations once, deploys the backend, reapplies the raw Azure runtime URLs, deploys the frontend, and smoke-checks backend/frontend availability through the Azure-generated public hostnames.
 - `release.yml`:
   - Uses `release-please` to manage repo-root `VERSION`, `CHANGELOG.md`, and GitHub Releases.
   - Uploads `release-manifest.json` and `frontend-dist.tgz` for promotion.
 - `promote-release.yml`:
-  - Promotes the released digests and frontend artifact to UAT/PROD without rebuilding them.
-  - Uploads the frontend artifact to Azure Storage static website hosting and purges Azure Front Door Standard cache.
-  - Uses a self-hosted `uat` runner for restricted UAT frontend smoke tests.
+  - Stays parked until `ENABLE_NON_DEV_DEPLOYS=true` for the target environment.
+  - Later promotes the released digests and frontend artifact to UAT/PROD without rebuilding them.
 
 Seed the GitHub `dev` environment and Azure OIDC identity with:
 
 ```powershell
-.\scripts\setup-deployment-access.ps1 -SubscriptionId <sub-id> -EnvironmentNames dev -AlertEmailAddress <team-email>
+.\scripts\setup-deployment-access.ps1 -SubscriptionId <sub-id> -EnvironmentNames dev -DevFrontendOrigin https://witty-bush-06941cf00.4.azurestaticapps.net -DevApiBaseUrl https://ca-backend-dev.delightfulground-722f8c60.australiaeast.azurecontainerapps.io
 ```
 
 For first-time DEV runtime bootstrap, use:
 
 ```powershell
-.\scripts\day1-dev-deploy.ps1 -SubscriptionId <sub-id> -StaticWebAppLocation eastasia
+.\scripts\day1-dev-deploy.ps1 -SubscriptionId <sub-id> -StaticWebAppLocation eastasia -FrontendOrigin https://witty-bush-06941cf00.4.azurestaticapps.net -ApiBaseUrl https://ca-backend-dev.delightfulground-722f8c60.australiaeast.azurecontainerapps.io
 ```
 
-## Pinned Model Promotion Runbook
-
-1. In model repo pipelines, retrieve immutable digest refs for successful dev images:
-   - `acrtalentidev.azurecr.io/talenti/model-service-1@sha256:<64-hex>`
-   - `acrtalentidev.azurecr.io/talenti/model-service-2@sha256:<64-hex>`
-2. In GitHub -> main repo -> Settings -> Environments -> `dev`, set variables:
-   - `MODEL1_IMAGE_REF=<model1 digest ref>`
-   - `MODEL2_IMAGE_REF=<model2 digest ref>`
-3. Trigger `deploy-dev` workflow (manual or matching push).
-4. Verify deployment:
-   - Backend health endpoint returns 200.
-   - `backend-worker` is running and `background_jobs` are not stuck in `pending`.
-   - Container Apps `ca-model1-dev` and `ca-model2-dev` revisions reference the pinned digest images.
+Current live dev does not use Cloudflare or custom hostnames. If branded hostnames are introduced later, treat that as an additional edge setup step rather than part of the default dev runbook.
 
 ## GitHub Environment Variables
 
@@ -125,13 +93,15 @@ Set these variables in the GitHub `dev` environment:
 - `KEY_VAULT_NAME`
 - `STATIC_WEB_APP_NAME`
 - `BACKEND_APP`
-- `BACKEND_WORKER_APP`
-- `MODEL1_APP`
-- `MODEL2_APP`
-- `ACS_WORKER_APP`
-- `ALERT_EMAIL_ADDRESS`
-- `MODEL1_IMAGE_REF`
-- `MODEL2_IMAGE_REF`
+- `DEV_FRONTEND_ORIGIN`
+- `DEV_API_BASE_URL`
+- `BACKEND_ALLOWED_CIDRS`
+
+Current live values are:
+
+- `DEV_FRONTEND_ORIGIN=https://witty-bush-06941cf00.4.azurestaticapps.net`
+- `DEV_API_BASE_URL=https://ca-backend-dev.delightfulground-722f8c60.australiaeast.azurecontainerapps.io`
+- `BACKEND_ALLOWED_CIDRS=[]`
 
 Set these secrets in the GitHub `dev` environment:
 
@@ -146,4 +116,4 @@ Set these secrets in the GitHub `dev` environment:
 
 - Backend runs Alembic `upgrade head` automatically at startup and fails fast on migration errors.
 - Keep `python backend/scripts/run_migrations.py` in the deployment pipeline as a pre-deploy safety check.
-- If `backend-worker` is not deployed or unhealthy, interview orchestration and async file/scoring jobs will remain queued in `background_jobs`.
+- In the lean cloud footprint, queued async jobs remain pending until a developer starts the local worker with [`start-dev-worker-local.ps1`](/c:/Users/Declan/Downloads/TalentiMatchFrontend/Talenti_MVP/scripts/start-dev-worker-local.ps1).
