@@ -15,6 +15,10 @@ These diagrams are based on:
 - [`infra/dev/main.bicep`](../infra/dev/main.bicep)
 - [`infra/uat/main.bicep`](../infra/uat/main.bicep)
 - [`infra/prod/main.bicep`](../infra/prod/main.bicep)
+- [`pr-fast-quality.yml`](../.github/workflows/pr-fast-quality.yml)
+- [`pr-security-iac.yml`](../.github/workflows/pr-security-iac.yml)
+- [`pr-ephemeral-deploy.yml`](../.github/workflows/pr-ephemeral-deploy.yml)
+- [`ci-main.yml`](../.github/workflows/ci-main.yml)
 - [`deploy-dev.yml`](../.github/workflows/deploy-dev.yml)
 - [`release.yml`](../.github/workflows/release.yml)
 - [`promote-release.yml`](../.github/workflows/promote-release.yml)
@@ -254,25 +258,31 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    pr["Feature PR"] --> validate["pr-validate<br/>title policy, tests, build"]
-    validate --> main["Merge to main"]
+    pr["Feature PR"] --> fast["pr-fast-quality<br/>lint, tests, build, migrations"]
+    pr --> sec["pr-security-iac<br/>CodeQL, CVE, IaC and image scans"]
+    pr --> eph["pr-ephemeral-deploy<br/>isolated PR runtime + smoke + teardown"]
+    fast --> main["Merge to main"]
+    sec --> main
+    eph --> main
 
-    main --> ci["ci<br/>frontend + backend checks"]
-    main --> release["release<br/>release-please"]
+    main --> cimai["ci-main<br/>build, scan, sign, attest"]
+    cimai --> devacr["DEV ACR"]
+    cimai --> evidence["SBOM + provenance evidence"]
 
-    ci --> deploydev["deploy-dev"]
-    deploydev --> build["Build backend and acs-worker images<br/>tag with commit SHA"]
-    build --> devacr["DEV ACR"]
+    main --> infrawf["infra-dev<br/>validate + what-if + deploy"]
+
+    cimai --> deploydev["deploy-dev"]
     deploydev --> modelrefs["Use pinned model digests<br/>from GitHub dev environment"]
+    deploydev --> infragate["Require infra-dev success<br/>for infra-touching SHAs"]
+    infrawf --> infragate
     deploydev --> migdev["Run migrations once"]
     deploydev --> devapps["Update DEV Container Apps"]
     deploydev --> devfront["Deploy frontend to Static Web Apps"]
     deploydev --> devsmoke["DEV smoke tests"]
 
+    deploydev --> release["release<br/>release-please"]
     release --> tag["Git tag + GitHub Release"]
-    tag --> waitdigests["Wait for backend and acs-worker digests<br/>for the release SHA in DEV ACR"]
-    devacr --> waitdigests
-    waitdigests --> assets["Release assets<br/>release-manifest.json<br/>frontend-dist.tgz"]
+    tag --> assets["Release assets<br/>release-manifest.json<br/>frontend-dist.tgz"]
 
     assets --> uatpromo["Automatic UAT promotion<br/>self-hosted allowlisted runner"]
     assets --> prodpromo["Manual PROD promotion<br/>workflow_dispatch by release tag"]
@@ -289,10 +299,12 @@ flowchart LR
 
 ### Pipeline Notes
 
-- `deploy-dev` builds only the backend and ACS worker from this repository. The two model services are injected as immutable digest references from the `dev` GitHub environment.
-- `release.yml` waits for the backend and ACS worker images for the release SHA to exist in the DEV ACR, then writes that immutable contract into `release-manifest.json`.
+- Required PR gates are `pr-fast-quality`, `pr-security-iac`, and `pr-ephemeral-deploy`.
+- `ci-main` builds backend and ACS worker images once per `main` SHA, then scans, signs, and attests those immutable artifacts.
+- `deploy-dev` deploys immutable backend/ACS digests for the source SHA and enforces `infra-dev` success for infra-touching commits.
+- `release.yml` is triggered only after successful `deploy-dev` on `main`, so release creation starts after DEV deployment validation.
 - `release-manifest.json` is the promotion handoff. It captures backend, ACS worker, and model image digests plus the frontend source SHA.
-- `promote-release.yml` does not rebuild application artifacts for UAT or PROD. It imports pinned images into the target ACR and reuses the packaged frontend artifact.
+- `promote-release.yml` does not rebuild application artifacts for UAT or PROD. It imports pinned images into the target ACR, verifies signatures, and reuses the packaged frontend artifact.
 - UAT is auto-promoted from a published release. PROD is promoted manually by release tag.
 
 ## Summary

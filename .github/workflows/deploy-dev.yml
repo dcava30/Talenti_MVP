@@ -1,10 +1,10 @@
-name: deploy-dev
+﻿name: deploy-dev
 
 on:
   workflow_dispatch:
   workflow_run:
     workflows:
-      - ci
+      - ci-main
     types:
       - completed
 
@@ -109,8 +109,31 @@ jobs:
           az containerapp show --name "$ACS_WORKER_APP" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
           az staticwebapp show --name "$STATIC_WEB_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
 
-      - name: ACR login
-        run: az acr login --name "$ACR_NAME"
+      - name: Enforce infra-dev success when infra changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          changed_files=$(git show --pretty='' --name-only "${{ steps.source.outputs.sha }}")
+          if echo "$changed_files" | grep -Eq '^(infra/|\.github/workflows/infra-dev\.yml)'; then
+            echo "Infra change detected; validating infra-dev success for commit ${{ steps.source.outputs.sha }}"
+            gh run list --workflow infra-dev.yml --branch main --limit 100 --json headSha,conclusion,status > infra_runs.json
+            python - <<'PY'
+            import json
+            import os
+            import sys
+            from pathlib import Path
+
+            target = "${{ steps.source.outputs.sha }}"
+            runs = json.loads(Path("infra_runs.json").read_text(encoding="utf-8"))
+            ok = any(r.get("headSha") == target and r.get("status") == "completed" and r.get("conclusion") == "success" for r in runs)
+            if not ok:
+                print(f"No successful infra-dev run found for {target}.")
+                sys.exit(1)
+            PY
+          else
+            echo "No infra changes detected for this SHA."
+          fi
 
       - name: Validate pinned model image digests
         run: |
@@ -129,22 +152,21 @@ jobs:
             exit 1
           fi
 
-          docker manifest inspect "$MODEL1_IMAGE" > /dev/null
-          docker manifest inspect "$MODEL2_IMAGE" > /dev/null
-
-      - name: Build and push backend image
+      - name: Resolve immutable app images for source SHA
         run: |
-          BACKEND_IMAGE="$ACR_NAME.azurecr.io/talenti/backend:${{ steps.source.outputs.sha }}"
-          docker build -t "$BACKEND_IMAGE" backend
-          docker push "$BACKEND_IMAGE"
-          echo "BACKEND_IMAGE=$BACKEND_IMAGE" >> $GITHUB_ENV
+          set -euo pipefail
+          source_sha="${{ steps.source.outputs.sha }}"
 
-      - name: Build and push acs-worker image
-        run: |
-          ACS_IMAGE="$ACR_NAME.azurecr.io/talenti/acs-worker:${{ steps.source.outputs.sha }}"
-          docker build -t "$ACS_IMAGE" python-acs-service
-          docker push "$ACS_IMAGE"
-          echo "ACS_IMAGE=$ACS_IMAGE" >> $GITHUB_ENV
+          backend_digest=$(az acr manifest show-metadata --registry "$ACR_NAME" --name "talenti/backend:${source_sha}" --query digest -o tsv)
+          acs_digest=$(az acr manifest show-metadata --registry "$ACR_NAME" --name "talenti/acs-worker:${source_sha}" --query digest -o tsv)
+
+          if [[ -z "$backend_digest" || -z "$acs_digest" ]]; then
+            echo "Missing immutable backend or acs-worker image for $source_sha in ACR."
+            exit 1
+          fi
+
+          echo "BACKEND_IMAGE=$ACR_NAME.azurecr.io/talenti/backend@${backend_digest}" >> "$GITHUB_ENV"
+          echo "ACS_IMAGE=$ACR_NAME.azurecr.io/talenti/acs-worker@${acs_digest}" >> "$GITHUB_ENV"
 
       - name: Run backend migrations (single job)
         run: |

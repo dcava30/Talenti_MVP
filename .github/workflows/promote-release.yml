@@ -168,6 +168,21 @@ jobs:
           echo "MODEL1_IMAGE=$(import_image "$MODEL1_SOURCE_IMAGE" "$ACR_NAME" "model-service-1-${SAFE_TAG}")" >> "$GITHUB_ENV"
           echo "MODEL2_IMAGE=$(import_image "$MODEL2_SOURCE_IMAGE" "$ACR_NAME" "model-service-2-${SAFE_TAG}")" >> "$GITHUB_ENV"
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.7.0
+
+      - name: Verify signed release images
+        run: |
+          set -euo pipefail
+          cosign verify \
+            --certificate-identity-regexp "https://github.com/${{ github.repository }}/.github/workflows/ci-main.yml@refs/heads/main" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$BACKEND_IMAGE"
+          cosign verify \
+            --certificate-identity-regexp "https://github.com/${{ github.repository }}/.github/workflows/ci-main.yml@refs/heads/main" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$ACS_IMAGE"
+
       - name: Run backend migrations
         run: |
           python -m pip install --upgrade pip

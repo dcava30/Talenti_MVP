@@ -68,24 +68,29 @@
 
 ## CI/CD
 
-- `pr-validate.yml`: validates Conventional Commit PR titles and runs CI for PRs to `main`.
-- `ci.yml`: runs on pushes to `main` and is the gate for DEV deployment.
-- `infra-dev.yml`: deploys DEV Bicep infra with OIDC and alerting resources.
+- `pr-fast-quality.yml`: validates PR title, runs frontend/backend/ACS checks, migration execution checks, and coverage gates.
+- `pr-security-iac.yml`: enforces CodeQL, dependency/security scanning, container scanning, and Bicep/IaC policy checks.
+- `pr-ephemeral-deploy.yml`: deploys isolated PR runtime resources in Azure, runs migrations and API smoke checks, and tears down resources.
+- `ci-main.yml`: builds immutable backend/ACS images once per `main` SHA, generates SBOMs, scans, signatures, and provenance attestations.
+- `infra-dev.yml`: validates Bicep and IaC policy on PR/push, runs what-if, and deploys DEV Bicep infra on `main`.
 - `deploy-dev.yml`:
-  - Runs after successful `ci` on `main`.
-  - Builds/pushes backend and ACS worker images from this repo.
-  - Deploys the same backend image to both `backend` and `backend-worker`.
+  - Runs after successful `ci-main` on `main`.
+  - Resolves immutable backend/ACS image digests for the exact source SHA.
+  - Deploys the same backend image digest to both `backend` and `backend-worker`.
   - Consumes pinned model images from GitHub environment `dev` variables:
     - `MODEL1_IMAGE_REF`
     - `MODEL2_IMAGE_REF`
   - Fails fast if model refs are missing, malformed, or unresolved in ACR.
+  - Requires matching `infra-dev` success for infra-touching commits.
   - Preflight-checks the resource group, ACR, Key Vault, Container Apps, and Static Web App.
   - Runs backend migrations once, deploys internal services then backend, deploys frontend, and smoke-checks backend/frontend availability.
 - `release.yml`:
+  - Runs only after successful `deploy-dev` for `main` (or manual dispatch).
   - Uses `release-please` to manage repo-root `VERSION`, `CHANGELOG.md`, and GitHub Releases.
   - Uploads `release-manifest.json` and `frontend-dist.tgz` for promotion.
 - `promote-release.yml`:
   - Promotes the released digests and frontend artifact to UAT/PROD without rebuilding them.
+  - Verifies release image signatures before deployment.
   - Uploads the frontend artifact to Azure Storage static website hosting and purges Azure Front Door Standard cache.
   - Uses a self-hosted `uat` runner for restricted UAT frontend smoke tests.
 

@@ -10,31 +10,40 @@ Talenti now uses a trunk-based release model on `main`.
   - `fix(worker): emit queue metrics for alerting`
 - Merge with squash so the PR title becomes the release note source.
 - Configure branch protection in GitHub so:
-  - `pr-validate` is required before merge
+  - `pr-fast-quality`, `pr-security-iac`, and `pr-ephemeral-deploy` are required before merge
   - squash merge is allowed
   - direct pushes to `main` are blocked
 - Configure GitHub Actions workflow permissions so:
-  - default workflow permissions are `Read and write`
-  - `Allow GitHub Actions to create and approve pull requests` is enabled
+  - default workflow permissions are `Read`
+  - `Allow GitHub Actions to create and approve pull requests` is disabled
 
 ## Workflows
 
-- `pr-validate.yml`
+- `pr-fast-quality.yml`
   - Runs on pull requests to `main`
   - Enforces Conventional Commit PR titles
-  - Runs frontend lint/test/build and backend tests
-- `ci.yml`
+  - Runs frontend lint/test/build, backend tests, ACS tests, migration execution checks, and coverage gates
+- `pr-security-iac.yml`
+  - Runs on pull requests to `main`
+  - Runs CodeQL, secret scanning, dependency auditing, container scanning, and Bicep/IaC policy checks
+- `pr-ephemeral-deploy.yml`
+  - Runs on pull requests to `main` from internal branches
+  - Provisions ephemeral PR runtime resources, runs migrations and API smoke tests, then tears everything down
+- `ci-main.yml`
   - Runs on pushes to `main`
-  - Re-runs frontend lint/test/build and backend tests
+  - Builds backend/ACS images once per SHA
+  - Publishes immutable image digests
+  - Generates SBOMs, vulnerability scan evidence, signatures, and provenance attestations
 - `deploy-dev.yml`
-  - Runs after a successful `ci` workflow on `main`
-  - Builds backend and ACS worker images tagged by commit SHA
+  - Runs after a successful `ci-main` workflow on `main`
+  - Resolves immutable backend/ACS image digests from ACR for the commit SHA
   - Validates pinned model digests
+  - Requires matching `infra-dev` success when infra files changed in that commit
   - Runs migrations once
   - Deploys DEV backend, worker, ACS worker, and frontend
   - Smoke-checks backend `/health` and the DEV Static Web App
 - `release.yml`
-  - Runs on pushes to `main`
+  - Runs after successful `deploy-dev` on `main` (or manual dispatch)
   - Uses `release-please` with repo-root `VERSION` and `CHANGELOG.md`
   - Creates or updates the release PR
   - When the release PR is merged and a tag is created, uploads:
@@ -44,6 +53,7 @@ Talenti now uses a trunk-based release model on `main`.
   - Auto-promotes published releases to UAT
   - Allows manual promotion to UAT or PROD by release tag
   - Imports immutable image digests into the target ACR when needed
+  - Verifies backend/ACS release signatures before deployment
   - Reuses the release frontend artifact instead of rebuilding it
   - Publishes UAT/PROD frontend assets to Azure Storage static website hosting
   - Purges Azure Front Door Standard cache after upload
@@ -101,6 +111,12 @@ Optional repository or environment secret:
 
 - `RELEASE_PLEASE_TOKEN`
 
+Additional `dev` variables for the PR ephemeral deploy gate:
+
+- `CONTAINER_ENV_NAME` (defaults to `cae-talenti-dev-aue` if omitted)
+- `POSTGRES_SERVER_NAME` (defaults to `psql-talenti-dev-aue` if omitted)
+- `STORAGE_ACCOUNT_NAME` (defaults to `sttalentidevaue` if omitted)
+
 Use a PAT for `RELEASE_PLEASE_TOKEN` if you want downstream workflows to respond to release publication automatically. Without it, manual promotion still works.
 The repository-level GitHub Actions workflow permissions above are still required so `release.yml` can create or update the release PR with `release-please`.
 
@@ -126,3 +142,9 @@ The Azure federated credential subject must match the GitHub environment form us
 - UAT frontend traffic is restricted at Azure Front Door Standard with an IP allowlist custom WAF rule.
 - UAT promotion and frontend smoke checks require a self-hosted runner with the `uat` label on an allowlisted office/VPN network.
 - Roll back by rerunning `promote-release.yml` with an older `release_tag`.
+
+## Environment Protection Notes
+
+- `dev` should use a deployment branch policy restricted to `main`.
+- `uat` and `prod` should use required reviewers when the billing plan supports environment reviewer rules.
+- If reviewer protection is not supported on the current plan, keep `can_admins_bypass=false` and enforce approvals via repository process until the plan is upgraded.

@@ -1,0 +1,124 @@
+﻿name: ci-main
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: ci-main-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-sign-attest:
+    runs-on: ubuntu-latest
+    environment: dev
+    env:
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      ACR_NAME: ${{ vars.ACR_NAME }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR login
+        run: az acr login --name "$ACR_NAME"
+
+      - name: Build and push immutable images
+        run: |
+          set -euo pipefail
+          BACKEND_TAG="$ACR_NAME.azurecr.io/talenti/backend:${GITHUB_SHA}"
+          ACS_TAG="$ACR_NAME.azurecr.io/talenti/acs-worker:${GITHUB_SHA}"
+
+          docker build -t "$BACKEND_TAG" backend
+          docker build -t "$ACS_TAG" python-acs-service
+
+          docker push "$BACKEND_TAG"
+          docker push "$ACS_TAG"
+
+      - name: Resolve pushed image digests
+        run: |
+          set -euo pipefail
+          backend_digest=$(az acr manifest show-metadata --registry "$ACR_NAME" --name "talenti/backend:${GITHUB_SHA}" --query digest -o tsv)
+          acs_digest=$(az acr manifest show-metadata --registry "$ACR_NAME" --name "talenti/acs-worker:${GITHUB_SHA}" --query digest -o tsv)
+
+          echo "BACKEND_IMAGE=$ACR_NAME.azurecr.io/talenti/backend@${backend_digest}" >> "$GITHUB_ENV"
+          echo "ACS_IMAGE=$ACR_NAME.azurecr.io/talenti/acs-worker@${acs_digest}" >> "$GITHUB_ENV"
+          echo "BACKEND_DIGEST=${backend_digest}" >> "$GITHUB_ENV"
+          echo "ACS_DIGEST=${acs_digest}" >> "$GITHUB_ENV"
+
+          cat <<EOF > image-manifest.json
+          {
+            "git_sha": "${GITHUB_SHA}",
+            "backend_image": "$ACR_NAME.azurecr.io/talenti/backend@${backend_digest}",
+            "acs_worker_image": "$ACR_NAME.azurecr.io/talenti/acs-worker@${acs_digest}"
+          }
+          EOF
+
+      - name: Generate SBOMs
+        run: |
+          set -euo pipefail
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b . v1.25.1
+          ./syft "${BACKEND_IMAGE}" -o spdx-json > sbom-backend.spdx.json
+          ./syft "${ACS_IMAGE}" -o spdx-json > sbom-acs-worker.spdx.json
+
+      - name: Scan published images (high/critical gate)
+        run: |
+          curl -sSL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed "${BACKEND_IMAGE}"
+          trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed "${ACS_IMAGE}"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.7.0
+
+      - name: Sign images (keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "${BACKEND_IMAGE}"
+          cosign sign "${ACS_IMAGE}"
+
+      - name: Attest backend image provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.ACR_NAME }}.azurecr.io/talenti/backend
+          subject-digest: ${{ env.BACKEND_DIGEST }}
+          push-to-registry: true
+
+      - name: Attest ACS image provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.ACR_NAME }}.azurecr.io/talenti/acs-worker
+          subject-digest: ${{ env.ACS_DIGEST }}
+          push-to-registry: true
+
+      - name: Upload CI evidence artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-main-evidence-${{ github.sha }}
+          path: |
+            image-manifest.json
+            sbom-backend.spdx.json
+            sbom-acs-worker.spdx.json

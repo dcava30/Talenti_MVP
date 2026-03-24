@@ -1,17 +1,26 @@
-name: release
+﻿name: release
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - deploy-dev
+    types:
+      - completed
 
 permissions:
   contents: write
   pull-requests: write
   id-token: write
+  actions: read
 
 jobs:
   release-please:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     environment: dev
     env:
@@ -19,6 +28,15 @@ jobs:
       MODEL1_IMAGE: ${{ vars.MODEL1_IMAGE_REF }}
       MODEL2_IMAGE: ${{ vars.MODEL2_IMAGE_REF }}
     steps:
+      - name: Resolve triggering SHA
+        id: source
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: googleapis/release-please-action@v4
         id: release
         with:
@@ -54,37 +72,32 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Wait for release images in ACR
+      - name: Resolve immutable release images in ACR
         if: steps.release.outputs.release_created == 'true'
         run: |
           set -euo pipefail
           RELEASE_SHA=$(git rev-list -n 1 "${{ steps.release.outputs.tag_name }}")
           echo "RELEASE_SHA=$RELEASE_SHA" >> "$GITHUB_ENV"
 
-          resolve_digest() {
-            az acr manifest show-metadata \
-              --registry "$ACR_NAME" \
-              --name "$1:${RELEASE_SHA}" \
-              --query digest \
-              -o tsv
-          }
+          backend_digest=$(az acr manifest show-metadata \
+            --registry "$ACR_NAME" \
+            --name "talenti/backend:${RELEASE_SHA}" \
+            --query digest \
+            -o tsv)
 
-          for attempt in $(seq 1 40); do
-            backend_digest=$(resolve_digest "talenti/backend" || true)
-            acs_digest=$(resolve_digest "talenti/acs-worker" || true)
+          acs_digest=$(az acr manifest show-metadata \
+            --registry "$ACR_NAME" \
+            --name "talenti/acs-worker:${RELEASE_SHA}" \
+            --query digest \
+            -o tsv)
 
-            if [[ -n "$backend_digest" && -n "$acs_digest" ]]; then
-              echo "BACKEND_DIGEST=$backend_digest" >> "$GITHUB_ENV"
-              echo "ACS_DIGEST=$acs_digest" >> "$GITHUB_ENV"
-              exit 0
-            fi
+          if [[ -z "$backend_digest" || -z "$acs_digest" ]]; then
+            echo "Missing immutable release images for ${RELEASE_SHA}."
+            exit 1
+          fi
 
-            echo "Waiting for backend and ACS images for ${RELEASE_SHA} (attempt $attempt/40)..."
-            sleep 30
-          done
-
-          echo "Timed out waiting for release images to be pushed to ACR."
-          exit 1
+          echo "BACKEND_DIGEST=$backend_digest" >> "$GITHUB_ENV"
+          echo "ACS_DIGEST=$acs_digest" >> "$GITHUB_ENV"
 
       - name: Create release manifest
         if: steps.release.outputs.release_created == 'true'

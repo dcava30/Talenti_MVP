@@ -1,0 +1,8 @@
+﻿# Core repository ownership for required review enforcement
+* @dcava30
+
+# Infra and deployment controls
+/infra/ @dcava30
+/.github/workflows/ @dcava30
+/scripts/setup-deployment-access.ps1 @dcava30
+/scripts/day1-dev-deploy.ps1 @dcava30
