@@ -36,6 +36,8 @@ Talenti now uses a trunk-based release model on `main`.
   - Generates SBOMs, vulnerability scan evidence, signatures, and provenance attestations
 - `deploy-dev.yml`
   - Runs after a successful `ci-main` workflow on `main`
+  - Manual dispatch requires `source_sha` (full 40-character SHA on `main`)
+  - Manual dispatch validates a successful `ci-main` run exists for that SHA before deployment
   - Resolves immutable backend/ACS image digests from ACR for the commit SHA
   - Validates pinned model digests
   - Requires matching `infra-dev` success when infra files changed in that commit
@@ -44,6 +46,7 @@ Talenti now uses a trunk-based release model on `main`.
   - Smoke-checks backend `/health` and the DEV Static Web App
 - `release.yml`
   - Runs after successful `deploy-dev` on `main` (or manual dispatch)
+  - Manual dispatch requires `source_sha` and validates that SHA was already deployed to `dev`
   - Uses `release-please` with repo-root `VERSION` and `CHANGELOG.md`
   - Creates or updates the release PR
   - When the release PR is merged and a tag is created, uploads:
@@ -58,6 +61,11 @@ Talenti now uses a trunk-based release model on `main`.
   - Publishes UAT/PROD frontend assets to Azure Storage static website hosting
   - Purges Azure Front Door Standard cache after upload
   - Runs UAT on a self-hosted runner inside the allowlisted network
+  - Optionally verifies model image signatures when `MODEL1_COSIGN_IDENTITY_REGEX` and `MODEL2_COSIGN_IDENTITY_REGEX` are set in the target environment
+
+- Workflow security baseline
+  - Third-party GitHub Actions are pinned to immutable commit SHAs.
+  - Release tooling binaries (Syft, Trivy, Hadolint, Gitleaks) are downloaded at fixed versions with checksum verification.
 
 ## Release Contract
 

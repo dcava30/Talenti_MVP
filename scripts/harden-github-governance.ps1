@@ -3,6 +3,7 @@
     [string]$Repo,
 
     [string]$MainBranch = "main",
+    [string[]]$RequiredStatusChecks = @("pr-fast-quality", "pr-security-iac", "pr-ephemeral-deploy"),
 
     [string[]]$UatReviewerLogins = @(),
     [string[]]$ProdReviewerLogins = @(),
@@ -99,12 +100,56 @@ function Ensure-EnvBranchPolicy {
     }
 }
 
+function Set-RepositoryMergePolicy {
+    param([string]$RepoName)
+
+    gh api --method PATCH "repos/$RepoName" `
+        -F allow_squash_merge=true `
+        -F allow_merge_commit=false `
+        -F allow_rebase_merge=false | Out-Null
+}
+
+function Set-MainBranchProtection {
+    param(
+        [string]$RepoName,
+        [string]$BranchName,
+        [string[]]$StatusChecks
+    )
+
+    $payload = @{
+        required_status_checks = @{
+            strict = $true
+            contexts = $StatusChecks
+        }
+        enforce_admins = $true
+        required_pull_request_reviews = @{
+            dismiss_stale_reviews = $true
+            require_code_owner_reviews = $true
+            required_approving_review_count = 1
+        }
+        required_conversation_resolution = $true
+        restrictions = $null
+    } | ConvertTo-Json -Depth 8
+
+    $tmp = Join-Path $env:TEMP ("gh-branch-protection-" + [guid]::NewGuid().ToString("N") + ".json")
+    [System.IO.File]::WriteAllText($tmp, $payload, (New-Object System.Text.UTF8Encoding($false)))
+    try {
+        gh api --method PUT "repos/$RepoName/branches/$BranchName/protection" --input $tmp | Out-Null
+    } finally {
+        Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+    }
+}
+
 Require-Command "gh"
 
 $null = gh auth status
 
 Write-Host "Configuring GitHub Actions token defaults..."
 gh api --method PUT "repos/$Repo/actions/permissions/workflow" -f default_workflow_permissions=read -F can_approve_pull_request_reviews=false | Out-Null
+
+Write-Host "Configuring merge strategy and main branch protection..."
+Set-RepositoryMergePolicy -RepoName $Repo
+Set-MainBranchProtection -RepoName $Repo -BranchName $MainBranch -StatusChecks $RequiredStatusChecks
 
 if ($RestrictAllowedActions) {
     Write-Host "Restricting allowed actions to local + GitHub owned actions..."
@@ -133,6 +178,9 @@ Set-EnvironmentPolicy -EnvironmentName "prod" -Reviewers $prodReviewers -CustomB
 Ensure-EnvBranchPolicy -EnvironmentName "dev" -BranchName $MainBranch
 
 Write-Host "Done."
+Write-Host "- branch protection: required checks = $($RequiredStatusChecks -join ', ')"
+Write-Host "- branch protection: direct pushes blocked on '$MainBranch'"
+Write-Host "- merge strategy: squash-only"
 Write-Host "- dev: protected deployment branch policy on '$MainBranch'"
 Write-Host "- uat: required reviewers = $($UatReviewerLogins -join ', ')"
 Write-Host "- prod: required reviewers enabled = $($ProdReviewerLogins -join ', ')"

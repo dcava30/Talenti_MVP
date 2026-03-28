@@ -1,4 +1,5 @@
 name: promote-release
+run-name: promote-${{ github.event_name == 'release' && 'uat' || inputs.target_environment }} (${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }})
 
 on:
   release:
@@ -22,6 +23,10 @@ permissions:
   contents: read
   id-token: write
 
+concurrency:
+  group: promote-${{ github.event_name == 'release' && 'uat' || inputs.target_environment }}
+  cancel-in-progress: false
+
 jobs:
   promote:
     runs-on: ${{ fromJSON((github.event_name == 'release' || inputs.target_environment == 'uat') && '["self-hosted","uat"]' || '["ubuntu-latest"]') }}
@@ -39,18 +44,20 @@ jobs:
       FRONT_DOOR_PROFILE_NAME: ${{ vars.FRONT_DOOR_PROFILE_NAME }}
       FRONT_DOOR_ENDPOINT_NAME: ${{ vars.FRONT_DOOR_ENDPOINT_NAME }}
       KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
+      MODEL1_COSIGN_IDENTITY_REGEX: ${{ vars.MODEL1_COSIGN_IDENTITY_REGEX }}
+      MODEL2_COSIGN_IDENTITY_REGEX: ${{ vars.MODEL2_COSIGN_IDENTITY_REGEX }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
         with:
           ref: ${{ env.RELEASE_TAG }}
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: "3.11"
 
       - name: Azure login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@1384c340ab2dda50fed2bee3041d1d87018aa5e8
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -169,19 +176,38 @@ jobs:
           echo "MODEL2_IMAGE=$(import_image "$MODEL2_SOURCE_IMAGE" "$ACR_NAME" "model-service-2-${SAFE_TAG}")" >> "$GITHUB_ENV"
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3.7.0
+        uses: sigstore/cosign-installer@1aa8e0f2454b781fbf0fbf306a4c9533a0c57409
 
       - name: Verify signed release images
         run: |
           set -euo pipefail
+          oidc_issuer="https://token.actions.githubusercontent.com"
           cosign verify \
             --certificate-identity-regexp "https://github.com/${{ github.repository }}/.github/workflows/ci-main.yml@refs/heads/main" \
-            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --certificate-oidc-issuer "$oidc_issuer" \
             "$BACKEND_IMAGE"
           cosign verify \
             --certificate-identity-regexp "https://github.com/${{ github.repository }}/.github/workflows/ci-main.yml@refs/heads/main" \
-            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --certificate-oidc-issuer "$oidc_issuer" \
             "$ACS_IMAGE"
+
+          if [[ -n "${MODEL1_COSIGN_IDENTITY_REGEX:-}" ]]; then
+            cosign verify \
+              --certificate-identity-regexp "$MODEL1_COSIGN_IDENTITY_REGEX" \
+              --certificate-oidc-issuer "$oidc_issuer" \
+              "$MODEL1_IMAGE"
+          else
+            echo "Skipping model-service-1 signature verification: MODEL1_COSIGN_IDENTITY_REGEX is not set."
+          fi
+
+          if [[ -n "${MODEL2_COSIGN_IDENTITY_REGEX:-}" ]]; then
+            cosign verify \
+              --certificate-identity-regexp "$MODEL2_COSIGN_IDENTITY_REGEX" \
+              --certificate-oidc-issuer "$oidc_issuer" \
+              "$MODEL2_IMAGE"
+          else
+            echo "Skipping model-service-2 signature verification: MODEL2_COSIGN_IDENTITY_REGEX is not set."
+          fi
 
       - name: Run backend migrations
         run: |

@@ -1,4 +1,4 @@
-﻿name: ci-main
+name: ci-main
 
 on:
   push:
@@ -23,21 +23,21 @@ jobs:
       AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
       ACR_NAME: ${{ vars.ACR_NAME }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version: "20"
           cache: npm
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: "3.11"
 
       - name: Azure login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@1384c340ab2dda50fed2bee3041d1d87018aa5e8
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -80,18 +80,41 @@ jobs:
       - name: Generate SBOMs
         run: |
           set -euo pipefail
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b . v1.25.1
-          ./syft "${BACKEND_IMAGE}" -o spdx-json > sbom-backend.spdx.json
-          ./syft "${ACS_IMAGE}" -o spdx-json > sbom-acs-worker.spdx.json
+          SYFT_VERSION="1.25.1"
+          SYFT_ARCHIVE="syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          SYFT_CHECKSUMS="syft_${SYFT_VERSION}_checksums.txt"
+          SYFT_BASE_URL="https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}"
+
+          curl -sSfL "${SYFT_BASE_URL}/${SYFT_ARCHIVE}" -o "${SYFT_ARCHIVE}"
+          curl -sSfL "${SYFT_BASE_URL}/${SYFT_CHECKSUMS}" -o "${SYFT_CHECKSUMS}"
+          awk "/ ${SYFT_ARCHIVE}\$/ {print; found=1} END {exit found ? 0 : 1}" "${SYFT_CHECKSUMS}" | sha256sum -c -
+
+          tar -xzf "${SYFT_ARCHIVE}" syft
+          install -m 0755 syft /usr/local/bin/syft
+
+          syft "${BACKEND_IMAGE}" -o spdx-json > sbom-backend.spdx.json
+          syft "${ACS_IMAGE}" -o spdx-json > sbom-acs-worker.spdx.json
 
       - name: Scan published images (high/critical gate)
         run: |
-          curl -sSL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          set -euo pipefail
+          TRIVY_VERSION="0.56.2"
+          TRIVY_ARCHIVE="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          TRIVY_CHECKSUMS="trivy_${TRIVY_VERSION}_checksums.txt"
+          TRIVY_BASE_URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
+
+          curl -sSfL "${TRIVY_BASE_URL}/${TRIVY_ARCHIVE}" -o "${TRIVY_ARCHIVE}"
+          curl -sSfL "${TRIVY_BASE_URL}/${TRIVY_CHECKSUMS}" -o "${TRIVY_CHECKSUMS}"
+          awk "/ ${TRIVY_ARCHIVE}\$/ {print; found=1} END {exit found ? 0 : 1}" "${TRIVY_CHECKSUMS}" | sha256sum -c -
+
+          tar -xzf "${TRIVY_ARCHIVE}" trivy
+          install -m 0755 trivy /usr/local/bin/trivy
+
           trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed "${BACKEND_IMAGE}"
           trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed "${ACS_IMAGE}"
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3.7.0
+        uses: sigstore/cosign-installer@1aa8e0f2454b781fbf0fbf306a4c9533a0c57409
 
       - name: Sign images (keyless)
         env:
@@ -101,21 +124,21 @@ jobs:
           cosign sign "${ACS_IMAGE}"
 
       - name: Attest backend image provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45
         with:
           subject-name: ${{ env.ACR_NAME }}.azurecr.io/talenti/backend
           subject-digest: ${{ env.BACKEND_DIGEST }}
           push-to-registry: true
 
       - name: Attest ACS image provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45
         with:
           subject-name: ${{ env.ACR_NAME }}.azurecr.io/talenti/acs-worker
           subject-digest: ${{ env.ACS_DIGEST }}
           push-to-registry: true
 
       - name: Upload CI evidence artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ci-main-evidence-${{ github.sha }}
           path: |

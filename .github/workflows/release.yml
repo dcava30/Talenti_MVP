@@ -1,7 +1,13 @@
-﻿name: release
+name: release
+run-name: release (${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }})
 
 on:
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full 40-character commit SHA on main that was deployed to dev
+        required: true
+        type: string
   workflow_run:
     workflows:
       - deploy-dev
@@ -13,6 +19,10 @@ permissions:
   pull-requests: write
   id-token: write
   actions: read
+
+concurrency:
+  group: release-dev
+  cancel-in-progress: false
 
 jobs:
   release-please:
@@ -34,10 +44,74 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
             echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
           else
-            echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            echo "sha=${{ inputs.source_sha }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: googleapis/release-please-action@v4
+      - name: Checkout repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate manual dispatch source SHA was deployed to dev
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          source_sha="${{ steps.source.outputs.sha }}"
+
+          if ! [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "inputs.source_sha must be a full 40-character lowercase git SHA."
+            exit 1
+          fi
+
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$source_sha" origin/main; then
+            echo "source_sha must exist on the main branch history."
+            exit 1
+          fi
+
+          main_sha=$(gh api "repos/${{ github.repository }}/branches/main" --jq '.commit.sha')
+          if [[ "$source_sha" != "$main_sha" ]]; then
+            echo "source_sha ($source_sha) must match current main HEAD ($main_sha) for manual release runs."
+            exit 1
+          fi
+
+          gh run list --workflow ci-main.yml --branch main --limit 200 --json headSha,conclusion,status > ci_main_runs.json
+          gh run list --workflow deploy-dev.yml --limit 200 --json displayTitle,conclusion,status > deploy_dev_runs.json
+
+          python - <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          source_sha = "${{ steps.source.outputs.sha }}"
+          ci_runs = json.loads(Path("ci_main_runs.json").read_text(encoding="utf-8"))
+          deploy_runs = json.loads(Path("deploy_dev_runs.json").read_text(encoding="utf-8"))
+
+          ci_ok = any(
+              run.get("headSha") == source_sha
+              and run.get("status") == "completed"
+              and run.get("conclusion") == "success"
+              for run in ci_runs
+          )
+          deploy_ok = any(
+              run.get("status") == "completed"
+              and run.get("conclusion") == "success"
+              and source_sha in (run.get("displayTitle") or "")
+              for run in deploy_runs
+          )
+
+          if not ci_ok:
+              print(f"No successful ci-main run found for source_sha={source_sha}.")
+              sys.exit(1)
+          if not deploy_ok:
+              print(f"No successful deploy-dev run found for source_sha={source_sha}.")
+              sys.exit(1)
+          PY
+
+      - uses: googleapis/release-please-action@c3fc4de07084f75a2b61a5b933069bda6edf3d5c
         id: release
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN != '' && secrets.RELEASE_PLEASE_TOKEN || github.token }}
@@ -46,13 +120,13 @@ jobs:
 
       - name: Checkout release commit
         if: steps.release.outputs.release_created == 'true'
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
         with:
           ref: ${{ steps.release.outputs.tag_name }}
 
       - name: Setup Node.js
         if: steps.release.outputs.release_created == 'true'
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version: "20"
           cache: npm
@@ -66,7 +140,7 @@ jobs:
 
       - name: Azure login (OIDC)
         if: steps.release.outputs.release_created == 'true'
-        uses: azure/login@v2
+        uses: azure/login@1384c340ab2dda50fed2bee3041d1d87018aa5e8
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
