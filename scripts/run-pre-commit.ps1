@@ -16,6 +16,7 @@ $ErrorActionPreference = "Stop"
 
 $script:CurrentStepName = ""
 $script:PreCommitLogPath = ""
+$script:FailedStepName = ""
 
 function Require-Command {
     param([string]$Name)
@@ -562,6 +563,11 @@ try {
                     -InfraTouched:$infraTouched `
                     -ForceInstall:$InstallDependencies
             }
+        } catch {
+            if (-not $script:FailedStepName) {
+                $script:FailedStepName = if ($script:CurrentStepName) { $script:CurrentStepName } else { "Unknown step" }
+            }
+            throw
         } finally {
             if ($startedLocalPostgres) {
                 try {
@@ -579,7 +585,13 @@ try {
     }
 } catch {
     $exitCode = 1
-    $failedStep = if ($script:CurrentStepName) { $script:CurrentStepName } else { "Unknown step" }
+    $failedStep = if ($script:FailedStepName) {
+        $script:FailedStepName
+    } elseif ($script:CurrentStepName) {
+        $script:CurrentStepName
+    } else {
+        "Unknown step"
+    }
     $errorMessage = $_.Exception.Message
     $failureDetails = [pscustomobject]@{
         StepName = $failedStep
