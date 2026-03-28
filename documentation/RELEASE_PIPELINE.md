@@ -151,6 +151,29 @@ The Azure federated credential subject must match the GitHub environment form us
 - UAT promotion and frontend smoke checks require a self-hosted runner with the `uat` label on an allowlisted office/VPN network.
 - Roll back by rerunning `promote-release.yml` with an older `release_tag`.
 
+## Local Pre-Commit Gate
+
+To catch workflow failures before pushing:
+
+1. Install the tracked git hook:
+   - `npm run hooks:install`
+2. Default commit hook runs:
+   - `scripts/run-pre-commit.ps1 -Scope staged -Profile fast`
+3. Run full local parity checks manually when needed:
+   - `npm run precommit:full`
+4. Optional tools used by `full` profile:
+   - Docker (for gitleaks, hadolint, trivy image scans)
+   - Azure CLI + Bicep (for infra compile checks)
+5. Every run writes a timestamped log:
+   - `.tmp/precommit/precommit-YYYYMMDD-HHMMSS.log`
+6. Failures end with a summary that includes:
+   - the failed step
+   - why that step is a gate
+   - targeted remediation hints
+
+`fast` mirrors `pr-fast-quality` behavior for touched components.
+`full` adds local equivalents of `pr-security-iac` checks (excluding CodeQL, which remains CI-only).
+
 ## Environment Protection Notes
 
 - `dev` should use a deployment branch policy restricted to `main`.
