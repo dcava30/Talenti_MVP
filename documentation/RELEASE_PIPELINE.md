@@ -173,6 +173,8 @@ To catch workflow failures before pushing:
 
 `fast` mirrors `pr-fast-quality` behavior for touched components.
 `full` adds local equivalents of `pr-security-iac` checks (excluding CodeQL, which remains CI-only).
+Backend coverage gate is currently enforced at 60% in local and CI while test coverage is being expanded.
+If Git shell (`sh.exe`) is broken on Windows, `hooks:install` auto-falls back to `.githooks-disabled` and prompts manual `npm run precommit`.
 
 ## Environment Protection Notes
 

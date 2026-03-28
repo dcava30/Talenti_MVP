@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 repo_root="$(git rev-parse --show-toplevel)"
 runner="$repo_root/scripts/run-pre-commit.ps1"

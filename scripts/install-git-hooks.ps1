@@ -1,5 +1,6 @@
 param(
-    [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+    [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
+    [switch]$DisableHooksIfShBroken = $true
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,6 +18,52 @@ if (-not (Test-Path $hookPath)) {
 
 Push-Location $repoRootResolved
 try {
+    $shCandidates = New-Object System.Collections.Generic.List[string]
+    $shCommand = Get-Command "sh.exe" -ErrorAction SilentlyContinue
+    if ($shCommand) {
+        $shCandidates.Add($shCommand.Source)
+    }
+    $shCommand = Get-Command "sh" -ErrorAction SilentlyContinue
+    if ($shCommand) {
+        $shCandidates.Add($shCommand.Source)
+    }
+
+    $gitCommand = Get-Command "git" -ErrorAction SilentlyContinue
+    if ($gitCommand) {
+        $gitBinPath = Split-Path $gitCommand.Source -Parent
+        $gitRootPath = Resolve-Path (Join-Path $gitBinPath "..")
+        $gitShPath = Join-Path $gitRootPath "usr\bin\sh.exe"
+        if (Test-Path $gitShPath) {
+            $shCandidates.Add((Resolve-Path $gitShPath).Path)
+        }
+    }
+
+    $shCandidates = @($shCandidates | Select-Object -Unique)
+    foreach ($shPath in $shCandidates) {
+        $shHealthy = $true
+        try {
+            & $shPath -lc "exit 0" *> $null
+            if ($LASTEXITCODE -ne 0) {
+                $shHealthy = $false
+            }
+        } catch {
+            $shHealthy = $false
+        }
+
+        if (-not $shHealthy -and $DisableHooksIfShBroken) {
+            $disabledHooksPath = ".githooks-disabled"
+            $disabledHooksFullPath = Join-Path $repoRootResolved $disabledHooksPath
+            if (-not (Test-Path $disabledHooksFullPath)) {
+                New-Item -ItemType Directory -Path $disabledHooksFullPath -Force | Out-Null
+            }
+            git config core.hooksPath $disabledHooksPath | Out-Null
+            Write-Host "Detected broken Git shell runtime (`sh`) at: $shPath"
+            Write-Host "Configured core.hooksPath=$disabledHooksPath to avoid commit failures."
+            Write-Host 'Run `npm run precommit` manually before committing while Git shell is repaired.'
+            return
+        }
+    }
+
     git config core.hooksPath .githooks | Out-Null
     Write-Host "Configured core.hooksPath=.githooks"
 

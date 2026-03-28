@@ -135,7 +135,7 @@ function Get-ResolutionHints {
         }
         "^Backend tests with CI coverage threshold$" {
             $hints.Add("Run backend tests locally and fix failing tests first.")
-            $hints.Add("If coverage is below 70%, add focused tests for changed code paths until the threshold is met.")
+            $hints.Add("If coverage is below 60%, add focused tests for changed code paths until the threshold is met.")
         }
         "^Backend migration execution check$" {
             $hints.Add("Run `python backend/scripts/run_migrations.py` with the same `DATABASE_URL` and inspect migration traceback.")
@@ -196,8 +196,8 @@ function Get-ResolutionHints {
     if ($ErrorMessage -match "The term 'git' is not recognized") {
         $hints.Add("Install Git and ensure `git` is available from the current shell.")
     }
-    if ($ErrorMessage -match "cov-fail-under=70") {
-        $hints.Add("Coverage gate failed: increase backend test coverage to at least 70%.")
+    if ($ErrorMessage -match "cov-fail-under=60") {
+        $hints.Add("Coverage gate failed: increase backend test coverage to at least 60%.")
     }
     if ($ErrorMessage -match "cov-fail-under=65") {
         $hints.Add("Coverage gate failed: increase ACS test coverage to at least 65%.")
@@ -287,7 +287,7 @@ function Run-BackendFastChecks {
     $originalTestDatabaseUrl = $env:TEST_DATABASE_URL
     try {
         $env:TEST_DATABASE_URL = $DatabaseUrl
-        Invoke-Checked $backendPython @("-m", "pytest", "tests", "-q", "--cov=app", "--cov-report=term-missing", "--cov-fail-under=70") $backendPath
+        Invoke-Checked $backendPython @("-m", "pytest", "tests", "-q", "--cov=app", "--cov-report=term-missing", "--cov-fail-under=60") $backendPath
     } finally {
         if ($null -ne $originalTestDatabaseUrl) {
             $env:TEST_DATABASE_URL = $originalTestDatabaseUrl

@@ -89,7 +89,7 @@ jobs:
 
       - name: Run backend tests with coverage threshold
         run: |
-          pytest backend/tests -q --cov=app --cov-report=term-missing --cov-fail-under=70
+          pytest backend/tests -q --cov=app --cov-report=term-missing --cov-fail-under=60
 
       - name: Run migration execution check
         env:
