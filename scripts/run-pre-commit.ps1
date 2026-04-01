@@ -83,6 +83,7 @@ function Get-StepWhy {
         "^Detect changed files$" { return "Changed-file detection determines which component gates must run for CI parity." }
         "^Install frontend dependencies$" { return "Frontend dependency install ensures lint, tests, and build run against the exact lockfile state used in CI." }
         "^Frontend lint$" { return "Lint failures indicate code-style or static-analysis violations that would fail `pr-fast-quality`." }
+        "^Frontend axios guard$" { return "Axios guard blocks introducing forbidden axios dependency or imports." }
         "^Frontend tests$" { return "Frontend test failures indicate behavior regressions that block `pr-fast-quality`." }
         "^Frontend build$" { return "Build failures indicate compile or bundling issues that block deployment readiness." }
         "^Backend dependencies$" { return "Backend dependency setup must succeed for tests and migration checks to match CI." }
@@ -124,6 +125,10 @@ function Get-ResolutionHints {
         "^Frontend lint$" {
             $hints.Add("Run `npm run lint` and fix the file/rule violations reported.")
             $hints.Add("If a rule should change, update ESLint config in a separate intentional commit.")
+        }
+        "^Frontend axios guard$" {
+            $hints.Add("Run `npm run check:no-axios` and remove any axios dependency or import references.")
+            $hints.Add("If dependency tooling pulled axios into `package-lock.json`, remove it and re-run `npm ci`.")
         }
         "^Frontend tests$" {
             $hints.Add("Run `npm run test` and fix failing assertions, mocks, or test setup issues.")
@@ -266,6 +271,9 @@ function Run-FrontendFastChecks {
     )
 
     Ensure-FrontendDependencies -RepoPath $RepoPath -ForceInstall:$ForceInstall
+
+    Enter-Step "Frontend axios guard"
+    Invoke-Checked "npm" @("run", "check:no-axios") $RepoPath
 
     Enter-Step "Frontend lint"
     Invoke-Checked "npm" @("run", "lint") $RepoPath

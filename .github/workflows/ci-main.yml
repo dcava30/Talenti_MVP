@@ -36,6 +36,12 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Enforce no-axios policy
+        run: npm run check:no-axios
+
       - name: Azure login (OIDC)
         uses: azure/login@1384c340ab2dda50fed2bee3041d1d87018aa5e8
         with:
