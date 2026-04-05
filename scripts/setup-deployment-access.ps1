@@ -304,13 +304,13 @@ foreach ($environmentName in $EnvironmentNames) {
         Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "FRONT_DOOR_ENDPOINT_NAME" -Value $settings.FrontDoorEndpointName
     }
 
-    if ($settings.ContainsKey("ContainerEnvName")) {
+    if ($settings.Contains("ContainerEnvName")) {
         Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "CONTAINER_ENV_NAME" -Value $settings.ContainerEnvName
     }
-    if ($settings.ContainsKey("PostgresServerName")) {
+    if ($settings.Contains("PostgresServerName")) {
         Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "POSTGRES_SERVER_NAME" -Value $settings.PostgresServerName
     }
-    if ($settings.ContainsKey("StorageAccountName")) {
+    if ($settings.Contains("StorageAccountName")) {
         Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "STORAGE_ACCOUNT_NAME" -Value $settings.StorageAccountName
     }
 
