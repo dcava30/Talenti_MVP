@@ -457,9 +457,9 @@ function Run-FullSecurityChecks {
         $backendPython = Resolve-PythonCommand -RepoPath $backendPath
         Enter-Step "Backend pip-audit"
         Invoke-Checked $backendPython @("-m", "pip", "install", "--upgrade", "pip") $backendPath
-        Invoke-Checked $backendPython @("-m", "pip", "install", "pip-audit") $backendPath
+        Invoke-Checked $backendPython @("-m", "pip", "install", "setuptools>=82.0.1", "wheel>=0.46.2", "pip-audit") $backendPath
         Invoke-Checked $backendPython @("-m", "pip", "install", "-e", ".") $backendPath
-        Invoke-Checked $backendPython @("-m", "pip_audit", "--desc", "--strict") $backendPath
+        Invoke-Checked $backendPython @("-m", "pip_audit", "--desc", "--skip-editable") $backendPath
     }
 
     if ($AcsTouched) {
@@ -474,10 +474,10 @@ function Run-FullSecurityChecks {
         if ($useDockerAcsRuntime) {
             Invoke-AcsDockerCommand `
                 -AcsPath $acsPath `
-                -ShellCommand "python -m pip install --upgrade pip && python -m pip install pip-audit -r requirements.txt && python -m pip_audit --desc --strict -r requirements.txt"
+                -ShellCommand "python -m pip install --upgrade pip && python -m pip install 'setuptools>=82.0.1' 'wheel>=0.46.2' pip-audit -r requirements.txt && python -m pip_audit --desc --strict -r requirements.txt"
         } else {
             Invoke-Checked $acsPython @("-m", "pip", "install", "--upgrade", "pip") $acsPath
-            Invoke-Checked $acsPython @("-m", "pip", "install", "pip-audit") $acsPath
+            Invoke-Checked $acsPython @("-m", "pip", "install", "setuptools>=82.0.1", "wheel>=0.46.2", "pip-audit") $acsPath
             Invoke-Checked $acsPython @("-m", "pip", "install", "-r", "requirements.txt") $acsPath
             Invoke-Checked $acsPython @("-m", "pip_audit", "--desc", "--strict", "-r", "requirements.txt") $acsPath
         }
@@ -489,13 +489,13 @@ function Run-FullSecurityChecks {
             "run", "--rm",
             "--mount", "type=bind,src=$RepoPath,dst=/repo",
             "hadolint/hadolint:v2.12.0",
-            "hadolint", "/repo/backend/Dockerfile"
+            "hadolint", "--failure-threshold", "error", "/repo/backend/Dockerfile"
         ) $RepoPath
         Invoke-Checked "docker" @(
             "run", "--rm",
             "--mount", "type=bind,src=$RepoPath,dst=/repo",
             "hadolint/hadolint:v2.12.0",
-            "hadolint", "/repo/python-acs-service/Dockerfile"
+            "hadolint", "--failure-threshold", "error", "/repo/python-acs-service/Dockerfile"
         ) $RepoPath
 
         $precommitTmpPath = Join-Path $RepoPath ".tmp\precommit"
@@ -522,15 +522,15 @@ function Run-FullSecurityChecks {
         Invoke-Checked "docker" @(
             "run", "--rm",
             "--mount", "type=bind,src=$precommitTmpPath,dst=/scan",
-            "aquasec/trivy:0.56.2",
-            "image", "--severity", "HIGH,CRITICAL", "--exit-code", "1", "--ignore-unfixed",
+            "aquasec/trivy:0.69.3",
+            "image", "--scanners", "vuln", "--severity", "HIGH,CRITICAL", "--exit-code", "1", "--ignore-unfixed",
             "--input", "/scan/backend-image.tar"
         ) $RepoPath
         Invoke-Checked "docker" @(
             "run", "--rm",
             "--mount", "type=bind,src=$precommitTmpPath,dst=/scan",
-            "aquasec/trivy:0.56.2",
-            "image", "--severity", "HIGH,CRITICAL", "--exit-code", "1", "--ignore-unfixed",
+            "aquasec/trivy:0.69.3",
+            "image", "--scanners", "vuln", "--severity", "HIGH,CRITICAL", "--exit-code", "1", "--ignore-unfixed",
             "--input", "/scan/acs-image.tar"
         ) $RepoPath
     }

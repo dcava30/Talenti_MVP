@@ -28,6 +28,7 @@ Talenti now uses a trunk-based release model on `main`.
   - Runs CodeQL, secret scanning, dependency auditing, container scanning, and Bicep/IaC policy checks
 - `pr-ephemeral-deploy.yml`
   - Runs on pull requests to `main` from internal branches
+  - Uses the dedicated GitHub `pr-dev` environment so `dev` can remain restricted to `main`
   - Provisions ephemeral PR runtime resources, runs migrations and API smoke tests, then tears everything down
 - `ci-main.yml`
   - Runs on pushes to `main`
@@ -87,7 +88,7 @@ Talenti now uses a trunk-based release model on `main`.
 
 ## GitHub Environment Variables and Secrets
 
-Create `dev`, `uat`, and `prod` GitHub environments with these variables:
+Create `pr-dev`, `dev`, `uat`, and `prod` GitHub environments with these variables:
 
 - `AZURE_LOCATION`
 - `AZURE_RESOURCE_GROUP`
@@ -98,13 +99,14 @@ Create `dev`, `uat`, and `prod` GitHub environments with these variables:
 - `MODEL1_APP`
 - `MODEL2_APP`
 - `ACS_WORKER_APP`
-- `ALERT_EMAIL_ADDRESS`
+- `ALERT_EMAIL_ADDRESS` in `dev`, `uat`, and `prod`
 - `STATIC_WEB_APP_NAME` in `dev` only
 - `MODEL1_IMAGE_REF` and `MODEL2_IMAGE_REF` in `dev` only
 - `FRONTEND_STORAGE_ACCOUNT` in `uat` and `prod`
 - `FRONT_DOOR_PROFILE_NAME` in `uat` and `prod`
 - `FRONT_DOOR_ENDPOINT_NAME` in `uat` and `prod`
 - `FRONTEND_ALLOWED_CIDRS` in `uat` only, as a JSON array string such as `["203.0.113.0/24"]`
+- `CONTAINER_ENV_NAME`, `POSTGRES_SERVER_NAME`, and `STORAGE_ACCOUNT_NAME` in `pr-dev`
 
 Store these secrets per environment:
 
@@ -115,11 +117,13 @@ Store these secrets per environment:
 - `BACKEND_DATABASE_URL`
 - `JWT_SECRET`
 
+`pr-dev` needs `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `BACKEND_DATABASE_URL`, and `JWT_SECRET`. It does not require `POSTGRES_ADMIN_PASSWORD` because the PR workflow reuses the shared dev server and creates isolated databases from `BACKEND_DATABASE_URL`.
+
 Optional repository or environment secret:
 
 - `RELEASE_PLEASE_TOKEN`
 
-Additional `dev` variables for the PR ephemeral deploy gate:
+Additional `pr-dev` variables for the PR ephemeral deploy gate:
 
 - `CONTAINER_ENV_NAME` (defaults to `cae-talenti-dev-aue` if omitted)
 - `POSTGRES_SERVER_NAME` (defaults to `psql-talenti-dev-aue` if omitted)
@@ -139,6 +143,7 @@ That setup script also configures the repository GitHub Actions workflow permiss
 The Azure federated credential subject must match the GitHub environment form used by the workflows:
 
 - `repo:dcava30/Talenti_MVP:environment:dev`
+- `repo:dcava30/Talenti_MVP:environment:pr-dev`
 - `repo:dcava30/Talenti_MVP:environment:uat`
 - `repo:dcava30/Talenti_MVP:environment:prod`
 
@@ -180,6 +185,7 @@ If local ACS Python is not 3.11-compatible, pre-commit automatically runs ACS ch
 
 ## Environment Protection Notes
 
+- `pr-dev` should use a deployment branch policy that allows `refs/pull/*/merge`.
 - `dev` should use a deployment branch policy restricted to `main`.
 - `uat` and `prod` should use required reviewers when the billing plan supports environment reviewer rules.
 - If reviewer protection is not supported on the current plan, keep `can_admins_bypass=false` and enforce approvals via repository process until the plan is upgraded.

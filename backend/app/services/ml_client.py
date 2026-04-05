@@ -181,12 +181,14 @@ class MLClient:
         resume_text: str = "",
         role_title: str | None = None,
         seniority: str | None = None,
+        operating_environment: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Call Model Service 2 for predictions.
 
         Args:
             transcript: List of transcript segments with speaker and content
+            operating_environment: Org operating environment for env-aware dimension weights
 
         Returns:
             Model 2 prediction results
@@ -201,6 +203,8 @@ class MLClient:
             payload["role_title"] = role_title
         if seniority:
             payload["seniority"] = seniority
+        if operating_environment:
+            payload["operating_environment"] = operating_environment
         return await self._make_request(
             self.model2_url,
             "/predict/transcript",
@@ -249,6 +253,7 @@ class MLClient:
                     resume_text=resume_text,
                     role_title=role_title,
                     seniority=seniority,
+                    operating_environment=operating_environment,
                 ),
                 return_exceptions=True
             )

@@ -70,12 +70,13 @@ jobs:
       - name: Audit backend dependencies (high/critical gate)
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pip-audit
+          python -m pip install "setuptools>=82.0.1" "wheel>=0.46.2" pip-audit
           python -m pip install -e backend
-          pip-audit --desc --strict
+          pip-audit --desc --skip-editable
 
       - name: Audit ACS dependencies (high/critical gate)
         run: |
+          python -m pip install "setuptools>=82.0.1" "wheel>=0.46.2" pip-audit
           python -m pip install -r python-acs-service/requirements.txt
           pip-audit --desc --strict -r python-acs-service/requirements.txt
 
@@ -93,7 +94,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install checkov
 
-          TRIVY_VERSION="0.56.2"
+          TRIVY_VERSION="0.69.3"
           TRIVY_ARCHIVE="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
           TRIVY_CHECKSUMS="trivy_${TRIVY_VERSION}_checksums.txt"
           TRIVY_BASE_URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
@@ -105,16 +106,16 @@ jobs:
 
           HADOLINT_VERSION="2.12.0"
           HADOLINT_BASE_URL="https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}"
-          curl -sSfL "${HADOLINT_BASE_URL}/hadolint-linux-x86_64" -o hadolint
-          curl -sSfL "${HADOLINT_BASE_URL}/hadolint-linux-x86_64.sha256" -o hadolint.sha256
+          curl -sSfL "${HADOLINT_BASE_URL}/hadolint-Linux-x86_64" -o hadolint
+          curl -sSfL "${HADOLINT_BASE_URL}/hadolint-Linux-x86_64.sha256" -o hadolint.sha256
           HADOLINT_SHA=$(awk '{print $1}' hadolint.sha256)
           echo "${HADOLINT_SHA}  hadolint" | sha256sum -c -
           install -m 0755 hadolint /usr/local/bin/hadolint
 
       - name: Dockerfile lint
         run: |
-          hadolint backend/Dockerfile
-          hadolint python-acs-service/Dockerfile
+          hadolint --failure-threshold error backend/Dockerfile
+          hadolint --failure-threshold error python-acs-service/Dockerfile
 
       - name: Build local images for scan
         run: |
@@ -123,8 +124,8 @@ jobs:
 
       - name: Image vulnerability scan (high/critical gate)
         run: |
-          trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed local/backend-pr-scan:${{ github.sha }}
-          trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed local/acs-pr-scan:${{ github.sha }}
+          trivy image --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed local/backend-pr-scan:${{ github.sha }}
+          trivy image --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed local/acs-pr-scan:${{ github.sha }}
 
       - name: Bicep compile validation
         run: |

@@ -179,7 +179,6 @@ docker-compose up
 # In another terminal, test the full pipeline
 curl -X POST http://localhost:8000/api/v1/scoring/analyze \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   -d '{
     "interview_id": "test-123",
     "transcript": [
@@ -193,6 +192,9 @@ curl -X POST http://localhost:8000/api/v1/scoring/analyze \
     }
   }'
 ```
+
+Add your normal Authorization header separately when testing against an
+authenticated backend.
 
 ### Option B: Test Locally (Development)
 
@@ -227,9 +229,11 @@ curl http://localhost:8002/health
 # Test backend scoring endpoint
 curl -X POST http://localhost:8000/api/v1/scoring/analyze \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
   -d @test_request.json
 ```
+
+Add your normal Authorization header separately when testing against an
+authenticated backend.
 
 ---
 
