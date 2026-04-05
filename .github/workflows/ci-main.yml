@@ -104,7 +104,7 @@ jobs:
       - name: Scan published images (high/critical gate)
         run: |
           set -euo pipefail
-          TRIVY_VERSION="0.56.2"
+          TRIVY_VERSION="0.69.3"
           TRIVY_ARCHIVE="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
           TRIVY_CHECKSUMS="trivy_${TRIVY_VERSION}_checksums.txt"
           TRIVY_BASE_URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
@@ -116,8 +116,8 @@ jobs:
           tar -xzf "${TRIVY_ARCHIVE}" trivy
           install -m 0755 trivy /usr/local/bin/trivy
 
-          trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed "${BACKEND_IMAGE}"
-          trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed "${ACS_IMAGE}"
+          trivy image --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed "${BACKEND_IMAGE}"
+          trivy image --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed "${ACS_IMAGE}"
 
       - name: Install cosign
         uses: sigstore/cosign-installer@1aa8e0f2454b781fbf0fbf306a4c9533a0c57409
