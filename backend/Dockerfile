@@ -4,7 +4,7 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir --upgrade pip && \
+RUN pip install --no-cache-dir --upgrade pip "wheel>=0.46.2" && \
     pip install --no-cache-dir \
     "fastapi>=0.111.0" \
     "uvicorn[standard]>=0.30.0" \
