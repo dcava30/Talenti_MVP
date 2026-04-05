@@ -10,8 +10,12 @@
     "lint": "eslint src/api src/lib/lib vite.config.js eslint.config.js tailwind.config.js postcss.config.js --ignore-pattern \"src/api/__tests__/**\"",
     "test": "vitest run",
     "preview": "vite preview",
+    "check:no-axios": "node scripts/no_axios.cjs",
     "check:no-supabase": "python scripts/no_supabase.py",
-    "check": "npm run check:no-supabase && python scripts/no_typescript.py"
+    "check": "npm run check:no-axios && npm run check:no-supabase && python scripts/no_typescript.py",
+    "precommit": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/run-pre-commit.ps1 -Scope staged -Profile fast",
+    "precommit:full": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/run-pre-commit.ps1 -Scope all -Profile full",
+    "hooks:install": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/install-git-hooks.ps1"
   },
   "dependencies": {
     "@azure/communication-calling": "^1.40.1",

@@ -1,10 +1,16 @@
 name: deploy-dev
+run-name: deploy-dev (${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }})
 
 on:
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full 40-character commit SHA from main to deploy to dev
+        required: true
+        type: string
   workflow_run:
     workflows:
-      - ci
+      - ci-main
     types:
       - completed
 
@@ -44,26 +50,64 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
             echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
           else
-            echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            echo "sha=${{ inputs.source_sha }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
         with:
           ref: ${{ steps.source.outputs.sha }}
 
+      - name: Validate manual dispatch source SHA provenance
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          source_sha="${{ steps.source.outputs.sha }}"
+
+          if ! [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "inputs.source_sha must be a full 40-character lowercase git SHA."
+            exit 1
+          fi
+
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$source_sha" origin/main; then
+            echo "source_sha must exist on the main branch history."
+            exit 1
+          fi
+
+          gh run list --workflow ci-main.yml --branch main --limit 200 --json headSha,conclusion,status > ci_main_runs.json
+          python - <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          source_sha = "${{ steps.source.outputs.sha }}"
+          runs = json.loads(Path("ci_main_runs.json").read_text(encoding="utf-8"))
+          ok = any(
+              run.get("headSha") == source_sha
+              and run.get("status") == "completed"
+              and run.get("conclusion") == "success"
+              for run in runs
+          )
+          if not ok:
+              print(f"No successful ci-main run found for source_sha={source_sha}.")
+              sys.exit(1)
+          PY
+
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: "3.11"
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version: "20"
           cache: npm
 
       - name: Azure login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@1384c340ab2dda50fed2bee3041d1d87018aa5e8
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -109,8 +153,73 @@ jobs:
           az containerapp show --name "$ACS_WORKER_APP" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
           az staticwebapp show --name "$STATIC_WEB_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null
 
-      - name: ACR login
-        run: az acr login --name "$ACR_NAME"
+      - name: Enforce infra-dev success when infra changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          changed_files=$(git show --pretty='' --name-only "${{ steps.source.outputs.sha }}")
+          if echo "$changed_files" | grep -Eq '^(infra/|\.github/workflows/infra-dev\.yml)'; then
+            echo "Infra change detected; waiting for matching infra-dev result for commit ${{ steps.source.outputs.sha }}"
+            target_sha="${{ steps.source.outputs.sha }}"
+            timeout_seconds=1200
+            interval_seconds=20
+            elapsed_seconds=0
+
+            while true; do
+              gh run list --workflow infra-dev.yml --branch main --limit 200 --json headSha,conclusion,status > infra_runs.json
+
+              result=$(python - <<'PY'
+              import json
+              from pathlib import Path
+
+              target = "${{ steps.source.outputs.sha }}"
+              runs = json.loads(Path("infra_runs.json").read_text(encoding="utf-8"))
+              matched = [run for run in runs if run.get("headSha") == target]
+
+              if not matched:
+                  print("missing")
+              elif any(run.get("status") == "completed" and run.get("conclusion") == "success" for run in matched):
+                  print("success")
+              elif any(run.get("status") == "completed" and run.get("conclusion") not in ("success", None) for run in matched):
+                  failing = next(
+                      run.get("conclusion")
+                      for run in matched
+                      if run.get("status") == "completed" and run.get("conclusion") not in ("success", None)
+                  )
+                  print(f"failed:{failing}")
+              else:
+                  print("pending")
+              PY
+              )
+
+              case "$result" in
+                success)
+                  echo "Found successful infra-dev run for $target_sha."
+                  break
+                  ;;
+                failed:*)
+                  echo "Matching infra-dev run failed for $target_sha (${result#failed:})."
+                  exit 1
+                  ;;
+                pending|missing)
+                  if (( elapsed_seconds >= timeout_seconds )); then
+                    echo "Timed out waiting for infra-dev completion for $target_sha."
+                    exit 1
+                  fi
+                  echo "infra-dev state=$result for $target_sha; retrying in ${interval_seconds}s (${elapsed_seconds}/${timeout_seconds}s elapsed)"
+                  sleep "$interval_seconds"
+                  elapsed_seconds=$((elapsed_seconds + interval_seconds))
+                  ;;
+                *)
+                  echo "Unexpected infra-dev state: $result"
+                  exit 1
+                  ;;
+              esac
+            done
+          else
+            echo "No infra changes detected for this SHA."
+          fi
 
       - name: Validate pinned model image digests
         run: |
@@ -129,22 +238,21 @@ jobs:
             exit 1
           fi
 
-          docker manifest inspect "$MODEL1_IMAGE" > /dev/null
-          docker manifest inspect "$MODEL2_IMAGE" > /dev/null
-
-      - name: Build and push backend image
+      - name: Resolve immutable app images for source SHA
         run: |
-          BACKEND_IMAGE="$ACR_NAME.azurecr.io/talenti/backend:${{ steps.source.outputs.sha }}"
-          docker build -t "$BACKEND_IMAGE" backend
-          docker push "$BACKEND_IMAGE"
-          echo "BACKEND_IMAGE=$BACKEND_IMAGE" >> $GITHUB_ENV
+          set -euo pipefail
+          source_sha="${{ steps.source.outputs.sha }}"
 
-      - name: Build and push acs-worker image
-        run: |
-          ACS_IMAGE="$ACR_NAME.azurecr.io/talenti/acs-worker:${{ steps.source.outputs.sha }}"
-          docker build -t "$ACS_IMAGE" python-acs-service
-          docker push "$ACS_IMAGE"
-          echo "ACS_IMAGE=$ACS_IMAGE" >> $GITHUB_ENV
+          backend_digest=$(az acr manifest show-metadata --registry "$ACR_NAME" --name "talenti/backend:${source_sha}" --query digest -o tsv)
+          acs_digest=$(az acr manifest show-metadata --registry "$ACR_NAME" --name "talenti/acs-worker:${source_sha}" --query digest -o tsv)
+
+          if [[ -z "$backend_digest" || -z "$acs_digest" ]]; then
+            echo "Missing immutable backend or acs-worker image for $source_sha in ACR."
+            exit 1
+          fi
+
+          echo "BACKEND_IMAGE=$ACR_NAME.azurecr.io/talenti/backend@${backend_digest}" >> "$GITHUB_ENV"
+          echo "ACS_IMAGE=$ACR_NAME.azurecr.io/talenti/acs-worker@${acs_digest}" >> "$GITHUB_ENV"
 
       - name: Run backend migrations (single job)
         run: |
@@ -179,7 +287,7 @@ jobs:
           echo "AZURE_STATIC_WEB_APPS_API_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
       - name: Deploy frontend to Static Web Apps
-        uses: Azure/static-web-apps-deploy@v1
+        uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9
         with:
           azure_static_web_apps_api_token: ${{ env.AZURE_STATIC_WEB_APPS_API_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}

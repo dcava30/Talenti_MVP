@@ -1,0 +1,229 @@
+name: pr-ephemeral-deploy
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - closed
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+
+concurrency:
+  group: pr-ephemeral-deploy-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  enforce-internal-branches:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce internal branch policy for deploy-gated PRs
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]]; then
+            echo "This repository requires deploy-gated PR checks from internal branches."
+            echo "Fork PRs must be mirrored to an internal branch before merge."
+            exit 1
+          fi
+
+  deploy-validate-and-cleanup:
+    if: >-
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft
+    needs: enforce-internal-branches
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: dev
+    env:
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      ACR_NAME: ${{ vars.ACR_NAME }}
+      KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
+      MODEL1_APP: ${{ vars.MODEL1_APP }}
+      MODEL2_APP: ${{ vars.MODEL2_APP }}
+      MODEL1_IMAGE: ${{ vars.MODEL1_IMAGE_REF }}
+      MODEL2_IMAGE: ${{ vars.MODEL2_IMAGE_REF }}
+      CONTAINER_ENV_NAME: ${{ vars.CONTAINER_ENV_NAME || 'cae-talenti-dev-aue' }}
+      POSTGRES_SERVER_NAME: ${{ vars.POSTGRES_SERVER_NAME || 'psql-talenti-dev-aue' }}
+      STORAGE_ACCOUNT_NAME: ${{ vars.STORAGE_ACCOUNT_NAME || 'sttalentidevaue' }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.11"
+
+      - name: Azure login (OIDC)
+        uses: azure/login@1384c340ab2dda50fed2bee3041d1d87018aa5e8
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Ensure Azure CLI extensions
+        run: |
+          az extension add --name containerapp --upgrade
+          az extension add --name rdbms-connect --upgrade || true
+
+      - name: Resolve ephemeral names
+        run: |
+          set -euo pipefail
+          pr="${{ github.event.pull_request.number }}"
+          sha_short="${GITHUB_SHA:0:12}"
+          echo "EPH_BACKEND_APP=ca-backend-pr${pr}" >> "$GITHUB_ENV"
+          echo "EPH_BACKEND_WORKER_APP=ca-backend-worker-pr${pr}" >> "$GITHUB_ENV"
+          echo "EPH_DB_NAME=talenti_pr_${pr}" >> "$GITHUB_ENV"
+          echo "EPH_BACKEND_IMAGE=$ACR_NAME.azurecr.io/talenti/backend:pr-${pr}-${sha_short}" >> "$GITHUB_ENV"
+
+      - name: Build and push backend PR image
+        run: |
+          set -euo pipefail
+          az acr login --name "$ACR_NAME"
+          docker build -t "$EPH_BACKEND_IMAGE" backend
+          docker push "$EPH_BACKEND_IMAGE"
+
+      - name: Resolve model service URLs from shared dev
+        run: |
+          set -euo pipefail
+          model1_fqdn=$(az containerapp show --name "$MODEL1_APP" --resource-group "$AZURE_RESOURCE_GROUP" --query properties.configuration.ingress.fqdn -o tsv)
+          model2_fqdn=$(az containerapp show --name "$MODEL2_APP" --resource-group "$AZURE_RESOURCE_GROUP" --query properties.configuration.ingress.fqdn -o tsv)
+          echo "MODEL1_URL=https://${model1_fqdn}" >> "$GITHUB_ENV"
+          echo "MODEL2_URL=https://${model2_fqdn}" >> "$GITHUB_ENV"
+
+      - name: Create isolated PR database URL
+        env:
+          SOURCE_DATABASE_URL: ${{ secrets.BACKEND_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          python - <<'PY' >> "$GITHUB_ENV"
+          from urllib.parse import urlparse, urlunparse
+          import os
+
+          source = os.environ["SOURCE_DATABASE_URL"]
+          db_name = os.environ["EPH_DB_NAME"]
+          parsed = urlparse(source)
+          new_path = f"/{db_name}"
+          rebuilt = parsed._replace(path=new_path)
+          print(f"EPH_DATABASE_URL={urlunparse(rebuilt)}")
+          PY
+
+      - name: Ensure isolated PR database exists
+        run: |
+          set -euo pipefail
+          az postgres flexible-server db create \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --server-name "$POSTGRES_SERVER_NAME" \
+            --database-name "$EPH_DB_NAME" || true
+
+      - name: Run migrations against PR database
+        env:
+          DATABASE_URL: ${{ env.EPH_DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e backend
+          python backend/scripts/run_migrations.py
+
+      - name: Create or update ephemeral backend app
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          set -euo pipefail
+          if az containerapp show --name "$EPH_BACKEND_APP" --resource-group "$AZURE_RESOURCE_GROUP" > /dev/null 2>&1; then
+            az containerapp update \
+              --name "$EPH_BACKEND_APP" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --image "$EPH_BACKEND_IMAGE"
+
+            az containerapp secret set \
+              --name "$EPH_BACKEND_APP" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --secrets database-url="$EPH_DATABASE_URL" jwt-secret="$JWT_SECRET" > /dev/null
+
+            az containerapp update \
+              --name "$EPH_BACKEND_APP" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --set-env-vars DATABASE_URL=secretref:database-url JWT_SECRET=secretref:jwt-secret ENVIRONMENT=development MODEL_SERVICE_1_URL="$MODEL1_URL" MODEL_SERVICE_2_URL="$MODEL2_URL" ALLOWED_ORIGINS='["https://pr.example.invalid"]' PUBLIC_BASE_URL="https://placeholder.invalid"
+          else
+            az containerapp create \
+              --name "$EPH_BACKEND_APP" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --environment "$CONTAINER_ENV_NAME" \
+              --image "$EPH_BACKEND_IMAGE" \
+              --ingress external \
+              --target-port 8000 \
+              --registry-server "$ACR_NAME.azurecr.io" \
+              --registry-identity system \
+              --cpu 0.5 \
+              --memory 1.0Gi \
+              --min-replicas 1 \
+              --max-replicas 1 \
+              --secrets database-url="$EPH_DATABASE_URL" jwt-secret="$JWT_SECRET" \
+              --env-vars DATABASE_URL=secretref:database-url JWT_SECRET=secretref:jwt-secret ENVIRONMENT=development MODEL_SERVICE_1_URL="$MODEL1_URL" MODEL_SERVICE_2_URL="$MODEL2_URL" ALLOWED_ORIGINS='["https://pr.example.invalid"]' PUBLIC_BASE_URL="https://placeholder.invalid"
+          fi
+
+      - name: Ensure AcrPull role for ephemeral backend app
+        run: |
+          set -euo pipefail
+          acr_id=$(az acr show --name "$ACR_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
+          principal_id=$(az containerapp show --name "$EPH_BACKEND_APP" --resource-group "$AZURE_RESOURCE_GROUP" --query identity.principalId -o tsv)
+          if [[ -n "$principal_id" ]]; then
+            az role assignment create --assignee-object-id "$principal_id" --assignee-principal-type ServicePrincipal --role AcrPull --scope "$acr_id" || true
+          fi
+
+      - name: Smoke check ephemeral backend
+        run: |
+          set -euo pipefail
+          fqdn=$(az containerapp show --name "$EPH_BACKEND_APP" --resource-group "$AZURE_RESOURCE_GROUP" --query properties.configuration.ingress.fqdn -o tsv)
+          health_url="https://${fqdn}/health"
+          for i in $(seq 1 20); do
+            if curl -fsS "$health_url" > /dev/null; then
+              exit 0
+            fi
+            sleep 8
+          done
+          echo "Ephemeral backend health check failed: $health_url"
+          exit 1
+
+      - name: Cleanup ephemeral resources
+        if: always()
+        run: |
+          set -euo pipefail
+          az containerapp delete --name "$EPH_BACKEND_APP" --resource-group "$AZURE_RESOURCE_GROUP" --yes || true
+          az postgres flexible-server db delete --resource-group "$AZURE_RESOURCE_GROUP" --server-name "$POSTGRES_SERVER_NAME" --database-name "$EPH_DB_NAME" --yes || true
+
+  cleanup-on-close:
+    if: >-
+      github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    environment: dev
+    env:
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      POSTGRES_SERVER_NAME: ${{ vars.POSTGRES_SERVER_NAME || 'psql-talenti-dev-aue' }}
+    steps:
+      - name: Azure login (OIDC)
+        uses: azure/login@1384c340ab2dda50fed2bee3041d1d87018aa5e8
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Cleanup on PR close
+        run: |
+          set -euo pipefail
+          pr="${{ github.event.pull_request.number }}"
+          az containerapp delete --name "ca-backend-pr${pr}" --resource-group "$AZURE_RESOURCE_GROUP" --yes || true
+          az postgres flexible-server db delete --resource-group "$AZURE_RESOURCE_GROUP" --server-name "$POSTGRES_SERVER_NAME" --database-name "talenti_pr_${pr}" --yes || true

@@ -150,8 +150,8 @@ Recommended split:
 -----------------------
 Recommended flow:
 1. Open PRs against `main` and use Conventional Commit PR titles.
-2. Merge with squash after `pr-validate` passes.
-3. Push to `main` runs `ci`, then `deploy-dev` deploys the commit SHA to DEV.
+2. Merge with squash after required PR gates pass: `pr-fast-quality`, `pr-security-iac`, and `pr-ephemeral-deploy`.
+3. Push to `main` runs `ci-main`, then `deploy-dev` deploys the commit SHA to DEV.
 4. `release.yml` creates or updates a release PR with `release-please`.
 5. Merge the release PR to create a GitHub Release and upload:
    - `release-manifest.json`
