@@ -447,3 +447,151 @@ def test_scoring_dimension_outcome_fields_present(monkeypatch: pytest.MonkeyPatc
     assert outcome["outcome"] == "risk"
     assert outcome["required_pass"] == 60
     assert outcome["gap"] == -20
+
+
+def test_scoring_uses_model2_scores_when_model1_returns_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    When model-service-1 returns {error, fallback: True}, _merge_scores should
+    still succeed using model-service-2 scores alone. The response must not be
+    500 and must include dimensions from service2.
+    """
+    client = create_client()
+    from app.api import scoring as scoring_api
+    from app.db import SessionLocal
+
+    async def fake_predictions(*args, **kwargs):
+        return (
+            # model-service-1 failed — returns fallback sentinel
+            {"error": "model-service-1 timeout", "fallback": True},
+            # model-service-2 returns normal scores
+            {
+                "scores": {
+                    "ownership": {"score": 0.72, "rationale": "Strong ownership.", "confidence": 0.78},
+                    "execution": {"score": 0.65, "rationale": "Delivery signals.", "confidence": 0.70},
+                    "challenge": {"score": 0.55, "rationale": "Challenge evidence.", "confidence": 0.60},
+                    "ambiguity": {"score": 0.60, "rationale": "Ambiguity handling.", "confidence": 0.65},
+                    "feedback": {"score": 0.50, "rationale": "Feedback seeking.", "confidence": 0.55},
+                },
+                "summary": "Service2-only scoring.",
+            },
+        )
+
+    monkeypatch.setattr(scoring_api.ml_client, "get_combined_predictions", fake_predictions)
+
+    with SessionLocal() as db:
+        _, token = _create_user_and_token(db)
+
+    payload = {
+        "interview_id": "int-fallback-1",
+        "transcript": [{"speaker": "candidate", "content": "I owned the outcome and delivered."}],
+        "operating_environment": CANONICAL_OPERATING_ENV,
+        "taxonomy": CANONICAL_TAXONOMY,
+    }
+
+    response = client.post(
+        "/api/v1/scoring/analyze",
+        json=payload,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    # Must have dimensions from service2
+    dim_names = {d["name"] for d in data["dimensions"]}
+    assert "ownership" in dim_names
+    assert "execution" in dim_names
+    # overall_score must be a valid number
+    assert isinstance(data["overall_score"], (int, float))
+    assert data["overall_score"] > 0
+
+
+def test_scoring_returns_500_when_both_services_return_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    When both model services fail, _merge_scores raises InterviewScoringError
+    because no scores are returned. The API must return 500.
+    """
+    client = create_client()
+    from app.api import scoring as scoring_api
+    from app.db import SessionLocal
+
+    async def fake_predictions(*args, **kwargs):
+        return (
+            {"error": "model-service-1 timeout", "fallback": True},
+            {"error": "model-service-2 connection refused", "fallback": True},
+        )
+
+    monkeypatch.setattr(scoring_api.ml_client, "get_combined_predictions", fake_predictions)
+
+    with SessionLocal() as db:
+        _, token = _create_user_and_token(db)
+
+    payload = {
+        "interview_id": "int-fallback-2",
+        "transcript": [{"speaker": "candidate", "content": "I owned the outcome."}],
+        "operating_environment": CANONICAL_OPERATING_ENV,
+        "taxonomy": CANONICAL_TAXONOMY,
+    }
+
+    response = client.post(
+        "/api/v1/scoring/analyze",
+        json=payload,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 500
+
+
+def test_scoring_uses_model1_decision_fields_when_model2_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    When model-service-2 fails but model-service-1 succeeds, decision-dominant
+    fields (recommendation, alignment, risk) must still be present in the response.
+    """
+    client = create_client()
+    from app.api import scoring as scoring_api
+    from app.db import SessionLocal
+
+    async def fake_predictions(*args, **kwargs):
+        return (
+            {
+                "scores": {
+                    "ownership": {"score": 78, "rationale": "Ownership.", "confidence": 0.82},
+                    "execution": {"score": 72, "rationale": "Execution.", "confidence": 0.75},
+                    "challenge": {"score": 68, "rationale": "Challenge.", "confidence": 0.70},
+                    "ambiguity": {"score": 65, "rationale": "Ambiguity.", "confidence": 0.68},
+                    "feedback": {"score": 60, "rationale": "Feedback.", "confidence": 0.65},
+                },
+                "summary": "Service1 only.",
+                "overall_alignment": "strong_fit",
+                "overall_risk_level": "low",
+                "recommendation": "proceed",
+                "dimension_outcomes": {
+                    dim: {"outcome": "pass", "required_pass": 55, "required_watch": 40, "gap": 10}
+                    for dim in ["ownership", "execution", "challenge", "ambiguity", "feedback"]
+                },
+            },
+            # model-service-2 failed
+            {"error": "model-service-2 unavailable", "fallback": True},
+        )
+
+    monkeypatch.setattr(scoring_api.ml_client, "get_combined_predictions", fake_predictions)
+
+    with SessionLocal() as db:
+        _, token = _create_user_and_token(db)
+
+    payload = {
+        "interview_id": "int-fallback-3",
+        "transcript": [{"speaker": "candidate", "content": "I drove the whole project."}],
+        "operating_environment": CANONICAL_OPERATING_ENV,
+        "taxonomy": CANONICAL_TAXONOMY,
+    }
+
+    response = client.post(
+        "/api/v1/scoring/analyze",
+        json=payload,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    # Decision-dominant fields from service1 must pass through
+    assert data["recommendation"] == "proceed"
+    assert data["overall_alignment"] == "strong_fit"
+    assert data["overall_risk_level"] == "low"
+    assert data["dimension_outcomes"] is not None
