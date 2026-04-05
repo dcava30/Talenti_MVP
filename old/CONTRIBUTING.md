@@ -964,10 +964,10 @@ from app.config import settings
 api_key = settings.azure_openai_api_key
 
 # ❌ Bad: Hardcoded secrets
-api_key = "sk-1234567890abcdef"
+api_key = "<set-via-env-var>"
 
 # ❌ Bad: Secrets in code comments
-# API key: sk-1234567890abcdef
+# API key: keep secrets in environment variables, not comments
 ```
 
 ### Input Validation

@@ -214,12 +214,10 @@ def test_raw_answers_preserved_in_result():
 
 def test_archetype_fatal_risks_defined_for_all_archetypes():
     backend_path = str(backend_root())
-    ms1_path = str(backend_root().parent / "model-service-1")
-    for p in [backend_path, ms1_path]:
-        if p not in sys.path:
-            sys.path.insert(0, p)
+    if backend_path not in sys.path:
+        sys.path.insert(0, backend_path)
 
-    from talenti_dimensions import get_archetype_fatal_risks, ARCHETYPE_FATAL_RISKS
+    from app.talenti_canonical import ARCHETYPE_FATAL_RISKS, get_archetype_fatal_risks
     for archetype in ["reliable_executor", "strong_owner", "directional_driver"]:
         risks = get_archetype_fatal_risks(archetype)
         assert isinstance(risks, list)
@@ -227,28 +225,28 @@ def test_archetype_fatal_risks_defined_for_all_archetypes():
 
 
 def test_unknown_archetype_returns_empty_list():
-    backend_path = str(backend_root().parent / "model-service-1")
+    backend_path = str(backend_root())
     if backend_path not in sys.path:
         sys.path.insert(0, backend_path)
-    from talenti_dimensions import get_archetype_fatal_risks
+    from app.talenti_canonical import get_archetype_fatal_risks
     assert get_archetype_fatal_risks("nonexistent_archetype") == []
 
 
 def test_directional_driver_fatal_risks_include_conflict_avoidance():
-    backend_path = str(backend_root().parent / "model-service-1")
+    backend_path = str(backend_root())
     if backend_path not in sys.path:
         sys.path.insert(0, backend_path)
-    from talenti_dimensions import get_archetype_fatal_risks
+    from app.talenti_canonical import get_archetype_fatal_risks
     risks = get_archetype_fatal_risks("directional_driver")
     assert "challenge_conflict_avoidance" in risks
     assert "ambiguity_needs_clarity_to_proceed" in risks
 
 
 def test_reliable_executor_fatal_risks_include_procrastination():
-    backend_path = str(backend_root().parent / "model-service-1")
+    backend_path = str(backend_root())
     if backend_path not in sys.path:
         sys.path.insert(0, backend_path)
-    from talenti_dimensions import get_archetype_fatal_risks
+    from app.talenti_canonical import get_archetype_fatal_risks
     risks = get_archetype_fatal_risks("reliable_executor")
     assert "execution_procrastination_or_drift" in risks
 
@@ -256,10 +254,10 @@ def test_reliable_executor_fatal_risks_include_procrastination():
 # ── high_performance_archetype ENV rule (talenti_dimensions.py) ───────────────
 
 def test_archetype_rules_affect_dimension_thresholds():
-    backend_path = str(backend_root().parent / "model-service-1")
+    backend_path = str(backend_root())
     if backend_path not in sys.path:
         sys.path.insert(0, backend_path)
-    from talenti_dimensions import compute_dimension_requirements
+    from app.talenti_canonical import compute_dimension_requirements
 
     base_env = {
         "control_vs_autonomy": "guided_ownership",

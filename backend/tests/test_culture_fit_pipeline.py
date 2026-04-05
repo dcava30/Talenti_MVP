@@ -507,7 +507,8 @@ def test_scoring_uses_model2_scores_when_model1_returns_fallback(monkeypatch: py
 def test_scoring_returns_500_when_both_services_return_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     When both model services fail, _merge_scores raises InterviewScoringError
-    because no scores are returned. The API must return 500.
+    because no scores are returned. The API should surface that upstream
+    failure as 502.
     """
     client = create_client()
     from app.api import scoring as scoring_api
@@ -536,7 +537,7 @@ def test_scoring_returns_500_when_both_services_return_fallback(monkeypatch: pyt
         json=payload,
         headers={"Authorization": f"Bearer {token}"},
     )
-    assert response.status_code == 500
+    assert response.status_code == 502
 
 
 def test_scoring_uses_model1_decision_fields_when_model2_fails(monkeypatch: pytest.MonkeyPatch) -> None:

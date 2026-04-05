@@ -831,7 +831,7 @@ class MockACSResponses:
     def identity_response() -> dict:
         return {
             "user_id": "8:acs:test-user-id",
-            "token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6IjJ...",
+            "token": "test-token-placeholder",
             "expires_on": "2024-01-15T12:00:00Z",
         }
     

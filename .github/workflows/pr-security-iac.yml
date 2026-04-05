@@ -93,7 +93,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install checkov
 
-          TRIVY_VERSION="0.56.2"
+          TRIVY_VERSION="0.69.3"
           TRIVY_ARCHIVE="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
           TRIVY_CHECKSUMS="trivy_${TRIVY_VERSION}_checksums.txt"
           TRIVY_BASE_URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
@@ -105,8 +105,8 @@ jobs:
 
           HADOLINT_VERSION="2.12.0"
           HADOLINT_BASE_URL="https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}"
-          curl -sSfL "${HADOLINT_BASE_URL}/hadolint-linux-x86_64" -o hadolint
-          curl -sSfL "${HADOLINT_BASE_URL}/hadolint-linux-x86_64.sha256" -o hadolint.sha256
+          curl -sSfL "${HADOLINT_BASE_URL}/hadolint-Linux-x86_64" -o hadolint
+          curl -sSfL "${HADOLINT_BASE_URL}/hadolint-Linux-x86_64.sha256" -o hadolint.sha256
           HADOLINT_SHA=$(awk '{print $1}' hadolint.sha256)
           echo "${HADOLINT_SHA}  hadolint" | sha256sum -c -
           install -m 0755 hadolint /usr/local/bin/hadolint

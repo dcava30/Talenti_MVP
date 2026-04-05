@@ -1,40 +1,32 @@
 """
-talenti_canonical — shared canonical schema constants for the Talenti platform.
+Tracked canonical scoring primitives used by the backend.
 
-This package is the single source of truth for canonical dimension names, default
-weights, and the signal taxonomy used by the backend. It is intentionally kept
-free of any model-service-specific logic so it can be imported by the backend
-without creating a dependency on the model services.
-
-The model services (model-service-1, model-service-2) maintain their own copies
-of talenti_dimensions.py. Those copies MUST be kept in sync with the constants
-exported here. When making changes:
-
-  1. Update this package first.
-  2. Update model-service-1/talenti_dimensions.py to match.
-  3. Update model-service-2/talenti_dimensions.py to match.
-
-Exports
--------
-  CANONICAL_DIMENSIONS       – ordered list of the 5 dimension names
-  DEFAULT_DIMENSION_WEIGHTS  – default scoring weights (sum to 1.0)
-  CANONICAL_TAXONOMY_V2      – the production signal taxonomy (talenti_canonical_v2)
-  ENV_VARIABLE_NAMES         – the 6 operating environment variable names
-  ENV_VARIABLE_VALUES        – valid values per environment variable
+The backend package is the authoritative in-repo source for canonical
+dimensions, default weights, environment enums, and deterministic requirement
+helpers. Model services may carry local copies for runtime isolation, but the
+backend imports should point here.
 """
 
 from app.talenti_canonical.dimensions import (
+    ARCHETYPE_FATAL_RISKS,
     CANONICAL_DIMENSIONS,
     DEFAULT_DIMENSION_WEIGHTS,
+    DimensionRequirement,
     ENV_VARIABLE_NAMES,
     ENV_VARIABLE_VALUES,
+    compute_dimension_requirements,
+    get_archetype_fatal_risks,
 )
 from app.talenti_canonical.taxonomy import CANONICAL_TAXONOMY_V2
 
 __all__ = [
+    "ARCHETYPE_FATAL_RISKS",
     "CANONICAL_DIMENSIONS",
+    "CANONICAL_TAXONOMY_V2",
     "DEFAULT_DIMENSION_WEIGHTS",
+    "DimensionRequirement",
     "ENV_VARIABLE_NAMES",
     "ENV_VARIABLE_VALUES",
-    "CANONICAL_TAXONOMY_V2",
+    "compute_dimension_requirements",
+    "get_archetype_fatal_risks",
 ]
