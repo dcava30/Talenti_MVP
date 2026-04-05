@@ -1,17 +1,36 @@
 name: release
+run-name: release (${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }})
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full 40-character commit SHA on main that was deployed to dev
+        required: true
+        type: string
+  workflow_run:
+    workflows:
+      - deploy-dev
+    types:
+      - completed
 
 permissions:
   contents: write
   pull-requests: write
   id-token: write
+  actions: read
+
+concurrency:
+  group: release-dev
+  cancel-in-progress: false
 
 jobs:
   release-please:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     environment: dev
     env:
@@ -19,7 +38,80 @@ jobs:
       MODEL1_IMAGE: ${{ vars.MODEL1_IMAGE_REF }}
       MODEL2_IMAGE: ${{ vars.MODEL2_IMAGE_REF }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - name: Resolve triggering SHA
+        id: source
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${{ inputs.source_sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate manual dispatch source SHA was deployed to dev
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          source_sha="${{ steps.source.outputs.sha }}"
+
+          if ! [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "inputs.source_sha must be a full 40-character lowercase git SHA."
+            exit 1
+          fi
+
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$source_sha" origin/main; then
+            echo "source_sha must exist on the main branch history."
+            exit 1
+          fi
+
+          main_sha=$(gh api "repos/${{ github.repository }}/branches/main" --jq '.commit.sha')
+          if [[ "$source_sha" != "$main_sha" ]]; then
+            echo "source_sha ($source_sha) must match current main HEAD ($main_sha) for manual release runs."
+            exit 1
+          fi
+
+          gh run list --workflow ci-main.yml --branch main --limit 200 --json headSha,conclusion,status > ci_main_runs.json
+          gh run list --workflow deploy-dev.yml --limit 200 --json displayTitle,conclusion,status > deploy_dev_runs.json
+
+          python - <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          source_sha = "${{ steps.source.outputs.sha }}"
+          ci_runs = json.loads(Path("ci_main_runs.json").read_text(encoding="utf-8"))
+          deploy_runs = json.loads(Path("deploy_dev_runs.json").read_text(encoding="utf-8"))
+
+          ci_ok = any(
+              run.get("headSha") == source_sha
+              and run.get("status") == "completed"
+              and run.get("conclusion") == "success"
+              for run in ci_runs
+          )
+          deploy_ok = any(
+              run.get("status") == "completed"
+              and run.get("conclusion") == "success"
+              and source_sha in (run.get("displayTitle") or "")
+              for run in deploy_runs
+          )
+
+          if not ci_ok:
+              print(f"No successful ci-main run found for source_sha={source_sha}.")
+              sys.exit(1)
+          if not deploy_ok:
+              print(f"No successful deploy-dev run found for source_sha={source_sha}.")
+              sys.exit(1)
+          PY
+
+      - uses: googleapis/release-please-action@c3fc4de07084f75a2b61a5b933069bda6edf3d5c
         id: release
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN != '' && secrets.RELEASE_PLEASE_TOKEN || github.token }}
@@ -28,13 +120,13 @@ jobs:
 
       - name: Checkout release commit
         if: steps.release.outputs.release_created == 'true'
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
         with:
           ref: ${{ steps.release.outputs.tag_name }}
 
       - name: Setup Node.js
         if: steps.release.outputs.release_created == 'true'
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version: "20"
           cache: npm
@@ -48,43 +140,38 @@ jobs:
 
       - name: Azure login (OIDC)
         if: steps.release.outputs.release_created == 'true'
-        uses: azure/login@v2
+        uses: azure/login@1384c340ab2dda50fed2bee3041d1d87018aa5e8
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Wait for release images in ACR
+      - name: Resolve immutable release images in ACR
         if: steps.release.outputs.release_created == 'true'
         run: |
           set -euo pipefail
           RELEASE_SHA=$(git rev-list -n 1 "${{ steps.release.outputs.tag_name }}")
           echo "RELEASE_SHA=$RELEASE_SHA" >> "$GITHUB_ENV"
 
-          resolve_digest() {
-            az acr manifest show-metadata \
-              --registry "$ACR_NAME" \
-              --name "$1:${RELEASE_SHA}" \
-              --query digest \
-              -o tsv
-          }
+          backend_digest=$(az acr manifest show-metadata \
+            --registry "$ACR_NAME" \
+            --name "talenti/backend:${RELEASE_SHA}" \
+            --query digest \
+            -o tsv)
 
-          for attempt in $(seq 1 40); do
-            backend_digest=$(resolve_digest "talenti/backend" || true)
-            acs_digest=$(resolve_digest "talenti/acs-worker" || true)
+          acs_digest=$(az acr manifest show-metadata \
+            --registry "$ACR_NAME" \
+            --name "talenti/acs-worker:${RELEASE_SHA}" \
+            --query digest \
+            -o tsv)
 
-            if [[ -n "$backend_digest" && -n "$acs_digest" ]]; then
-              echo "BACKEND_DIGEST=$backend_digest" >> "$GITHUB_ENV"
-              echo "ACS_DIGEST=$acs_digest" >> "$GITHUB_ENV"
-              exit 0
-            fi
+          if [[ -z "$backend_digest" || -z "$acs_digest" ]]; then
+            echo "Missing immutable release images for ${RELEASE_SHA}."
+            exit 1
+          fi
 
-            echo "Waiting for backend and ACS images for ${RELEASE_SHA} (attempt $attempt/40)..."
-            sleep 30
-          done
-
-          echo "Timed out waiting for release images to be pushed to ACR."
-          exit 1
+          echo "BACKEND_DIGEST=$backend_digest" >> "$GITHUB_ENV"
+          echo "ACS_DIGEST=$acs_digest" >> "$GITHUB_ENV"
 
       - name: Create release manifest
         if: steps.release.outputs.release_created == 'true'

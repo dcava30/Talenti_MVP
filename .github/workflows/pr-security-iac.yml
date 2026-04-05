@@ -1,0 +1,137 @@
+name: pr-security-iac
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+concurrency:
+  group: pr-security-iac-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  codeql:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@3b1a19a80ab047f35cbb237b5bd9bdc1e14f166c
+        with:
+          languages: python,javascript
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@3b1a19a80ab047f35cbb237b5bd9bdc1e14f166c
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@3b1a19a80ab047f35cbb237b5bd9bdc1e14f166c
+
+  dependency-and-secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.11"
+
+      - name: Scan for secrets (gitleaks)
+        run: |
+          set -euo pipefail
+          GITLEAKS_VERSION="8.24.2"
+          GITLEAKS_ARCHIVE="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          GITLEAKS_CHECKSUMS="gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          GITLEAKS_BASE_URL="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+
+          curl -sSfL "${GITLEAKS_BASE_URL}/${GITLEAKS_ARCHIVE}" -o "${GITLEAKS_ARCHIVE}"
+          curl -sSfL "${GITLEAKS_BASE_URL}/${GITLEAKS_CHECKSUMS}" -o "${GITLEAKS_CHECKSUMS}"
+          awk "/ ${GITLEAKS_ARCHIVE}\$/ {print; found=1} END {exit found ? 0 : 1}" "${GITLEAKS_CHECKSUMS}" | sha256sum -c -
+
+          tar -xzf "${GITLEAKS_ARCHIVE}" gitleaks
+          ./gitleaks detect --source . --verbose --redact --exit-code 1
+
+      - name: Audit npm dependencies (high/critical gate)
+        run: |
+          npm ci
+          npm audit --audit-level=high
+
+      - name: Audit backend dependencies (high/critical gate)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pip-audit
+          python -m pip install -e backend
+          pip-audit --desc --strict
+
+      - name: Audit ACS dependencies (high/critical gate)
+        run: |
+          python -m pip install -r python-acs-service/requirements.txt
+          pip-audit --desc --strict -r python-acs-service/requirements.txt
+
+  containers-and-iac:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Install tooling
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install checkov
+
+          TRIVY_VERSION="0.56.2"
+          TRIVY_ARCHIVE="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          TRIVY_CHECKSUMS="trivy_${TRIVY_VERSION}_checksums.txt"
+          TRIVY_BASE_URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
+          curl -sSfL "${TRIVY_BASE_URL}/${TRIVY_ARCHIVE}" -o "${TRIVY_ARCHIVE}"
+          curl -sSfL "${TRIVY_BASE_URL}/${TRIVY_CHECKSUMS}" -o "${TRIVY_CHECKSUMS}"
+          awk "/ ${TRIVY_ARCHIVE}\$/ {print; found=1} END {exit found ? 0 : 1}" "${TRIVY_CHECKSUMS}" | sha256sum -c -
+          tar -xzf "${TRIVY_ARCHIVE}" trivy
+          install -m 0755 trivy /usr/local/bin/trivy
+
+          HADOLINT_VERSION="2.12.0"
+          HADOLINT_BASE_URL="https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}"
+          curl -sSfL "${HADOLINT_BASE_URL}/hadolint-linux-x86_64" -o hadolint
+          curl -sSfL "${HADOLINT_BASE_URL}/hadolint-linux-x86_64.sha256" -o hadolint.sha256
+          HADOLINT_SHA=$(awk '{print $1}' hadolint.sha256)
+          echo "${HADOLINT_SHA}  hadolint" | sha256sum -c -
+          install -m 0755 hadolint /usr/local/bin/hadolint
+
+      - name: Dockerfile lint
+        run: |
+          hadolint backend/Dockerfile
+          hadolint python-acs-service/Dockerfile
+
+      - name: Build local images for scan
+        run: |
+          docker build -t local/backend-pr-scan:${{ github.sha }} backend
+          docker build -t local/acs-pr-scan:${{ github.sha }} python-acs-service
+
+      - name: Image vulnerability scan (high/critical gate)
+        run: |
+          trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed local/backend-pr-scan:${{ github.sha }}
+          trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed local/acs-pr-scan:${{ github.sha }}
+
+      - name: Bicep compile validation
+        run: |
+          az bicep install
+          az bicep build --file infra/dev/main.bicep
+          az bicep build --file infra/uat/main.bicep
+          az bicep build --file infra/prod/main.bicep
+
+      - name: IaC policy scan
+        run: checkov -d infra --quiet --compact --framework bicep

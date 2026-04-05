@@ -6,18 +6,23 @@ function Write-Section {
 function Invoke-Checked {
     param(
         [string]$Exe,
-        [string[]]$Args,
+        [string[]]$CommandArgs,
         [string]$Workdir = ""
     )
+
+    $commandDisplay = "$Exe $($CommandArgs -join ' ')".Trim()
+    if ($commandDisplay) {
+        Write-Host "Running: $commandDisplay"
+    }
 
     if ($Workdir) {
         Push-Location $Workdir
     }
 
     try {
-        & $Exe @Args
+        & $Exe @CommandArgs
         if ($LASTEXITCODE -ne 0) {
-            throw "Command failed: $Exe $($Args -join ' ')"
+            throw "Command failed: $Exe $($CommandArgs -join ' ')"
         }
     } finally {
         if ($Workdir) {
@@ -75,12 +80,13 @@ function Ensure-ComposePostgresDatabase {
 
     Push-Location $Workdir
     try {
-        $exists = & docker compose exec -T postgres psql -U $User -d postgres -tAc $existsQuery
+        $existsRaw = & docker compose exec -T postgres psql -U $User -d postgres -tAc $existsQuery
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to query PostgreSQL databases."
         }
 
-        if (-not $exists.Trim()) {
+        $exists = (@($existsRaw) -join "").Trim()
+        if (-not $exists) {
             & docker compose exec -T postgres psql -U $User -d postgres -c "CREATE DATABASE `"$escapedDatabaseForIdentifier`";" *> $null
             if ($LASTEXITCODE -ne 0) {
                 throw "Failed to create PostgreSQL database '$Database'."

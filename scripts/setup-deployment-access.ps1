@@ -61,8 +61,8 @@ function Ensure-GhWorkflowPermissions {
     gh api --method PUT `
         -H "Accept: application/vnd.github+json" `
         "repos/$RepoName/actions/permissions/workflow" `
-        -f default_workflow_permissions=write `
-        -F can_approve_pull_request_reviews=true | Out-Null
+        -f default_workflow_permissions=read `
+        -F can_approve_pull_request_reviews=false | Out-Null
 }
 
 function Ensure-GhEnvironmentSecret {
@@ -236,8 +236,9 @@ if ($LASTEXITCODE -ne 0) {
     throw "gh is not authenticated. Run 'gh auth login' and rerun."
 }
 
-Write-Section "Configure GitHub Actions permissions"
+Write-Section "Configure GitHub Actions permissions baseline"
 Ensure-GhWorkflowPermissions -RepoName $Repo
+Write-Host "For branch protection and merge policy enforcement, run scripts/harden-github-governance.ps1."
 
 Write-Section "Resolve Azure account context"
 az account set --subscription $SubscriptionId
