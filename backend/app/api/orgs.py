@@ -7,15 +7,21 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, require_org_member
-from app.core.config import settings
-from app.models import Application, Interview, InterviewScore, JobRole, Organisation, OrgUser, User
+from app.models import Application, Interview, InterviewScore, JobRole, Organisation, OrgEnvironmentInput, OrgUser, User
 from app.schemas.orgs import (
+    OrgEnvironmentSetup,
+    OrgEnvironmentSetupResponse,
     OrgMembershipResponse,
     OrgRetentionUpdate,
     OrgStatsResponse,
     OrganisationCreate,
     OrganisationDetail,
     OrganisationResponse,
+    VariableSignalResponse,
+)
+from app.services.org_environment import (
+    build_values_framework_from_translation,
+    translate_answers_to_environment,
 )
 
 router = APIRouter(prefix="/api/orgs", tags=["orgs"])
@@ -175,11 +181,12 @@ def _default_values_framework() -> dict[str, Any]:
     }
 
 
-def _resolve_values_framework(raw: dict[str, Any] | str | None) -> str | None:
+def _resolve_values_framework(raw: dict[str, Any] | str | None) -> str:
+    # Always seed the canonical default when no framework is provided.
+    # Production orgs without a completed environment setup still get a safe,
+    # working default rather than silently breaking scoring calls.
     if raw is None:
-        if settings.environment.lower() in {"development", "dev", "local", "test"}:
-            return json.dumps(_default_values_framework())
-        return None
+        return json.dumps(_default_values_framework())
 
     parsed: dict[str, Any]
     if isinstance(raw, str):
@@ -344,4 +351,93 @@ def get_org_stats(
         totalCandidates=total_candidates,
         completedInterviews=completed_interviews,
         avgMatchScore=int(avg_match_score) if avg_match_score is not None else None,
+    )
+
+
+@router.post("/{organisation_id}/environment", response_model=OrgEnvironmentSetupResponse)
+def setup_org_environment(
+    organisation_id: str,
+    payload: OrgEnvironmentSetup,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> OrgEnvironmentSetupResponse:
+    """
+    Submit the 10 org environment questions and translate them deterministically
+    into operating environment variables. Updates the org's values_framework.
+
+    Persists the raw answers and translation lineage to org_environment_inputs
+    for full audit traceability.
+
+    Only org admins may update the environment setup.
+    """
+    require_org_member(organisation_id, db, user)
+    organisation = db.get(Organisation, organisation_id)
+    if not organisation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+
+    # Check caller is an admin member
+    membership = (
+        db.query(OrgUser)
+        .filter(OrgUser.organisation_id == organisation_id, OrgUser.user_id == user.id)
+        .first()
+    )
+    if not membership or membership.role not in ("admin", "owner"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only organisation admins can update the environment setup.",
+        )
+
+    # ── Translate answers → environment variables ─────────────────────────
+    answers = payload.to_answers_dict()
+    translation = translate_answers_to_environment(answers)
+
+    # ── Build the full values_framework (env + canonical taxonomy) ────────
+    values_framework = build_values_framework_from_translation(translation)
+
+    # ── Persist audit record ──────────────────────────────────────────────
+    env_input = OrgEnvironmentInput(
+        organisation_id=organisation_id,
+        raw_answers=json.dumps(translation.raw_answers),
+        signals_json=json.dumps([
+            {
+                "question_id": s.question_id,
+                "answer": s.answer,
+                "variable": s.variable,
+                "derived_value": s.derived_value,
+                "weight": s.weight,
+            }
+            for s in translation.signals
+        ]),
+        derived_environment=json.dumps(translation.environment),
+        defaulted_variables=json.dumps(translation.defaulted_variables),
+        extra_fatal_risks=json.dumps(translation.extra_fatal_risks),
+        submitted_by=user.id,
+        created_at=datetime.utcnow(),
+    )
+    db.add(env_input)
+    db.flush()
+
+    # ── Update the organisation values_framework ──────────────────────────
+    organisation.values_framework = json.dumps(values_framework)
+    organisation.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(env_input)
+
+    return OrgEnvironmentSetupResponse(
+        org_id=organisation_id,
+        input_id=env_input.id,
+        derived_environment=translation.environment,
+        defaulted_variables=translation.defaulted_variables,
+        extra_fatal_risks=translation.extra_fatal_risks,
+        signals=[
+            VariableSignalResponse(
+                question_id=s.question_id,
+                answer=s.answer,
+                variable=s.variable,
+                derived_value=s.derived_value,
+                weight=s.weight,
+            )
+            for s in translation.signals
+        ],
+        values_framework_updated=True,
     )
