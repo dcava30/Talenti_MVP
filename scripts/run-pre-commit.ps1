@@ -489,13 +489,13 @@ function Run-FullSecurityChecks {
             "run", "--rm",
             "--mount", "type=bind,src=$RepoPath,dst=/repo",
             "hadolint/hadolint:v2.12.0",
-            "hadolint", "/repo/backend/Dockerfile"
+            "hadolint", "--failure-threshold", "error", "/repo/backend/Dockerfile"
         ) $RepoPath
         Invoke-Checked "docker" @(
             "run", "--rm",
             "--mount", "type=bind,src=$RepoPath,dst=/repo",
             "hadolint/hadolint:v2.12.0",
-            "hadolint", "/repo/python-acs-service/Dockerfile"
+            "hadolint", "--failure-threshold", "error", "/repo/python-acs-service/Dockerfile"
         ) $RepoPath
 
         $precommitTmpPath = Join-Path $RepoPath ".tmp\precommit"

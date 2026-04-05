@@ -70,7 +70,7 @@
 
 - `pr-fast-quality.yml`: validates PR title, runs frontend/backend/ACS checks, migration execution checks, and coverage gates.
 - `pr-security-iac.yml`: enforces CodeQL, dependency/security scanning, container scanning, and Bicep/IaC policy checks.
-- `pr-ephemeral-deploy.yml`: deploys isolated PR runtime resources in Azure, runs migrations and API smoke checks, and tears down resources.
+- `pr-ephemeral-deploy.yml`: deploys isolated PR runtime resources in Azure using the dedicated GitHub `pr-dev` environment, runs migrations and API smoke checks, and tears down resources.
 - `ci-main.yml`: builds immutable backend/ACS images once per `main` SHA, generates SBOMs, scans, signatures, and provenance attestations.
 - `infra-dev.yml`: validates Bicep and IaC policy on PR/push, runs what-if, and deploys DEV Bicep infra on `main`.
 - `deploy-dev.yml`:
@@ -94,10 +94,10 @@
   - Uploads the frontend artifact to Azure Storage static website hosting and purges Azure Front Door Standard cache.
   - Uses a self-hosted `uat` runner for restricted UAT frontend smoke tests.
 
-Seed the GitHub `dev` environment and Azure OIDC identity with:
+Seed the GitHub `dev` and `pr-dev` environments and Azure OIDC identities with:
 
 ```powershell
-.\scripts\setup-deployment-access.ps1 -SubscriptionId <sub-id> -EnvironmentNames dev -AlertEmailAddress <team-email>
+.\scripts\setup-deployment-access.ps1 -SubscriptionId <sub-id> -EnvironmentNames dev,pr-dev -AlertEmailAddress <team-email>
 ```
 
 For first-time DEV runtime bootstrap, use:

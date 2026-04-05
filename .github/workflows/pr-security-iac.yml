@@ -113,8 +113,8 @@ jobs:
 
       - name: Dockerfile lint
         run: |
-          hadolint backend/Dockerfile
-          hadolint python-acs-service/Dockerfile
+          hadolint --failure-threshold error backend/Dockerfile
+          hadolint --failure-threshold error python-acs-service/Dockerfile
 
       - name: Build local images for scan
         run: |

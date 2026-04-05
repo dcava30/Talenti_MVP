@@ -54,7 +54,7 @@ This script:
 
 ## Create GitHub Environments and Azure OIDC Access
 
-Create the GitHub `dev`, `uat`, and `prod` environments plus one Azure app registration per environment:
+Create the GitHub `dev`, `pr-dev`, `uat`, and `prod` environments plus one Azure app registration per environment:
 
 ```powershell
 .\scripts\setup-deployment-access.ps1 `
@@ -64,10 +64,11 @@ Create the GitHub `dev`, `uat`, and `prod` environments plus one Azure app regis
 
 This script:
 
-- creates or updates GitHub environments `dev`, `uat`, and `prod`
+- creates or updates GitHub environments `dev`, `pr-dev`, `uat`, and `prod`
 - creates one Azure app registration and service principal per environment
 - creates federated credentials with GitHub environment subjects:
   - `repo:dcava30/Talenti_MVP:environment:dev`
+  - `repo:dcava30/Talenti_MVP:environment:pr-dev`
   - `repo:dcava30/Talenti_MVP:environment:uat`
   - `repo:dcava30/Talenti_MVP:environment:prod`
 - assigns `Contributor` and `User Access Administrator` on the matching resource group
@@ -106,6 +107,8 @@ The DEV bootstrap script now:
 - stores runtime secrets in Key Vault
 - wires the Container Apps
 - updates GitHub environment `dev` using environment-scoped secrets and OIDC
+
+The `pr-dev` GitHub environment reuses the shared dev Azure resource group for ephemeral PR validation. It needs its own OIDC identity because GitHub environment subjects are environment-specific.
 
 ## Local Verification
 

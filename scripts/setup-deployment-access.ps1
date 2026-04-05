@@ -4,8 +4,8 @@ param(
 
     [string]$TenantId = "",
     [string]$Repo = "dcava30/Talenti_MVP",
-    [ValidateSet("dev", "uat", "prod")]
-    [string[]]$EnvironmentNames = @("dev", "uat", "prod"),
+    [ValidateSet("dev", "pr-dev", "uat", "prod")]
+    [string[]]$EnvironmentNames = @("dev", "pr-dev", "uat", "prod"),
     [string]$Location = "australiaeast",
     [string]$AlertEmailAddress = "",
     [string]$PostgresAdminPassword = "",
@@ -122,7 +122,7 @@ function Normalize-CidrJson {
 
 function Get-EnvironmentSettings {
     param(
-        [ValidateSet("dev", "uat", "prod")]
+        [ValidateSet("dev", "pr-dev", "uat", "prod")]
         [string]$EnvironmentName,
         [string]$AzureLocation
     )
@@ -141,7 +141,29 @@ function Get-EnvironmentSettings {
                 Model1App = "ca-model1-dev"
                 Model2App = "ca-model2-dev"
                 AcsWorkerApp = "ca-acs-worker-dev"
+                ContainerEnvName = "cae-talenti-dev-aue"
+                PostgresServerName = "psql-talenti-dev-aue"
+                StorageAccountName = "sttalentidevaue"
                 OidcAppName = "gh-talenti-dev-oidc"
+            }
+        }
+        "pr-dev" {
+            return [ordered]@{
+                AzureLocation = $AzureLocation
+                ResourceGroup = "rg-talenti-dev-aue"
+                AcrName = "acrtalentidev"
+                KeyVaultName = "kv-talenti-dev-aue"
+                FrontendStorageAccount = "sttalentidevaue"
+                StaticWebAppName = "swa-talenti-dev-aue"
+                BackendApp = "ca-backend-dev"
+                BackendWorkerApp = "ca-backend-worker-dev"
+                Model1App = "ca-model1-dev"
+                Model2App = "ca-model2-dev"
+                AcsWorkerApp = "ca-acs-worker-dev"
+                ContainerEnvName = "cae-talenti-dev-aue"
+                PostgresServerName = "psql-talenti-dev-aue"
+                StorageAccountName = "sttalentidevaue"
+                OidcAppName = "gh-talenti-pr-dev-oidc"
             }
         }
         "uat" {
@@ -276,15 +298,25 @@ foreach ($environmentName in $EnvironmentNames) {
 
     if ($environmentName -eq "dev") {
         Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "STATIC_WEB_APP_NAME" -Value $settings.StaticWebAppName
-    } else {
+    } elseif ($environmentName -in @("uat", "prod")) {
         Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "FRONTEND_STORAGE_ACCOUNT" -Value $settings.FrontendStorageAccount
         Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "FRONT_DOOR_PROFILE_NAME" -Value $settings.FrontDoorProfileName
         Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "FRONT_DOOR_ENDPOINT_NAME" -Value $settings.FrontDoorEndpointName
     }
 
+    if ($settings.ContainsKey("ContainerEnvName")) {
+        Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "CONTAINER_ENV_NAME" -Value $settings.ContainerEnvName
+    }
+    if ($settings.ContainsKey("PostgresServerName")) {
+        Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "POSTGRES_SERVER_NAME" -Value $settings.PostgresServerName
+    }
+    if ($settings.ContainsKey("StorageAccountName")) {
+        Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "STORAGE_ACCOUNT_NAME" -Value $settings.StorageAccountName
+    }
+
     if ($AlertEmailAddress) {
         Ensure-GhEnvironmentVariable -RepoName $Repo -EnvironmentName $environmentName -Name "ALERT_EMAIL_ADDRESS" -Value $AlertEmailAddress
-    } else {
+    } elseif ($environmentName -ne "pr-dev") {
         $pending.Add("variable ALERT_EMAIL_ADDRESS")
     }
 
@@ -314,7 +346,7 @@ foreach ($environmentName in $EnvironmentNames) {
 
     if ($PostgresAdminPassword) {
         Ensure-GhEnvironmentSecret -RepoName $Repo -EnvironmentName $environmentName -Name "POSTGRES_ADMIN_PASSWORD" -Value $PostgresAdminPassword
-    } else {
+    } elseif ($environmentName -ne "pr-dev") {
         $pending.Add("secret POSTGRES_ADMIN_PASSWORD")
     }
 

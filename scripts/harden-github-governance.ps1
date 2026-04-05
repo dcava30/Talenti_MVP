@@ -171,16 +171,19 @@ $uatReviewers = Resolve-ReviewerSpecs -Logins $UatReviewerLogins
 $prodReviewers = Resolve-ReviewerSpecs -Logins $ProdReviewerLogins
 
 Write-Host "Applying environment protections..."
+Set-EnvironmentPolicy -EnvironmentName "pr-dev" -Reviewers @() -CustomBranchPolicies $true
 Set-EnvironmentPolicy -EnvironmentName "dev" -Reviewers @() -CustomBranchPolicies $true
 Set-EnvironmentPolicy -EnvironmentName "uat" -Reviewers $uatReviewers -CustomBranchPolicies $false
 Set-EnvironmentPolicy -EnvironmentName "prod" -Reviewers $prodReviewers -CustomBranchPolicies $false
 
+Ensure-EnvBranchPolicy -EnvironmentName "pr-dev" -BranchName "refs/pull/*/merge"
 Ensure-EnvBranchPolicy -EnvironmentName "dev" -BranchName $MainBranch
 
 Write-Host "Done."
 Write-Host "- branch protection: required checks = $($RequiredStatusChecks -join ', ')"
 Write-Host "- branch protection: direct pushes blocked on '$MainBranch'"
 Write-Host "- merge strategy: squash-only"
+Write-Host "- pr-dev: deployment branch policy allows 'refs/pull/*/merge'"
 Write-Host "- dev: protected deployment branch policy on '$MainBranch'"
 Write-Host "- uat: required reviewers = $($UatReviewerLogins -join ', ')"
 Write-Host "- prod: required reviewers enabled = $($ProdReviewerLogins -join ', ')"

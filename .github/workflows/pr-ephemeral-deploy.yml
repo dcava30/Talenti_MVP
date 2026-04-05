@@ -42,7 +42,7 @@ jobs:
     needs: enforce-internal-branches
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment: dev
+    environment: pr-dev
     env:
       AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
       ACR_NAME: ${{ vars.ACR_NAME }}
@@ -209,7 +209,7 @@ jobs:
       github.event.action == 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    environment: dev
+    environment: pr-dev
     env:
       AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
       POSTGRES_SERVER_NAME: ${{ vars.POSTGRES_SERVER_NAME || 'psql-talenti-dev-aue' }}
