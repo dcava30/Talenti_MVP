@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime
+from typing import List
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 
@@ -40,3 +41,10 @@ class InterviewScore(Base):
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_version: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # Back-reference to post-hire outcome snapshots (populated lazily)
+    post_hire_outcomes: Mapped[List["PostHireOutcome"]] = relationship(  # noqa: F821
+        "PostHireOutcome",
+        back_populates="interview_score",
+        cascade="all, delete-orphan",
+    )

@@ -32,11 +32,43 @@ Variable outputs
   decision_reality        : evidence_led | speed_led | judgement_led
   ambiguity_load          : well_defined | evolving | ambiguous
   high_performance_archetype: reliable_executor | strong_owner | directional_driver
+
+Spec alignment note
+-------------------
+The original product specification described 5 environment variables using the
+labels: Structure, Pace, Stakeholder Complexity, Autonomy, and Feedback Culture.
+The implementation uses 6 variables with different names. The mapping is:
+
+  Spec variable            → Implementation variable
+  ─────────────────────────────────────────────────
+  Structure / Role clarity → ambiguity_load
+  Pace / Decision speed    → decision_reality  (speed_led captures pace)
+  Autonomy / Direction     → control_vs_autonomy
+  Stakeholder Complexity   → conflict_style    (challenge_expected ≈ high complexity)
+  Feedback Culture         → (maps to high_performance_archetype + extra_fatal_risks)
+  [no spec equivalent]     → outcome_vs_process  (implementation addition)
+  [no spec equivalent]     → high_performance_archetype (implementation addition)
+
+Rationale for the divergence:
+- The implementation splits "Autonomy" into control_vs_autonomy (autonomy level)
+  and high_performance_archetype (success pattern), enabling more precise
+  threshold calibration per archetype.
+- outcome_vs_process was added to capture the results-vs-process dimension that
+  the spec's Pace variable only partially covered.
+- Stakeholder Complexity from the spec maps imperfectly to conflict_style because
+  the latter captures conflict culture rather than sheer stakeholder count. This
+  is an acknowledged gap — future work may add a separate stakeholder_complexity
+  variable.
+- The 5-variable spec names are intentional future targets; the 6-variable
+  implementation is the canonical production representation. DO NOT revert to
+  the spec names without a coordinated migration of all rule engine logic,
+  questionnaire rubric, and API contracts.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import sqrt
 from typing import Dict, List, Literal, Optional, Tuple
 
 # ---------------------------------------------------------------------------
@@ -353,6 +385,217 @@ def translate_answers_to_environment(answers: Dict[str, str]) -> TranslationResu
     )
 
 
+# ---------------------------------------------------------------------------
+# Multi-respondent environment aggregation engine
+#
+# Organisations may have several stakeholders independently answer the 10
+# questions. This engine merges their answers into a single, auditable
+# environment using:
+#
+#   1. Null exclusion  — missing / invalid answers are dropped before aggregation.
+#   2. Averaging       — for each variable, we accumulate weighted votes per value
+#                        and pick the value with the highest cumulative weight.
+#   3. Spread detection — measures agreement across respondents.
+#                         high spread on a variable is flagged so reviewers know
+#                         the variable is contested.
+#   4. Environment confidence — an overall confidence level that reflects how
+#                         much agreement there is across all variables.
+#
+# Confidence mapping
+# ------------------
+#   all_agree   : all respondents who answered produced the same value → high
+#   majority    : one value has >50 % of the weight, spread is low    → medium
+#   contested   : spread is high (no clear majority)                  → low
+# ---------------------------------------------------------------------------
+
+# Spread threshold: if the top value's share of total weight is below this, the
+# variable is considered contested.
+_SPREAD_MAJORITY_THRESHOLD = 0.60  # 60 % of aggregated weight for top value
+
+
+EnvironmentConfidence = Literal["high", "medium", "low"]
+
+
+@dataclass
+class VariableAggregation:
+    """
+    Aggregated result for a single environment variable across multiple respondents.
+    """
+    variable: str
+    resolved_value: str
+    top_value_weight_share: float    # 0-1: fraction of total weight for winning value
+    all_responded_values: List[str]  # all values seen (including non-winning)
+    is_contested: bool               # True when top share < majority threshold
+    respondent_count: int            # number of respondents who had an answer for this var
+    is_defaulted: bool               # True when no respondent answered this variable
+
+
+@dataclass
+class AggregatedTranslationResult:
+    """
+    Result of aggregating multiple respondents' TranslationResults into one
+    environment dict, with per-variable agreement metrics and an overall
+    environment confidence rating.
+    """
+    # Final resolved environment variable values
+    environment: Dict[str, str]
+
+    # Per-variable aggregation details
+    variable_aggregations: Dict[str, VariableAggregation]
+
+    # Overall environment confidence
+    environment_confidence: EnvironmentConfidence
+
+    # Variables with contested values (spread too high)
+    contested_variables: List[str]
+
+    # Variables defaulted because no respondent had an answer
+    defaulted_variables: List[str]
+
+    # Extra fatal risks accumulated from any respondent
+    extra_fatal_risks: List[str]
+
+    # Count of respondents included
+    respondent_count: int
+
+
+def aggregate_environment_translations(
+    translations: List[TranslationResult],
+) -> AggregatedTranslationResult:
+    """
+    Aggregate multiple respondents' TranslationResults into a single environment.
+
+    Parameters
+    ----------
+    translations : List[TranslationResult]
+        One TranslationResult per respondent (from translate_answers_to_environment).
+        Must contain at least 1 result.
+
+    Returns
+    -------
+    AggregatedTranslationResult with merged environment and per-variable stats.
+
+    Notes
+    -----
+    - Missing answers (null exclusion): variables not resolved by a respondent are
+      excluded from that respondent's contribution — they don't add weight to the
+      default value.
+    - Fatal risks: union of all respondents' extra_fatal_risks.
+    """
+    if not translations:
+        raise ValueError("At least one TranslationResult is required for aggregation.")
+
+    respondent_count = len(translations)
+
+    # Accumulate weight per (variable, value) pair across all respondents.
+    # variable → { value → cumulative_weight }
+    variable_value_weights: Dict[str, Dict[str, float]] = {
+        v: {} for v in _VARIABLE_PRIORITY_ORDER
+    }
+
+    # Track which variables each respondent resolved (excluding defaults)
+    variable_respondent_counts: Dict[str, int] = {v: 0 for v in _VARIABLE_PRIORITY_ORDER}
+
+    for translation in translations:
+        defaulted = set(translation.defaulted_variables)
+        for variable in _VARIABLE_PRIORITY_ORDER:
+            if variable in defaulted:
+                # Null exclusion: this respondent didn't answer → skip
+                continue
+            value = translation.environment.get(variable)
+            if value is None:
+                continue
+            variable_respondent_counts[variable] += 1
+            # Weight contribution: each respondent contributes weight=1.0 per variable
+            # (individual signal weights within one respondent's answers are already
+            # resolved by translate_answers_to_environment before we get here)
+            variable_value_weights[variable].setdefault(value, 0.0)
+            variable_value_weights[variable][value] += 1.0
+
+    # Extra fatal risks: union across all respondents
+    all_fatal_risks: List[str] = list({
+        risk
+        for t in translations
+        for risk in t.extra_fatal_risks
+    })
+
+    # Resolve each variable
+    environment: Dict[str, str] = {}
+    variable_aggregations: Dict[str, VariableAggregation] = {}
+    defaulted_variables: List[str] = []
+    contested_variables: List[str] = []
+
+    for variable in _VARIABLE_PRIORITY_ORDER:
+        weights = variable_value_weights[variable]
+        resp_count = variable_respondent_counts[variable]
+
+        if not weights:
+            # No respondent answered this variable → use default
+            resolved_value = _VARIABLE_DEFAULTS[variable]
+            defaulted_variables.append(variable)
+            variable_aggregations[variable] = VariableAggregation(
+                variable=variable,
+                resolved_value=resolved_value,
+                top_value_weight_share=0.0,
+                all_responded_values=[],
+                is_contested=False,
+                respondent_count=0,
+                is_defaulted=True,
+            )
+        else:
+            total_weight = sum(weights.values())
+            # Winning value: highest cumulative weight
+            resolved_value = max(weights, key=lambda v: weights[v])
+            top_share = weights[resolved_value] / total_weight if total_weight > 0 else 0.0
+            is_contested = top_share < _SPREAD_MAJORITY_THRESHOLD and len(weights) > 1
+
+            if is_contested:
+                contested_variables.append(variable)
+
+            variable_aggregations[variable] = VariableAggregation(
+                variable=variable,
+                resolved_value=resolved_value,
+                top_value_weight_share=round(top_share, 3),
+                all_responded_values=list(weights.keys()),
+                is_contested=is_contested,
+                respondent_count=resp_count,
+                is_defaulted=False,
+            )
+
+        environment[variable] = resolved_value
+
+    # Overall environment confidence
+    total_vars = len(_VARIABLE_PRIORITY_ORDER)
+    non_defaulted = [v for v in _VARIABLE_PRIORITY_ORDER if not variable_aggregations[v].is_defaulted]
+    if not non_defaulted:
+        # All variables defaulted — no real data
+        env_confidence: EnvironmentConfidence = "low"
+    elif contested_variables:
+        # Any contested variable → low confidence
+        env_confidence = "low"
+    else:
+        # Compute mean top_value_weight_share across non-defaulted variables
+        mean_share = sum(
+            variable_aggregations[v].top_value_weight_share for v in non_defaulted
+        ) / len(non_defaulted)
+        if mean_share >= 1.0 - 1e-9:
+            env_confidence = "high"   # perfect agreement
+        elif mean_share >= _SPREAD_MAJORITY_THRESHOLD:
+            env_confidence = "medium"
+        else:
+            env_confidence = "low"
+
+    return AggregatedTranslationResult(
+        environment=environment,
+        variable_aggregations=variable_aggregations,
+        environment_confidence=env_confidence,
+        contested_variables=contested_variables,
+        defaulted_variables=defaulted_variables,
+        extra_fatal_risks=all_fatal_risks,
+        respondent_count=respondent_count,
+    )
+
+
 def build_values_framework_from_translation(
     translation: TranslationResult,
     taxonomy: Optional[Dict] = None,
@@ -366,23 +609,18 @@ def build_values_framework_from_translation(
     ----------
     translation : TranslationResult
     taxonomy : dict, optional
-        Custom taxonomy to include. Defaults to canonical taxonomy from
-        talenti_dimensions (imported lazily to avoid circular imports in backend).
+        Custom taxonomy to include. Defaults to CANONICAL_TAXONOMY_V2.
     dimension_weights : dict, optional
-        Per-dimension scoring weights. Defaults to canonical defaults.
+        Per-dimension scoring weights. Defaults to DEFAULT_DIMENSION_WEIGHTS.
     """
-    from app.api.orgs import _default_values_framework  # lazy import
-
-    defaults = _default_values_framework()
-    canonical_taxonomy = defaults["taxonomy"]
-    canonical_weights = defaults["operating_environment"]["dimension_weights"]
+    from app.talenti_canonical import CANONICAL_TAXONOMY_V2, DEFAULT_DIMENSION_WEIGHTS
 
     env = dict(translation.environment)
-    env["dimension_weights"] = dimension_weights or canonical_weights
+    env["dimension_weights"] = dimension_weights or DEFAULT_DIMENSION_WEIGHTS.copy()
     env["fatal_risks"] = translation.extra_fatal_risks
     env["coachable_risks"] = []
 
     return {
         "operating_environment": env,
-        "taxonomy": taxonomy or canonical_taxonomy,
+        "taxonomy": taxonomy or CANONICAL_TAXONOMY_V2,
     }

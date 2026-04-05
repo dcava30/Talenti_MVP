@@ -1,5 +1,6 @@
 from app.models.audit_log import AuditLog
 from app.models.application import Application
+from app.models.post_hire_outcome import PostHireOutcome
 from app.models.background_job import BackgroundJob
 from app.models.candidate_dei import CandidateDei
 from app.models.candidate_profile import CandidateProfile
@@ -28,6 +29,7 @@ from app.models.user_role import UserRole
 __all__ = [
     "AuditLog",
     "Application",
+    "PostHireOutcome",
     "BackgroundJob",
     "CandidateDei",
     "CandidateProfile",
