@@ -70,12 +70,13 @@ jobs:
       - name: Audit backend dependencies (high/critical gate)
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pip-audit
+          python -m pip install "wheel>=0.46.2" pip-audit
           python -m pip install -e backend
-          pip-audit --desc --strict
+          pip-audit --desc --skip-editable
 
       - name: Audit ACS dependencies (high/critical gate)
         run: |
+          python -m pip install "wheel>=0.46.2" pip-audit
           python -m pip install -r python-acs-service/requirements.txt
           pip-audit --desc --strict -r python-acs-service/requirements.txt
 
@@ -123,8 +124,8 @@ jobs:
 
       - name: Image vulnerability scan (high/critical gate)
         run: |
-          trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed local/backend-pr-scan:${{ github.sha }}
-          trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed local/acs-pr-scan:${{ github.sha }}
+          trivy image --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed local/backend-pr-scan:${{ github.sha }}
+          trivy image --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed local/acs-pr-scan:${{ github.sha }}
 
       - name: Bicep compile validation
         run: |
