@@ -77,23 +77,7 @@ jobs:
           fi
 
           gh run list --workflow ci-main.yml --branch main --limit 200 --json headSha,conclusion,status > ci_main_runs.json
-          python - <<'PY'
-          import json
-          import sys
-          from pathlib import Path
-
-          source_sha = "${{ steps.source.outputs.sha }}"
-          runs = json.loads(Path("ci_main_runs.json").read_text(encoding="utf-8"))
-          ok = any(
-              run.get("headSha") == source_sha
-              and run.get("status") == "completed"
-              and run.get("conclusion") == "success"
-              for run in runs
-          )
-          if not ok:
-              print(f"No successful ci-main run found for source_sha={source_sha}.")
-              sys.exit(1)
-          PY
+          python -c "import json; from pathlib import Path; source_sha='${{ steps.source.outputs.sha }}'; runs=json.loads(Path('ci_main_runs.json').read_text(encoding='utf-8')); ok=any(run.get('headSha') == source_sha and run.get('status') == 'completed' and run.get('conclusion') == 'success' for run in runs); raise SystemExit(0 if ok else f'No successful ci-main run found for source_sha={source_sha}.')"
 
       - name: Setup Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
@@ -169,29 +153,7 @@ jobs:
             while true; do
               gh run list --workflow infra-dev.yml --branch main --limit 200 --json headSha,conclusion,status > infra_runs.json
 
-              result=$(python - <<'PY'
-              import json
-              from pathlib import Path
-
-              target = "${{ steps.source.outputs.sha }}"
-              runs = json.loads(Path("infra_runs.json").read_text(encoding="utf-8"))
-              matched = [run for run in runs if run.get("headSha") == target]
-
-              if not matched:
-                  print("missing")
-              elif any(run.get("status") == "completed" and run.get("conclusion") == "success" for run in matched):
-                  print("success")
-              elif any(run.get("status") == "completed" and run.get("conclusion") not in ("success", None) for run in matched):
-                  failing = next(
-                      run.get("conclusion")
-                      for run in matched
-                      if run.get("status") == "completed" and run.get("conclusion") not in ("success", None)
-                  )
-                  print(f"failed:{failing}")
-              else:
-                  print("pending")
-              PY
-              )
+              result=$(python -c "import json; from pathlib import Path; target='${{ steps.source.outputs.sha }}'; runs=json.loads(Path('infra_runs.json').read_text(encoding='utf-8')); matched=[run for run in runs if run.get('headSha') == target]; print('missing' if not matched else 'success' if any(run.get('status') == 'completed' and run.get('conclusion') == 'success' for run in matched) else f\"failed:{next(run.get('conclusion') for run in matched if run.get('status') == 'completed' and run.get('conclusion') not in ('success', None))}\" if any(run.get('status') == 'completed' and run.get('conclusion') not in ('success', None) for run in matched) else 'pending')")
 
               case "$result" in
                 success)
