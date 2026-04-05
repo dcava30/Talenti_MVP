@@ -10,7 +10,7 @@ RUN apt-get update && \
 
 # Copy requirements first for better caching
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
+RUN pip install --no-cache-dir --upgrade pip "setuptools>=82.0.1" "wheel>=0.46.2" && \
     pip install --no-cache-dir -r requirements.txt
 
 # Copy application code

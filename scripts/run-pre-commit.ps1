@@ -457,7 +457,7 @@ function Run-FullSecurityChecks {
         $backendPython = Resolve-PythonCommand -RepoPath $backendPath
         Enter-Step "Backend pip-audit"
         Invoke-Checked $backendPython @("-m", "pip", "install", "--upgrade", "pip") $backendPath
-        Invoke-Checked $backendPython @("-m", "pip", "install", "wheel>=0.46.2", "pip-audit") $backendPath
+        Invoke-Checked $backendPython @("-m", "pip", "install", "setuptools>=82.0.1", "wheel>=0.46.2", "pip-audit") $backendPath
         Invoke-Checked $backendPython @("-m", "pip", "install", "-e", ".") $backendPath
         Invoke-Checked $backendPython @("-m", "pip_audit", "--desc", "--skip-editable") $backendPath
     }
@@ -474,10 +474,10 @@ function Run-FullSecurityChecks {
         if ($useDockerAcsRuntime) {
             Invoke-AcsDockerCommand `
                 -AcsPath $acsPath `
-                -ShellCommand "python -m pip install --upgrade pip && python -m pip install 'wheel>=0.46.2' pip-audit -r requirements.txt && python -m pip_audit --desc --strict -r requirements.txt"
+                -ShellCommand "python -m pip install --upgrade pip && python -m pip install 'setuptools>=82.0.1' 'wheel>=0.46.2' pip-audit -r requirements.txt && python -m pip_audit --desc --strict -r requirements.txt"
         } else {
             Invoke-Checked $acsPython @("-m", "pip", "install", "--upgrade", "pip") $acsPath
-            Invoke-Checked $acsPython @("-m", "pip", "install", "wheel>=0.46.2", "pip-audit") $acsPath
+            Invoke-Checked $acsPython @("-m", "pip", "install", "setuptools>=82.0.1", "wheel>=0.46.2", "pip-audit") $acsPath
             Invoke-Checked $acsPython @("-m", "pip", "install", "-r", "requirements.txt") $acsPath
             Invoke-Checked $acsPython @("-m", "pip_audit", "--desc", "--strict", "-r", "requirements.txt") $acsPath
         }
