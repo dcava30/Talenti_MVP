@@ -69,10 +69,11 @@
 ## CI/CD
 
 - `pr-fast-quality.yml`: validates PR title, runs frontend/backend/ACS checks, migration execution checks, and coverage gates.
-- `pr-security-iac.yml`: enforces CodeQL, dependency/security scanning, container scanning, and Bicep/IaC policy checks.
+- `pr-security-iac.yml`: enforces secret scanning, dependency/security scanning, container scanning, and Bicep/IaC policy checks.
 - `pr-ephemeral-deploy.yml`: deploys isolated PR runtime resources in Azure using the dedicated GitHub `pr-dev` environment, runs migrations and API smoke checks, and tears down resources.
 - `ci-main.yml`: builds immutable backend/ACS images once per `main` SHA, generates SBOMs, scans, signatures, and provenance attestations.
 - `infra-dev.yml`: validates Bicep and IaC policy on PR/push, runs what-if, and deploys DEV Bicep infra on `main`.
+- `codeql.yml`: is the repository's sole CodeQL workflow for PRs, `main`, and weekly scheduled scans.
 - `deploy-dev.yml`:
   - Runs after successful `ci-main` on `main`.
   - Resolves immutable backend/ACS image digests for the exact source SHA.
