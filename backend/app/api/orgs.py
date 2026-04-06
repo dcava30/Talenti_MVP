@@ -9,6 +9,9 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db, require_org_member
 from app.models import Application, Interview, InterviewScore, JobRole, Organisation, OrgEnvironmentInput, OrgUser, User
 from app.schemas.orgs import (
+    AggregatedEnvironmentResponse,
+    MIN_QUESTIONS_PER_RESPONDENT,
+    MultiRespondentEnvironmentSetup,
     OrgEnvironmentSetup,
     OrgEnvironmentSetupResponse,
     OrgMembershipResponse,
@@ -17,9 +20,11 @@ from app.schemas.orgs import (
     OrganisationCreate,
     OrganisationDetail,
     OrganisationResponse,
+    VariableAggregationResponse,
     VariableSignalResponse,
 )
 from app.services.org_environment import (
+    aggregate_environment_translations,
     build_values_framework_from_translation,
     translate_answers_to_environment,
 )
@@ -311,4 +316,161 @@ def setup_org_environment(
             for s in translation.signals
         ],
         values_framework_updated=True,
+    )
+
+
+@router.post("/{organisation_id}/environment/aggregate", response_model=AggregatedEnvironmentResponse)
+def aggregate_org_environment(
+    organisation_id: str,
+    payload: MultiRespondentEnvironmentSetup,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> AggregatedEnvironmentResponse:
+    """
+    Submit questionnaire responses from multiple stakeholders and aggregate them
+    into a single operating environment using weighted majority voting.
+
+    Design:
+    - Each respondent's answers are translated independently via the deterministic
+      rubric, then merged using aggregate_environment_translations().
+    - Null exclusion: missing answers from a respondent don't contribute any weight.
+    - Contested variables (no clear majority across respondents) are flagged in
+      the response so a reviewer can resolve them manually.
+    - environment_confidence (high | medium | low) reflects overall agreement.
+    - When confidence is low, the values_framework is still updated but a
+      reviewer_flag is added — downstream scoring will cap recommendations at
+      "caution" until the environment is confirmed.
+
+    Minimum completeness gate: each respondent must have answered at least
+    MIN_QUESTIONS_PER_RESPONDENT questions (default 6). Submissions below this
+    are rejected with 422.
+
+    Only org admins may update the environment setup.
+    """
+    require_org_member(organisation_id, db, user)
+    organisation = db.get(Organisation, organisation_id)
+    if not organisation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+
+    membership = (
+        db.query(OrgUser)
+        .filter(OrgUser.organisation_id == organisation_id, OrgUser.user_id == user.id)
+        .first()
+    )
+    if not membership or membership.role not in ("admin", "owner"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only organisation admins can update the environment setup.",
+        )
+
+    # ── Minimum completeness gate ────────────────────────────────────────
+    incomplete = [
+        i + 1
+        for i, r in enumerate(payload.respondents)
+        if r.answered_count() < MIN_QUESTIONS_PER_RESPONDENT
+    ]
+    if incomplete:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Respondent(s) {incomplete} answered fewer than "
+                f"{MIN_QUESTIONS_PER_RESPONDENT} questions. "
+                "Each respondent must answer at least "
+                f"{MIN_QUESTIONS_PER_RESPONDENT} of the 10 questions."
+            ),
+        )
+
+    # ── Translate each respondent independently ──────────────────────────
+    translations = [
+        translate_answers_to_environment(r.to_answers_dict())
+        for r in payload.respondents
+    ]
+
+    # ── Aggregate ────────────────────────────────────────────────────────
+    agg = aggregate_environment_translations(translations)
+
+    # ── Build reviewer flags ─────────────────────────────────────────────
+    reviewer_flags: list[str] = []
+    if agg.contested_variables:
+        reviewer_flags.append(
+            f"Contested variables require manual review: {', '.join(agg.contested_variables)}. "
+            "Respondents gave conflicting answers — the majority value was used but "
+            "consider re-running with more respondents or resolving manually."
+        )
+    if agg.defaulted_variables:
+        reviewer_flags.append(
+            f"Variables defaulted (no respondent answered): {', '.join(agg.defaulted_variables)}."
+        )
+    if agg.environment_confidence == "low":
+        reviewer_flags.append(
+            "Environment confidence is LOW. Hiring recommendations will be capped at "
+            "'caution' until the environment is confirmed by resolving contested variables."
+        )
+
+    # ── Build and persist the values_framework ───────────────────────────
+    # We need a single TranslationResult-like object to pass to the framework builder.
+    # We synthesise one from the aggregated result.
+    from app.services.org_environment import TranslationResult, VariableSignal
+    synthetic_translation = TranslationResult(
+        environment=agg.environment,
+        signals=[],
+        defaulted_variables=agg.defaulted_variables,
+        extra_fatal_risks=agg.extra_fatal_risks,
+        raw_answers={},
+    )
+    values_framework = build_values_framework_from_translation(synthetic_translation)
+
+    # Store environment_confidence in the framework so downstream scoring can read it
+    values_framework["operating_environment"]["environment_confidence"] = agg.environment_confidence
+
+    # ── Persist one OrgEnvironmentInput per respondent ───────────────────
+    for i, (respondent, translation) in enumerate(zip(payload.respondents, translations)):
+        label = respondent.respondent_label or f"respondent_{i + 1}"
+        env_input = OrgEnvironmentInput(
+            organisation_id=organisation_id,
+            raw_answers=json.dumps(translation.raw_answers),
+            signals_json=json.dumps([
+                {
+                    "question_id": s.question_id,
+                    "answer": s.answer,
+                    "variable": s.variable,
+                    "derived_value": s.derived_value,
+                    "weight": s.weight,
+                }
+                for s in translation.signals
+            ]),
+            derived_environment=json.dumps(translation.environment),
+            defaulted_variables=json.dumps(translation.defaulted_variables),
+            extra_fatal_risks=json.dumps(translation.extra_fatal_risks),
+            submitted_by=user.id,
+            created_at=datetime.utcnow(),
+        )
+        db.add(env_input)
+
+    organisation.values_framework = json.dumps(values_framework)
+    organisation.updated_at = datetime.utcnow()
+    db.commit()
+
+    return AggregatedEnvironmentResponse(
+        org_id=organisation_id,
+        respondent_count=agg.respondent_count,
+        environment_confidence=agg.environment_confidence,
+        derived_environment=agg.environment,
+        variable_aggregations={
+            v: VariableAggregationResponse(
+                variable=va.variable,
+                resolved_value=va.resolved_value,
+                top_value_weight_share=va.top_value_weight_share,
+                all_responded_values=va.all_responded_values,
+                is_contested=va.is_contested,
+                respondent_count=va.respondent_count,
+                is_defaulted=va.is_defaulted,
+            )
+            for v, va in agg.variable_aggregations.items()
+        },
+        contested_variables=agg.contested_variables,
+        defaulted_variables=agg.defaulted_variables,
+        extra_fatal_risks=agg.extra_fatal_risks,
+        values_framework_updated=True,
+        reviewer_flags=reviewer_flags,
     )

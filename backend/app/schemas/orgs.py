@@ -150,3 +150,101 @@ class OrgEnvironmentSetupResponse(BaseModel):
     extra_fatal_risks: List[str]
     signals: List[VariableSignalResponse]
     values_framework_updated: bool
+
+
+# ---------------------------------------------------------------------------
+# Multi-respondent environment aggregation schemas
+# ---------------------------------------------------------------------------
+
+# Minimum number of questions a single respondent must answer for their
+# submission to count. Below this threshold the response is rejected (422).
+MIN_QUESTIONS_PER_RESPONDENT = 6
+
+
+class OrgEnvironmentPartialSetup(BaseModel):
+    """
+    Partial questionnaire — used for multi-respondent submissions where each
+    stakeholder answers a subset of the 10 questions.
+
+    All fields are optional but at least MIN_QUESTIONS_PER_RESPONDENT must be
+    provided. Omitted fields are treated as null (null exclusion during aggregation).
+    """
+    respondent_label: str | None = None  # optional identifier (e.g. "CEO", "HM-1")
+
+    q1_direction_style: Optional[_Q1_CHOICES] = None
+    q2_success_archetype: Optional[_Q2_CHOICES] = None
+    q3_what_matters_most: Optional[_Q3_CHOICES] = None
+    q4_decision_style: Optional[_Q4_CHOICES] = None
+    q5_conflict_tolerance: Optional[_Q5_CHOICES] = None
+    q6_bad_decision_response: Optional[_Q6_CHOICES] = None
+    q7_role_clarity: Optional[_Q7_CHOICES] = None
+    q8_handles_change: Optional[_Q8_CHOICES] = None
+    q9_feedback_culture: Optional[_Q9_CHOICES] = None
+    q10_growth_expectation: Optional[_Q10_CHOICES] = None
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _skip_none(cls, v: Any) -> Any:
+        return v
+
+    def answered_count(self) -> int:
+        question_fields = [
+            "q1_direction_style", "q2_success_archetype", "q3_what_matters_most",
+            "q4_decision_style", "q5_conflict_tolerance", "q6_bad_decision_response",
+            "q7_role_clarity", "q8_handles_change", "q9_feedback_culture",
+            "q10_growth_expectation",
+        ]
+        return sum(1 for f in question_fields if getattr(self, f) is not None)
+
+    def to_answers_dict(self) -> Dict[str, str]:
+        """Return only the answered questions as a flat dict."""
+        question_fields = [
+            "q1_direction_style", "q2_success_archetype", "q3_what_matters_most",
+            "q4_decision_style", "q5_conflict_tolerance", "q6_bad_decision_response",
+            "q7_role_clarity", "q8_handles_change", "q9_feedback_culture",
+            "q10_growth_expectation",
+        ]
+        return {f: getattr(self, f) for f in question_fields if getattr(self, f) is not None}
+
+
+class MultiRespondentEnvironmentSetup(BaseModel):
+    """
+    Request body for POST /api/orgs/{org_id}/environment/aggregate.
+    Accepts 2-10 partial questionnaire responses from different stakeholders.
+    """
+    respondents: List[OrgEnvironmentPartialSetup]
+
+    @field_validator("respondents")
+    @classmethod
+    def validate_respondents(cls, v: List[OrgEnvironmentPartialSetup]) -> List[OrgEnvironmentPartialSetup]:
+        if len(v) < 2:
+            raise ValueError("At least 2 respondents are required for aggregation.")
+        if len(v) > 10:
+            raise ValueError("A maximum of 10 respondents is supported.")
+        return v
+
+
+class VariableAggregationResponse(BaseModel):
+    """Per-variable agreement summary from aggregation."""
+    variable: str
+    resolved_value: str
+    top_value_weight_share: float   # fraction of respondent weight on the winning value
+    all_responded_values: List[str] # all distinct values seen across respondents
+    is_contested: bool              # True when no clear majority (< 60% share)
+    respondent_count: int           # respondents who answered this variable
+    is_defaulted: bool              # True when no respondent answered this variable
+
+
+class AggregatedEnvironmentResponse(BaseModel):
+    """Response from POST /api/orgs/{org_id}/environment/aggregate."""
+    org_id: str
+    respondent_count: int
+    environment_confidence: str              # high | medium | low
+    derived_environment: Dict[str, str]
+    variable_aggregations: Dict[str, VariableAggregationResponse]
+    contested_variables: List[str]           # variables with no clear majority
+    defaulted_variables: List[str]           # variables no one answered
+    extra_fatal_risks: List[str]
+    values_framework_updated: bool
+    # Reviewer guidance when confidence is low or variables are contested
+    reviewer_flags: List[str]
