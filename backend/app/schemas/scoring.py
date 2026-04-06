@@ -41,7 +41,10 @@ class TaxonomyPayload(BaseModel):
 class ScoringRequest(BaseModel):
     interview_id: str
     transcript: list[TranscriptSegment]
-    rubric: dict[str, float] | None = None
+    # rubric: per-dimension scoring configuration.
+    # Accepts legacy format {dim: weight_float} or structured {dim: {weight, tier}}.
+    # Parsed by _parse_rubric() in interview_scoring.py.
+    rubric: dict[str, Any] | None = None
     job_description: str | None = None
     resume_text: str | None = None
     role_title: str | None = None

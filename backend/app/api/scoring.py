@@ -15,6 +15,9 @@ from app.services.interview_scoring import (
     InterviewScoringError,
     _extract_culture_fit,
     _extract_skills_fit,
+    _parse_rubric,
+    classify_dimensions,
+    compute_risk_stack,
 )
 from app.services.ml_client import MLServiceError, ml_client
 
@@ -153,11 +156,20 @@ async def score_interview(
         logger.error("Model response validation failed: %s", exc)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
-    # ── Extract each scorecard independently — they are NOT merged ────────────
+    # ── Parse rubric weights and importance tiers ─────────────────────────────
+    rubric_weights: dict[str, float] = {}
+    dimension_tiers: dict[str, str] = {}
+    if payload.rubric:
+        rubric_weights, dimension_tiers = _parse_rubric(payload.rubric)
+
+    # ── Extract scores, classify dimensions, stack risks ─────────────────────
     try:
-        culture_fit = _extract_culture_fit(model1_result, rubric=payload.rubric)
+        culture_fit = _extract_culture_fit(model1_result, rubric=rubric_weights)
     except InterviewScoringError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+    culture_fit = classify_dimensions(culture_fit, operating_environment)
+    culture_fit = compute_risk_stack(culture_fit, operating_environment, dimension_tiers=dimension_tiers)
 
     skills_fit = _extract_skills_fit(model2_result)
 

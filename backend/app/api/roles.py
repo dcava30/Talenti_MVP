@@ -150,7 +150,7 @@ def update_rubric(
     if not role:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
     require_org_member(role.organisation_id, db, user)
-    role.scoring_rubric = payload.scoring_rubric
+    role.scoring_rubric = payload.to_rubric_json()
     role.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(role)

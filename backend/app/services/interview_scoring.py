@@ -39,6 +39,44 @@ class InterviewScoringError(RuntimeError):
     pass
 
 
+def _parse_rubric(
+    raw: dict[str, Any],
+) -> tuple[dict[str, float], dict[str, str]]:
+    """
+    Parse scoring_rubric JSON into separate weights and tiers dicts.
+
+    Supports two formats for backwards compatibility:
+      Legacy : {"ownership": 1.5, "execution": 1.2}
+      New    : {"ownership": {"weight": 1.5, "tier": "Critical"}, ...}
+
+    Returns
+    -------
+    weights : {dim: float}   — scoring weight per dimension (default 1.0)
+    tiers   : {dim: str}     — importance tier per dimension (default "Standard")
+    """
+    weights: dict[str, float] = {}
+    tiers: dict[str, str] = {}
+    valid_tiers = {"Standard", "Important", "Critical"}
+
+    for dim, value in raw.items():
+        if not isinstance(dim, str):
+            continue
+        if isinstance(value, (int, float)):
+            # Legacy format: plain weight
+            weights[dim] = max(0.0, float(value))
+            tiers[dim] = "Standard"
+        elif isinstance(value, dict):
+            raw_weight = value.get("weight", 1.0)
+            raw_tier = value.get("tier", "Standard")
+            try:
+                weights[dim] = max(0.0, float(raw_weight))
+            except (TypeError, ValueError):
+                weights[dim] = 1.0
+            tiers[dim] = raw_tier if raw_tier in valid_tiers else "Standard"
+
+    return weights, tiers
+
+
 def _confidence_band(confidence: float | None) -> str | None:
     """
     Map a raw 0-1 confidence float to a discrete label.
@@ -258,6 +296,7 @@ def classify_dimensions(
 def compute_risk_stack(
     culture_fit: CultureFitResult,
     operating_environment: dict[str, Any],
+    dimension_tiers: dict[str, str] | None = None,
 ) -> CultureFitResult:
     """
     Produce the authoritative hiring recommendation by counting dimension outcomes
@@ -265,24 +304,38 @@ def compute_risk_stack(
 
     Rules (applied in order — first match wins):
       1. Fatal signal detected for this archetype → reject
-      2. Ambiguity risk AND Ownership risk together → reject (co-fail escalation)
-      3. 2 or more risk dimensions → reject
-      4. 1 risk dimension → caution
-      5. 3 or more watch dimensions → caution
-      6. 0 risk dimensions, fewer than 3 watches → proceed
+      2. Critical dimension at risk → reject (importance tier escalation)
+      3. Ambiguity risk AND Ownership risk together → reject (co-fail escalation)
+      4. Effective risk count >= 2 → reject
+         (Important dimension at risk counts as 2; Standard counts as 1)
+      5. Effective risk count == 1 → caution
+      6. 3 or more watch dimensions → caution
+      7. 0 effective risks, fewer than 3 watches → proceed
 
     Environment confidence cap (applied after the above):
       If environment_confidence == "low" (derived from multi-respondent aggregation),
       the recommendation cannot be "proceed" — it is capped at "caution" because
       the operating environment thresholds themselves are unreliable.
 
-    The overall_risk_level is also derived here from dimension outcomes rather
-    than from the model's internal weighted-score threshold.
+    Importance tiers (dimension_tiers param):
+      Standard  → risk contributes 1 to effective risk count (default)
+      Important → risk contributes 2 to effective risk count
+      Critical  → any risk immediately triggers reject (Rule 2)
     """
+    tiers = dimension_tiers or {}
     outcomes = culture_fit.dimension_outcomes or {}
 
     risk_dims = [dim for dim, do in outcomes.items() if do.outcome == "risk"]
     watch_dims = [dim for dim, do in outcomes.items() if do.outcome == "watch"]
+
+    # Compute effective risk count using importance tiers
+    effective_risk_count = 0
+    for dim in risk_dims:
+        tier = tiers.get(dim, "Standard")
+        if tier == "Important":
+            effective_risk_count += 2
+        else:
+            effective_risk_count += 1
 
     # Rule 1: archetype fatal risk signals
     archetype = operating_environment.get("high_performance_archetype", "")
@@ -301,31 +354,43 @@ def compute_risk_stack(
             "Risk stack: reject — fatal signals detected: %s", fatal_signals_matched
         )
 
-    # Rule 2: Ambiguity + Ownership co-fail
+    # Rule 2: Critical dimension at risk → immediate reject
+    critical_risk_dims = [dim for dim in risk_dims if tiers.get(dim, "Standard") == "Critical"]
+    if critical_risk_dims:
+        recommendation = "reject"
+        overall_risk_level = "high"
+        logger.info(
+            "Risk stack: reject — Critical dimension(s) at risk: %s", critical_risk_dims
+        )
+
+    # Rule 3: Ambiguity + Ownership co-fail
     elif "ambiguity" in risk_dims and "ownership" in risk_dims:
         recommendation = "reject"
         overall_risk_level = "high"
         logger.info("Risk stack: reject — ambiguity + ownership co-fail")
 
-    # Rule 3: 2+ risk dimensions
-    elif len(risk_dims) >= 2:
+    # Rule 4: effective risk count >= 2
+    elif effective_risk_count >= 2:
         recommendation = "reject"
         overall_risk_level = "high"
-        logger.info("Risk stack: reject — %d risk dimensions: %s", len(risk_dims), risk_dims)
+        logger.info(
+            "Risk stack: reject — effective_risk_count=%d (dims=%s, tiers=%s)",
+            effective_risk_count, risk_dims, {d: tiers.get(d, "Standard") for d in risk_dims},
+        )
 
-    # Rule 4: exactly 1 risk dimension
-    elif len(risk_dims) == 1:
+    # Rule 5: effective risk count == 1
+    elif effective_risk_count == 1:
         recommendation = "caution"
         overall_risk_level = "medium"
-        logger.info("Risk stack: caution — 1 risk dimension: %s", risk_dims)
+        logger.info("Risk stack: caution — 1 effective risk: %s", risk_dims)
 
-    # Rule 5: 3+ watch dimensions
+    # Rule 6: 3+ watch dimensions
     elif len(watch_dims) >= 3:
         recommendation = "caution"
         overall_risk_level = "medium"
         logger.info("Risk stack: caution — %d watch dimensions: %s", len(watch_dims), watch_dims)
 
-    # Rule 6: clear
+    # Rule 7: clear
     else:
         recommendation = "proceed"
         overall_risk_level = "low" if not watch_dims else "medium"
@@ -556,11 +621,12 @@ async def run_auto_scoring_for_interview(
         raise InterviewScoringError(str(exc)) from exc
 
     rubric: dict[str, float] = {}
+    dimension_tiers: dict[str, str] = {}
     if job_role.scoring_rubric:
         try:
             parsed_rubric = json.loads(job_role.scoring_rubric)
             if isinstance(parsed_rubric, dict):
-                rubric = parsed_rubric
+                rubric, dimension_tiers = _parse_rubric(parsed_rubric)
         except json.JSONDecodeError:
             pass
 
@@ -589,7 +655,7 @@ async def run_auto_scoring_for_interview(
     culture_fit = classify_dimensions(culture_fit, operating_environment)
 
     # Step 3: derive the final recommendation from risk-count stacking
-    culture_fit = compute_risk_stack(culture_fit, operating_environment)
+    culture_fit = compute_risk_stack(culture_fit, operating_environment, dimension_tiers=dimension_tiers)
 
     # Step 4: extract skills scorecard independently
     skills_fit = _extract_skills_fit(model2_result)
