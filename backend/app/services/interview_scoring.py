@@ -16,7 +16,13 @@ from app.models import (
     ScoreDimension,
     TranscriptSegment,
 )
-from app.schemas.scoring import ScoringDimension
+from app.schemas.scoring import (
+    BehaviouralDimension,
+    CultureFitResult,
+    DimensionOutcome,
+    SkillScore,
+    SkillsFitResult,
+)
 from app.services.culture_fit import CultureContextError, load_org_culture_context
 from app.services.ml_client import MLServiceError, ml_client
 
@@ -29,142 +35,81 @@ class InterviewScoringError(RuntimeError):
     pass
 
 
-def _collect_dimensions(
-    result: dict[str, Any],
-    source: str,
-) -> tuple[list[ScoringDimension], list[str]]:
-    """Extract per-dimension scores from a model service result dict."""
-    dimensions: list[ScoringDimension] = []
-    notes: list[str] = []
-    if not isinstance(result, dict):
-        notes.append(f"{source} returned an invalid response.")
-        return dimensions, notes
+# ── Culture fit extraction ────────────────────────────────────────────────────
 
-    if result.get("error"):
-        notes.append(f"{source} failed: {result.get('error')}")
-        return dimensions, notes
+def _extract_culture_fit(
+    model1_result: dict[str, Any],
+    rubric: dict[str, float] | None = None,
+) -> CultureFitResult:
+    """
+    Extract the culture fit scorecard from model-service-1's response.
 
-    scores = result.get("scores")
-    if not isinstance(scores, dict):
-        notes.append(f"{source} returned no scores.")
-        return dimensions, notes
+    Model-service-1 scores the 5 canonical behavioural dimensions (ownership,
+    execution, challenge, ambiguity, feedback) against the org's operating
+    environment. Its output is self-contained — no merging with skills data.
+    """
+    rubric = rubric or {}
 
-    for name, data in scores.items():
-        if not isinstance(name, str) or not name.strip() or not isinstance(data, dict) or "score" not in data:
-            notes.append(f"{source} returned invalid score payload for {name or 'unknown'}.")
+    if model1_result.get("error"):
+        raise InterviewScoringError(
+            f"Culture fit model failed: {model1_result.get('error')}"
+        )
+
+    scores_raw = model1_result.get("scores")
+    if not isinstance(scores_raw, dict):
+        raise InterviewScoringError("Culture fit model returned no scores.")
+
+    dimensions: list[BehaviouralDimension] = []
+
+    for name, data in scores_raw.items():
+        if not isinstance(name, str) or not name.strip() or not isinstance(data, dict):
+            continue
+        if "score" not in data:
             continue
         try:
             raw_score = float(data["score"])
+            # Model-service-1 may return normalised 0-1 or already 0-100
             if 0.0 <= raw_score <= 1.0:
                 raw_score *= 100.0
             score_value = max(0, min(100, int(round(raw_score))))
         except (TypeError, ValueError):
-            notes.append(f"{source} returned invalid score value for {name}.")
+            logger.warning("Culture fit model: invalid score value for dimension %s", name)
             continue
 
-        rationale = data.get("rationale")
-        rationale_str = f"{source}: {rationale.strip()}" if isinstance(rationale, str) and rationale.strip() else f"{source} score."
-
-        # Confidence — independent of score, from evidence quality
+        # Evidence-derived confidence — do NOT use a hardcoded fallback value.
+        # If the model doesn't return confidence, leave it as None so that downstream
+        # logic cannot misinterpret a fake confidence as evidence quality.
         confidence: float | None = None
-        raw_confidence = data.get("confidence")
-        if isinstance(raw_confidence, (int, float)):
-            confidence = float(raw_confidence)
+        raw_conf = data.get("confidence")
+        if isinstance(raw_conf, (int, float)) and raw_conf != 0.8:
+            # 0.8 is the known hardcoded placeholder in model-service-1 app/model.py.
+            # Reject it — it is not evidence-derived.
+            confidence = float(raw_conf)
 
-        matched_signals = data.get("matched_keywords") or data.get("matched_signals")
-        if not isinstance(matched_signals, list):
-            matched_signals = None
+        rationale = data.get("rationale")
+        rationale_str = rationale.strip() if isinstance(rationale, str) and rationale.strip() else None
+
+        matched = data.get("matched_keywords") or data.get("matched_signals")
+        matched_signals = matched if isinstance(matched, list) else None
 
         dimensions.append(
-            ScoringDimension(
+            BehaviouralDimension(
                 name=name,
                 score=score_value,
-                rationale=rationale_str,
                 confidence=confidence,
+                rationale=rationale_str,
                 matched_signals=matched_signals,
-                source=source,
+                source="service1",
             )
         )
 
-    summary = result.get("summary")
-    if isinstance(summary, str) and summary.strip():
-        notes.append(f"{source} summary: {summary.strip()}")
+    if not dimensions:
+        raise InterviewScoringError("Culture fit model returned no scoreable dimensions.")
 
-    return dimensions, notes
-
-
-def _merge_scores(
-    model1_result: dict[str, Any],
-    model2_result: dict[str, Any],
-    rubric: dict[str, float] | None = None,
-) -> tuple[int, list[ScoringDimension], str, dict[str, Any]]:
-    """
-    Merge per-dimension scores from both model services.
-
-    Returns (overall_score, merged_dimensions, summary, decision_fields).
-    decision_fields contains: overall_alignment, overall_risk_level, recommendation,
-    dimension_outcomes, env_requirements extracted from model1_result.
-    """
-    rubric = rubric or {}
-    model1_dimensions, model1_notes = _collect_dimensions(model1_result, "service1")
-    model2_dimensions, model2_notes = _collect_dimensions(model2_result, "service2")
-
-    # For each canonical dimension, average scores across services
-    dimension_score_lists: dict[str, list[int]] = {}
-    dimension_confidence_lists: dict[str, list[float]] = {}
-    dimension_rationales: dict[str, list[str]] = {}
-    dimension_signals: dict[str, list[str]] = {}
-
-    for dim in model1_dimensions + model2_dimensions:
-        dimension_score_lists.setdefault(dim.name, []).append(dim.score)
-        if dim.confidence is not None:
-            dimension_confidence_lists.setdefault(dim.name, []).append(dim.confidence)
-        if dim.rationale:
-            dimension_rationales.setdefault(dim.name, []).append(dim.rationale)
-        if dim.matched_signals:
-            dimension_signals.setdefault(dim.name, []).extend(dim.matched_signals)
-
-    if not dimension_score_lists:
-        raise InterviewScoringError("No model scores returned.")
-
-    # Dimension outcomes from model-service-1 (env-matched pass/watch/risk)
-    m1_dimension_outcomes: dict[str, Any] = {}
-    raw_outcomes = model1_result.get("dimension_outcomes")
-    if isinstance(raw_outcomes, dict):
-        m1_dimension_outcomes = raw_outcomes
-
-    merged_dimensions: list[ScoringDimension] = []
-    for name in sorted(dimension_score_lists.keys()):
-        scores = dimension_score_lists[name]
-        avg_score = int(round(sum(scores) / len(scores)))
-
-        conf_list = dimension_confidence_lists.get(name, [])
-        avg_confidence = round(sum(conf_list) / len(conf_list), 3) if conf_list else None
-
-        rationale = "; ".join(dimension_rationales.get(name, [])) or None
-        signals = list(dict.fromkeys(dimension_signals.get(name, [])))  # deduplicated
-
-        outcome_data = m1_dimension_outcomes.get(name, {})
-
-        merged_dimensions.append(
-            ScoringDimension(
-                name=name,
-                score=avg_score,
-                rationale=rationale,
-                confidence=avg_confidence,
-                outcome=outcome_data.get("outcome"),
-                required_pass=outcome_data.get("required_pass"),
-                required_watch=outcome_data.get("required_watch"),
-                gap=outcome_data.get("gap"),
-                matched_signals=signals or None,
-                source="merged",
-            )
-        )
-
-    # Weighted overall score
+    # Weighted overall score using rubric weights (fall back to equal weighting)
     total_weight = 0.0
     weighted_sum = 0.0
-    for dim in merged_dimensions:
+    for dim in dimensions:
         weight = max(0.0, float(rubric.get(dim.name, 1.0)))
         total_weight += weight
         weighted_sum += dim.score * weight
@@ -172,71 +117,183 @@ def _merge_scores(
     overall = (
         int(round(weighted_sum / total_weight))
         if total_weight > 0
-        else int(round(sum(d.score for d in merged_dimensions) / len(merged_dimensions)))
+        else int(round(sum(d.score for d in dimensions) / len(dimensions)))
     )
 
-    summary = " ".join(model1_notes + model2_notes).strip() or "Automated scoring from model services."
+    # Dimension outcomes (pass/watch/risk) from model-service-1 if present
+    raw_outcomes = model1_result.get("dimension_outcomes")
+    dimension_outcomes: dict[str, DimensionOutcome] | None = None
+    if isinstance(raw_outcomes, dict) and raw_outcomes:
+        dimension_outcomes = {}
+        for dim, data in raw_outcomes.items():
+            if isinstance(data, dict):
+                dimension_outcomes[dim] = DimensionOutcome(
+                    outcome=data.get("outcome", "risk"),
+                    required_pass=data.get("required_pass", 0),
+                    required_watch=data.get("required_watch", 0),
+                    gap=data.get("gap", 0),
+                )
 
-    # Pass through decision-dominant fields from model-service-1
-    decision_fields: dict[str, Any] = {
-        "overall_alignment": model1_result.get("overall_alignment"),
-        "overall_risk_level": model1_result.get("overall_risk_level"),
-        "recommendation": model1_result.get("recommendation"),
-        "dimension_outcomes": m1_dimension_outcomes,
-        "model_version": model1_result.get("model_version"),
-    }
+    summary = model1_result.get("summary")
+    summary_str = summary.strip() if isinstance(summary, str) and summary.strip() else None
 
-    return overall, merged_dimensions, summary, decision_fields
+    return CultureFitResult(
+        overall_score=overall,
+        overall_alignment=model1_result.get("overall_alignment"),
+        overall_risk_level=model1_result.get("overall_risk_level"),
+        recommendation=model1_result.get("recommendation"),
+        dimensions=dimensions,
+        dimension_outcomes=dimension_outcomes,
+        summary=summary_str,
+    )
 
+
+# ── Skills fit extraction ─────────────────────────────────────────────────────
+
+def _extract_skills_fit(model2_result: dict[str, Any]) -> SkillsFitResult | None:
+    """
+    Extract the skills fit scorecard from model-service-2's response.
+
+    Model-service-2 scores the candidate's demonstrated skills against the
+    specific competencies required by the job description and resume. Skill names
+    are role-specific (e.g. python, azure, rag) — not the canonical behavioural
+    dimensions. This scorecard is entirely independent of the culture fit result.
+
+    Returns None if model-service-2 failed or returned no usable data.
+    """
+    if not isinstance(model2_result, dict):
+        return None
+
+    if model2_result.get("error"):
+        logger.warning("Skills model failed: %s", model2_result.get("error"))
+        return None
+
+    scores_raw = model2_result.get("scores")
+    if not isinstance(scores_raw, dict) or not scores_raw:
+        logger.warning("Skills model returned no skill scores.")
+        return None
+
+    skills: dict[str, SkillScore] = {}
+    for skill_name, data in scores_raw.items():
+        if not isinstance(skill_name, str) or not isinstance(data, dict):
+            continue
+        raw_score = data.get("score")
+        if raw_score is None:
+            continue
+        try:
+            score_f = float(raw_score)
+            # Model-service-2 returns 0-1 scores
+            if 0.0 <= score_f <= 1.0:
+                score_f *= 100.0
+            score_int = max(0, min(100, int(round(score_f))))
+        except (TypeError, ValueError):
+            continue
+
+        raw_conf = data.get("confidence")
+        confidence = float(raw_conf) if isinstance(raw_conf, (int, float)) else None
+
+        keywords = data.get("matched_keywords")
+
+        skills[skill_name] = SkillScore(
+            score=score_int,
+            confidence=confidence,
+            rationale=data.get("rationale"),
+            years_detected=data.get("years_detected"),
+            matched_keywords=keywords if isinstance(keywords, list) else None,
+        )
+
+    if not skills:
+        return None
+
+    overall_raw = model2_result.get("overall_score", 0)
+    try:
+        overall = max(0, min(100, int(round(float(overall_raw)))))
+    except (TypeError, ValueError):
+        overall = int(round(sum(s.score for s in skills.values()) / len(skills)))
+
+    summary = model2_result.get("summary")
+
+    return SkillsFitResult(
+        overall_score=overall,
+        outcome=model2_result.get("outcome"),
+        skills=skills,
+        must_haves_passed=model2_result.get("must_haves_passed") or [],
+        must_haves_failed=model2_result.get("must_haves_failed") or [],
+        gaps=model2_result.get("gaps") or [],
+        summary=summary.strip() if isinstance(summary, str) and summary.strip() else None,
+    )
+
+
+# ── Persistence ───────────────────────────────────────────────────────────────
 
 def persist_interview_score(
     db: Session,
     *,
     interview_id: str,
-    overall_score: int,
-    dimensions: list[ScoringDimension],
-    summary: str,
-    overall_alignment: str | None = None,
-    overall_risk_level: str | None = None,
-    recommendation: str | None = None,
-    dimension_outcomes: dict[str, Any] | None = None,
+    culture_fit: CultureFitResult,
+    skills_fit: SkillsFitResult | None = None,
     env_snapshot: dict[str, Any] | None = None,
     model_version: str | None = None,
     service1_raw: dict[str, Any] | None = None,
     service2_raw: dict[str, Any] | None = None,
 ) -> InterviewScore:
-    score = db.query(InterviewScore).filter(InterviewScore.interview_id == interview_id).first()
+    """
+    Persist the dual scorecard to the database.
+
+    Culture fit dimensions are written to score_dimensions (one row per canonical
+    dimension). Skills fit is summarised in interview_scores (overall score +
+    outcome) and preserved in full in service2_raw.
+    """
+    # Build dimension_outcomes JSON from culture fit result
+    dim_outcomes_json: str | None = None
+    if culture_fit.dimension_outcomes:
+        dim_outcomes_json = json.dumps({
+            dim: {
+                "outcome": do.outcome,
+                "required_pass": do.required_pass,
+                "required_watch": do.required_watch,
+                "gap": do.gap,
+            }
+            for dim, do in culture_fit.dimension_outcomes.items()
+        })
+
+    score = db.query(InterviewScore).filter(
+        InterviewScore.interview_id == interview_id
+    ).first()
+
+    common_fields: dict[str, Any] = dict(
+        culture_fit_score=culture_fit.overall_score,
+        skills_score=skills_fit.overall_score if skills_fit else None,
+        skills_outcome=skills_fit.outcome if skills_fit else None,
+        summary=culture_fit.summary,
+        overall_alignment=culture_fit.overall_alignment,
+        overall_risk_level=culture_fit.overall_risk_level,
+        recommendation=culture_fit.recommendation,
+        dimension_outcomes=dim_outcomes_json,
+        env_snapshot=json.dumps(env_snapshot) if env_snapshot else None,
+        model_version=model_version,
+        service1_raw=json.dumps(service1_raw) if service1_raw else None,
+        service2_raw=json.dumps(service2_raw) if service2_raw else None,
+    )
+
     if score:
-        score.overall_score = overall_score
-        score.summary = summary
-        score.overall_alignment = overall_alignment
-        score.overall_risk_level = overall_risk_level
-        score.recommendation = recommendation
-        score.dimension_outcomes = json.dumps(dimension_outcomes) if dimension_outcomes else None
-        score.env_snapshot = json.dumps(env_snapshot) if env_snapshot else None
-        score.model_version = model_version
-        score.service1_raw = json.dumps(service1_raw) if service1_raw else None
-        score.service2_raw = json.dumps(service2_raw) if service2_raw else None
+        for k, v in common_fields.items():
+            setattr(score, k, v)
     else:
         score = InterviewScore(
             interview_id=interview_id,
-            overall_score=overall_score,
-            summary=summary,
-            overall_alignment=overall_alignment,
-            overall_risk_level=overall_risk_level,
-            recommendation=recommendation,
-            dimension_outcomes=json.dumps(dimension_outcomes) if dimension_outcomes else None,
-            env_snapshot=json.dumps(env_snapshot) if env_snapshot else None,
-            model_version=model_version,
-            service1_raw=json.dumps(service1_raw) if service1_raw else None,
-            service2_raw=json.dumps(service2_raw) if service2_raw else None,
             created_at=datetime.utcnow(),
+            **common_fields,
         )
         db.add(score)
 
-    # Replace dimension rows
-    db.query(ScoreDimension).filter(ScoreDimension.interview_id == interview_id).delete()
-    for dim in dimensions:
+    # Replace canonical dimension rows (culture fit only — skills are in service2_raw)
+    db.query(ScoreDimension).filter(
+        ScoreDimension.interview_id == interview_id
+    ).delete()
+
+    for dim in culture_fit.dimensions:
+        outcome_data = (culture_fit.dimension_outcomes or {}).get(dim.name)
         db.add(
             ScoreDimension(
                 interview_id=interview_id,
@@ -244,19 +301,24 @@ def persist_interview_score(
                 score=dim.score,
                 rationale=dim.rationale,
                 confidence=dim.confidence,
-                outcome=dim.outcome,
-                required_pass=dim.required_pass,
-                required_watch=dim.required_watch,
-                gap=dim.gap,
+                outcome=outcome_data.outcome if outcome_data else None,
+                required_pass=outcome_data.required_pass if outcome_data else None,
+                required_watch=outcome_data.required_watch if outcome_data else None,
+                gap=outcome_data.gap if outcome_data else None,
                 matched_signals=json.dumps(dim.matched_signals) if dim.matched_signals else None,
                 source=dim.source,
                 created_at=datetime.utcnow(),
             )
         )
+
     return score
 
 
-async def run_auto_scoring_for_interview(db: Session, interview_id: str) -> dict[str, Any]:
+# ── Auto-scoring pipeline ─────────────────────────────────────────────────────
+
+async def run_auto_scoring_for_interview(
+    db: Session, interview_id: str
+) -> dict[str, Any]:
     interview = db.get(Interview, interview_id)
     if not interview:
         raise InterviewScoringError("Interview not found")
@@ -270,7 +332,11 @@ async def run_auto_scoring_for_interview(db: Session, interview_id: str) -> dict
     if not transcript_rows:
         raise InterviewScoringError("Transcript required for scoring")
 
-    transcript = [{"speaker": row.speaker, "content": row.content} for row in transcript_rows]
+    transcript = [
+        {"speaker": row.speaker, "content": row.content}
+        for row in transcript_rows
+    ]
+
     application = db.get(Application, interview.application_id)
     if not application:
         raise InterviewScoringError("Interview application not found")
@@ -312,32 +378,31 @@ async def run_auto_scoring_for_interview(db: Session, interview_id: str) -> dict
     except MLServiceError as exc:
         raise InterviewScoringError(str(exc)) from exc
 
-    overall, dimensions, summary, decision_fields = _merge_scores(
-        model1_result, model2_result, rubric=rubric
-    )
+    # Extract each scorecard independently — they are not merged
+    culture_fit = _extract_culture_fit(model1_result, rubric=rubric)
+    skills_fit = _extract_skills_fit(model2_result)
 
     persist_interview_score(
         db,
         interview_id=interview_id,
-        overall_score=overall,
-        dimensions=dimensions,
-        summary=summary,
-        overall_alignment=decision_fields.get("overall_alignment"),
-        overall_risk_level=decision_fields.get("overall_risk_level"),
-        recommendation=decision_fields.get("recommendation"),
-        dimension_outcomes=decision_fields.get("dimension_outcomes"),
+        culture_fit=culture_fit,
+        skills_fit=skills_fit,
         env_snapshot=operating_environment,
-        model_version=decision_fields.get("model_version"),
+        model_version=model1_result.get("model_version"),
         service1_raw=model1_result,
         service2_raw=model2_result,
     )
-    interview.summary = summary
+
+    interview.summary = culture_fit.summary
     interview.updated_at = datetime.utcnow()
+
     return {
         "interview_id": interview_id,
-        "overall_score": overall,
-        "recommendation": decision_fields.get("recommendation"),
-        "overall_alignment": decision_fields.get("overall_alignment"),
-        "overall_risk_level": decision_fields.get("overall_risk_level"),
-        "dimension_count": len(dimensions),
+        "culture_fit_score": culture_fit.overall_score,
+        "skills_score": skills_fit.overall_score if skills_fit else None,
+        "skills_outcome": skills_fit.outcome if skills_fit else None,
+        "recommendation": culture_fit.recommendation,
+        "overall_alignment": culture_fit.overall_alignment,
+        "overall_risk_level": culture_fit.overall_risk_level,
+        "dimension_count": len(culture_fit.dimensions),
     }
