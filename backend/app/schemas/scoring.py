@@ -64,7 +64,8 @@ class BehaviouralDimension(BaseModel):
     """One of the 5 canonical behavioural dimensions scored by model-service-1."""
     name: str
     score: int                         # 0-100
-    confidence: float | None = None    # evidence-derived, independent of score
+    confidence: float | None = None    # evidence-derived, independent of score (0-1)
+    confidence_band: str | None = None # High (≥0.70) | Medium (≥0.40) | Low (<0.40) | None if no confidence
     outcome: str | None = None         # pass | watch | risk
     required_pass: int | None = None   # env-adjusted pass threshold
     required_watch: int | None = None  # env-adjusted watch threshold
