@@ -5,8 +5,17 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, require_org_member
 from app.models import Application, Interview, JobRole, Organisation, User
-from app.schemas.scoring import DimensionOutcome, ScoringDimension, ScoringRequest, ScoringResponse
+from app.schemas.scoring import (
+    DimensionOutcome,
+    ScoringRequest,
+    ScoringResponse,
+)
 from app.services.culture_fit import CultureContextError, load_org_culture_context
+from app.services.interview_scoring import (
+    InterviewScoringError,
+    _extract_culture_fit,
+    _extract_skills_fit,
+)
 from app.services.ml_client import MLServiceError, ml_client
 
 router = APIRouter(prefix="/api/v1/scoring", tags=["scoring"])
@@ -20,14 +29,18 @@ async def score_interview(
     user: User = Depends(get_current_user),
 ) -> ScoringResponse:
     if not payload.transcript:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Transcript required")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Transcript required"
+        )
 
     try:
         transcript_data = []
         for idx, segment in enumerate(payload.transcript):
             assert segment.speaker is not None, f"Transcript segment {idx} missing speaker"
             assert segment.content is not None, f"Transcript segment {idx} missing content"
-            transcript_data.append({"speaker": str(segment.speaker), "content": str(segment.content)})
+            transcript_data.append(
+                {"speaker": str(segment.speaker), "content": str(segment.content)}
+            )
         assert transcript_data, "Transcript normalization produced no segments"
     except AssertionError as exc:
         logger.error("Invalid transcript payload: %s", exc)
@@ -42,6 +55,7 @@ async def score_interview(
             detail="Failed to process transcript",
         ) from exc
 
+    # ── Resolve operating environment and taxonomy ────────────────────────────
     operating_environment: dict | None = None
     taxonomy: dict | None = None
     candidate_id: str | None = None
@@ -82,13 +96,14 @@ async def score_interview(
         require_org_member(resolved_org_id, db, user)
         organisation = db.get(Organisation, resolved_org_id)
         if not organisation:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found"
+            )
         try:
             operating_environment, taxonomy = load_org_culture_context(organisation)
         except CultureContextError as exc:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(exc),
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
             ) from exc
 
     if not operating_environment or not taxonomy:
@@ -97,6 +112,7 @@ async def score_interview(
             detail="Organisation operating_environment and taxonomy are required for culture fit scoring.",
         )
 
+    # ── Call both model services concurrently ─────────────────────────────────
     try:
         model1_result, model2_result = await ml_client.get_combined_predictions(
             transcript_data,
@@ -114,10 +130,7 @@ async def score_interview(
         )
     except MLServiceError as exc:
         logger.error("ML service error while scoring: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(exc),
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     except AssertionError as exc:
         logger.error("Assertion failed while requesting model predictions: %s", exc, exc_info=True)
         raise HTTPException(
@@ -125,7 +138,9 @@ async def score_interview(
             detail=f"Invalid model request: {exc}",
         ) from exc
     except Exception as exc:
-        logger.error("Unexpected error while requesting model predictions: %s", exc, exc_info=True)
+        logger.error(
+            "Unexpected error while requesting model predictions: %s", exc, exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Unexpected error while calling model services.",
@@ -136,43 +151,18 @@ async def score_interview(
         assert isinstance(model2_result, dict), "Skillset model response was not a JSON object"
     except AssertionError as exc:
         logger.error("Model response validation failed: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(exc),
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
-    from app.services.interview_scoring import InterviewScoringError, _merge_scores
-
+    # ── Extract each scorecard independently — they are NOT merged ────────────
     try:
-        overall, dimensions, summary, decision_fields = _merge_scores(
-            model1_result, model2_result, rubric=payload.rubric
-        )
+        culture_fit = _extract_culture_fit(model1_result, rubric=payload.rubric)
     except InterviewScoringError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(exc),
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
-    # Convert dimension_outcomes to typed schema objects for the response
-    raw_outcomes = decision_fields.get("dimension_outcomes") or {}
-    dimension_outcomes = {
-        dim: DimensionOutcome(
-            outcome=data.get("outcome", "risk"),
-            required_pass=data.get("required_pass", 0),
-            required_watch=data.get("required_watch", 0),
-            gap=data.get("gap", 0),
-        )
-        for dim, data in raw_outcomes.items()
-        if isinstance(data, dict)
-    } or None
+    skills_fit = _extract_skills_fit(model2_result)
 
     return ScoringResponse(
         interview_id=payload.interview_id,
-        overall_score=overall,
-        dimensions=dimensions,
-        summary=summary,
-        overall_alignment=decision_fields.get("overall_alignment"),
-        overall_risk_level=decision_fields.get("overall_risk_level"),
-        recommendation=decision_fields.get("recommendation"),
-        dimension_outcomes=dimension_outcomes,
+        culture_fit=culture_fit,
+        skills_fit=skills_fit,
     )

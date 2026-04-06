@@ -18,8 +18,8 @@ def update_score(
     score = db.get(InterviewScore, score_id)
     if not score:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Score not found")
-    if payload.overall_score is not None:
-        score.overall_score = payload.overall_score
+    if payload.culture_fit_score is not None:
+        score.culture_fit_score = payload.culture_fit_score
     if payload.summary is not None:
         score.summary = payload.summary
     if payload.recommendation is not None:
@@ -29,7 +29,9 @@ def update_score(
     return InterviewScoreResponse(
         id=score.id,
         interview_id=score.interview_id,
-        overall_score=score.overall_score,
+        culture_fit_score=score.culture_fit_score,
+        skills_score=score.skills_score,
+        skills_outcome=score.skills_outcome,
         summary=score.summary,
         recommendation=score.recommendation,
         created_at=score.created_at,

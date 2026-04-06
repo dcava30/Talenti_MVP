@@ -109,14 +109,14 @@ class ScoreDimensionResponse(BaseModel):
 
 class InterviewScoreSave(BaseModel):
     interview_id: str
-    overall_score: int
+    culture_fit_score: int
     narrative_summary: str | None = None
     candidate_feedback: str | None = None
     dimensions: list[ScoreDimensionCreate] = []
 
 
 class InterviewScoreUpdate(BaseModel):
-    overall_score: int | None = None
+    culture_fit_score: int | None = None
     summary: str | None = None
     recommendation: str | None = None
 
@@ -124,7 +124,9 @@ class InterviewScoreUpdate(BaseModel):
 class InterviewScoreResponse(BaseModel):
     id: str
     interview_id: str
-    overall_score: int
+    culture_fit_score: int
+    skills_score: int | None = None
+    skills_outcome: str | None = None
     summary: str | None
     recommendation: str | None
     created_at: datetime
