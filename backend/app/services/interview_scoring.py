@@ -39,6 +39,25 @@ class InterviewScoringError(RuntimeError):
     pass
 
 
+def _confidence_band(confidence: float | None) -> str | None:
+    """
+    Map a raw 0-1 confidence float to a discrete label.
+
+    Thresholds:
+      ≥ 0.70  →  High    (strong evidence, multiple aligned signals)
+      ≥ 0.40  →  Medium  (moderate evidence, some alignment)
+      < 0.40  →  Low     (sparse evidence or contradicted signals)
+      None    →  None    (no evidence-derived confidence available)
+    """
+    if confidence is None:
+        return None
+    if confidence >= 0.70:
+        return "High"
+    if confidence >= 0.40:
+        return "Medium"
+    return "Low"
+
+
 # ── Culture fit extraction ────────────────────────────────────────────────────
 
 def _extract_culture_fit(
@@ -100,6 +119,7 @@ def _extract_culture_fit(
                 name=name,
                 score=score_value,
                 confidence=confidence,
+                confidence_band=_confidence_band(confidence),
                 rationale=rationale_str,
                 matched_signals=matched_signals,
                 source="service1",
@@ -211,6 +231,7 @@ def classify_dimensions(
                 name=dim.name,
                 score=dim.score,
                 confidence=dim.confidence,
+                confidence_band=dim.confidence_band,
                 outcome=raw_outcome,
                 required_pass=pass_threshold,
                 required_watch=watch_threshold,
