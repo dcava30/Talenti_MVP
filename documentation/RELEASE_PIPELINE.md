@@ -11,6 +11,7 @@ Talenti now uses a trunk-based release model on `main`.
 - Merge with squash so the PR title becomes the release note source.
 - Configure branch protection in GitHub so:
   - `pr-fast-quality`, `pr-security-iac`, and `pr-ephemeral-deploy` are required before merge
+  - `CodeQL Advanced` is enabled as the sole CodeQL workflow to avoid duplicate alerts and stale statuses
   - squash merge is allowed
   - direct pushes to `main` are blocked
 - Configure GitHub Actions workflow permissions so:
@@ -25,7 +26,10 @@ Talenti now uses a trunk-based release model on `main`.
   - Runs frontend lint/test/build, backend tests, ACS tests, migration execution checks, and coverage gates
 - `pr-security-iac.yml`
   - Runs on pull requests to `main`
-  - Runs CodeQL, secret scanning, dependency auditing, container scanning, and Bicep/IaC policy checks
+  - Runs secret scanning, dependency auditing, container scanning, and Bicep/IaC policy checks
+- `codeql.yml`
+  - Runs on pull requests to `main`, pushes to `main`, and a weekly schedule
+  - Is the single CodeQL workflow for Actions, JavaScript/TypeScript, and Python analysis
 - `pr-ephemeral-deploy.yml`
   - Runs on pull requests to `main` from internal branches
   - Uses the dedicated GitHub `pr-dev` environment so `dev` can remain restricted to `main`
@@ -177,7 +181,7 @@ To catch workflow failures before pushing:
    - targeted remediation hints
 
 `fast` mirrors `pr-fast-quality` behavior for touched components.
-`full` adds local equivalents of `pr-security-iac` checks (excluding CodeQL, which remains CI-only).
+`full` adds local equivalents of `pr-security-iac` checks. CodeQL remains CI-only in `codeql.yml`.
 Backend coverage gate is currently enforced at 60% in local and CI while test coverage is being expanded.
 ACS coverage gate is currently enforced at 40% in local and CI while ACS test coverage is being expanded.
 If Git shell (`sh.exe`) is broken on Windows, `hooks:install` auto-falls back to `.githooks-disabled` and prompts manual `npm run precommit`.
