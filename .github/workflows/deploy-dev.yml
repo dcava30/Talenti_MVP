@@ -56,6 +56,7 @@ jobs:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
         with:
           ref: ${{ steps.source.outputs.sha }}
+          fetch-depth: 0
 
       - name: Validate manual dispatch source SHA provenance
         if: github.event_name == 'workflow_dispatch'
@@ -142,10 +143,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          changed_files=$(git show --pretty='' --name-only "${{ steps.source.outputs.sha }}")
-          if echo "$changed_files" | grep -Eq '^(infra/|\.github/workflows/infra-dev\.yml)'; then
+          target_sha="${{ steps.source.outputs.sha }}"
+
+          if git rev-parse "${target_sha}^1" >/dev/null 2>&1; then
+            changed_files=$(git diff --name-only "${target_sha}^1" "${target_sha}")
+          else
+            changed_files=$(git diff-tree --root --no-commit-id --name-only -r "${target_sha}")
+          fi
+
+          if echo "$changed_files" | grep -Eq '^(infra/dev/|infra/modules/|\.github/workflows/infra-dev\.yml$)'; then
             echo "Infra change detected; waiting for matching infra-dev result for commit ${{ steps.source.outputs.sha }}"
-            target_sha="${{ steps.source.outputs.sha }}"
             timeout_seconds=1200
             interval_seconds=20
             elapsed_seconds=0
