@@ -182,11 +182,6 @@ class OrgEnvironmentPartialSetup(BaseModel):
     q9_feedback_culture: Optional[_Q9_CHOICES] = None
     q10_growth_expectation: Optional[_Q10_CHOICES] = None
 
-    @field_validator("*", mode="before")
-    @classmethod
-    def _skip_none(cls, v: Any) -> Any:
-        return v
-
     def answered_count(self) -> int:
         question_fields = [
             "q1_direction_style", "q2_success_archetype", "q3_what_matters_most",
