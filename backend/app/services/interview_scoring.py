@@ -271,6 +271,11 @@ def compute_risk_stack(
       5. 3 or more watch dimensions → caution
       6. 0 risk dimensions, fewer than 3 watches → proceed
 
+    Environment confidence cap (applied after the above):
+      If environment_confidence == "low" (derived from multi-respondent aggregation),
+      the recommendation cannot be "proceed" — it is capped at "caution" because
+      the operating environment thresholds themselves are unreliable.
+
     The overall_risk_level is also derived here from dimension outcomes rather
     than from the model's internal weighted-score threshold.
     """
@@ -326,6 +331,15 @@ def compute_risk_stack(
         overall_risk_level = "low" if not watch_dims else "medium"
         logger.info(
             "Risk stack: proceed — risks=%s watches=%s", risk_dims, watch_dims
+        )
+
+    # Environment confidence cap: low-confidence environment → cannot recommend "proceed"
+    env_confidence = operating_environment.get("environment_confidence")
+    if env_confidence == "low" and recommendation == "proceed":
+        recommendation = "caution"
+        overall_risk_level = "medium"
+        logger.info(
+            "Risk stack: proceed→caution (env confidence cap — environment_confidence=low)"
         )
 
     return CultureFitResult(
