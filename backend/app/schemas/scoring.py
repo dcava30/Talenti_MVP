@@ -1,6 +1,7 @@
+from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class TranscriptSegment(BaseModel):
@@ -133,6 +134,49 @@ class ScoringResponse(BaseModel):
 class HumanOverride(BaseModel):
     decision: str     # proceed | caution | reject
     reason: str | None = None
+
+    @field_validator("decision")
+    @classmethod
+    def validate_decision(cls, v: str) -> str:
+        allowed = {"proceed", "caution", "reject"}
+        if v not in allowed:
+            raise ValueError(f"decision must be one of {allowed}")
+        return v
+
+
+class PostHireOutcomeCreate(BaseModel):
+    observed_at: datetime
+    snapshot_period: str = "custom"   # 3_month | 6_month | 12_month | custom
+    outcome_rating: float             # 1-5 scale
+    outcome_notes: str | None = None
+    dimension_ratings: dict[str, float] | None = None  # {dim: 1-5}
+
+    @field_validator("snapshot_period")
+    @classmethod
+    def validate_period(cls, v: str) -> str:
+        allowed = {"3_month", "6_month", "12_month", "custom"}
+        if v not in allowed:
+            raise ValueError(f"snapshot_period must be one of {allowed}")
+        return v
+
+    @field_validator("outcome_rating")
+    @classmethod
+    def validate_rating(cls, v: float) -> float:
+        if not (1.0 <= v <= 5.0):
+            raise ValueError("outcome_rating must be between 1 and 5")
+        return v
+
+
+class PostHireOutcomeResponse(BaseModel):
+    id: str
+    interview_score_id: str
+    observed_at: datetime
+    snapshot_period: str
+    outcome_rating: float
+    outcome_notes: str | None = None
+    dimension_ratings: dict[str, float] | None = None
+    recorded_by: str | None = None
+    created_at: datetime
 
 
 class InterviewScoreResponse(BaseModel):
