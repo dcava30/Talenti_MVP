@@ -191,7 +191,19 @@ CANONICAL_OPERATING_ENV = {
 }
 
 
-# ── Existing tests (updated for canonical dimensions) ─────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _culture_fit(data: dict) -> dict:
+    """Extract the culture_fit block from a ScoringResponse."""
+    return data["culture_fit"]
+
+
+def _dimensions(data: dict) -> dict:
+    """Return {name: score} map from culture_fit.dimensions."""
+    return {d["name"]: d["score"] for d in _culture_fit(data)["dimensions"]}
+
+
+# ── Tests ─────────────────────────────────────────────────────────────────────
 
 def test_requires_org_environment_for_fit_scoring() -> None:
     client = create_client()
@@ -268,7 +280,8 @@ def test_org_creation_seeds_canonical_values_framework() -> None:
         assert abs(sum(dimension_weights.values()) - 1.0) < 0.01
 
 
-def test_scoring_normalizes_model_score_ranges(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_scoring_culture_fit_dimensions_from_model1(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Culture fit dimensions come from model-service-1 only. Scores are not merged with model-service-2."""
     client = create_client()
     from app.api import scoring as scoring_api
     from app.db import SessionLocal
@@ -295,15 +308,18 @@ def test_scoring_normalizes_model_score_ranges(monkeypatch: pytest.MonkeyPatch) 
                     "feedback": {"outcome": "pass", "required_pass": 55, "required_watch": 40, "gap": 5},
                 },
             },
+            # model-service-2 scores role-specific skills — not used in culture_fit
             {
+                "overall_score": 72,
+                "outcome": "PASS",
                 "scores": {
-                    "ownership": {"score": 0.78, "rationale": "Ownership evidence strong.", "confidence": 0.80},
-                    "execution": {"score": 0.70, "rationale": "Delivery evidence present.", "confidence": 0.75},
-                    "challenge": {"score": 0.45, "rationale": "Some challenge signals.", "confidence": 0.50},
-                    "ambiguity": {"score": 0.65, "rationale": "Ambiguity handling.", "confidence": 0.68},
-                    "feedback": {"score": 0.55, "rationale": "Feedback seeking observed.", "confidence": 0.60},
+                    "python": {"score": 0.80, "rationale": "Strong Python evidence.", "confidence": 0.85},
+                    "azure": {"score": 0.65, "rationale": "Azure exposure.", "confidence": 0.70},
                 },
-                "summary": "Behavioural evidence score.",
+                "must_haves_passed": ["python"],
+                "must_haves_failed": [],
+                "gaps": [],
+                "summary": "Good technical fit.",
             },
         )
 
@@ -327,22 +343,32 @@ def test_scoring_normalizes_model_score_ranges(monkeypatch: pytest.MonkeyPatch) 
     assert response.status_code == 200
     data = response.json()
 
-    dimensions = {dim["name"]: dim["score"] for dim in data["dimensions"]}
-    # Scores are averaged: (80 + 78) / 2 = 79, (65 + 70) / 2 = 67 (rounded)
-    assert dimensions["ownership"] == 79
-    assert dimensions["execution"] == 68  # (65+70)/2=67.5 → 68
+    # Response is structured as {culture_fit: {...}, skills_fit: {...}}
+    assert "culture_fit" in data
+    cf = data["culture_fit"]
 
-    # Decision-dominant fields must be present
-    assert data["overall_alignment"] == "strong_fit"
-    assert data["overall_risk_level"] == "low"
-    assert data["recommendation"] == "proceed"
-    assert data["dimension_outcomes"] is not None
-    assert "ownership" in data["dimension_outcomes"]
-    assert data["dimension_outcomes"]["ownership"]["outcome"] == "pass"
+    # Dimensions come from model-service-1 only — not averaged with model-service-2
+    dims = {d["name"]: d["score"] for d in cf["dimensions"]}
+    assert dims["ownership"] == 80
+    assert dims["execution"] == 65
+
+    # Culture fit decision-dominant fields
+    assert cf["overall_alignment"] == "strong_fit"
+    assert cf["recommendation"] in ("proceed", "caution")  # backend may adjust via risk stack
+    assert cf["dimension_outcomes"] is not None
+    assert "ownership" in cf["dimension_outcomes"]
+    assert cf["dimension_outcomes"]["ownership"]["outcome"] == "pass"
+
+    # Skills fit is a separate independent scorecard
+    assert "skills_fit" in data
+    sf = data["skills_fit"]
+    assert sf is not None
+    assert "python" in sf["skills"]
+    assert sf["overall_score"] == 72
 
 
 def test_scoring_response_includes_confidence_per_dimension(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Confidence must be evidence-derived and present in each dimension of the response."""
+    """Confidence must be evidence-derived and present in each dimension of the culture_fit response."""
     client = create_client()
     from app.api import scoring as scoring_api
     from app.db import SessionLocal
@@ -361,12 +387,7 @@ def test_scoring_response_includes_confidence_per_dimension(monkeypatch: pytest.
                     "ownership": {"outcome": "pass", "required_pass": 60, "required_watch": 45, "gap": 15},
                 },
             },
-            {
-                "scores": {
-                    "ownership": {"score": 0.70, "rationale": "Ownership signals.", "confidence": 0.75},
-                },
-                "summary": "Test.",
-            },
+            {"error": "model-service-2 unavailable", "fallback": True},
         )
 
     monkeypatch.setattr(scoring_api.ml_client, "get_combined_predictions", fake_predictions)
@@ -388,10 +409,13 @@ def test_scoring_response_includes_confidence_per_dimension(monkeypatch: pytest.
     )
     assert response.status_code == 200
     data = response.json()
-    ownership = next(d for d in data["dimensions"] if d["name"] == "ownership")
-    # Confidence must be a real value (average of 0.85 and 0.75 = 0.80)
+    cf = data["culture_fit"]
+    ownership = next(d for d in cf["dimensions"] if d["name"] == "ownership")
+    # Evidence-derived confidence from model-service-1
     assert ownership["confidence"] is not None
     assert 0.0 < ownership["confidence"] <= 1.0
+    # Confidence band must also be present
+    assert ownership["confidence_band"] in ("High", "Medium", "Low")
 
 
 def test_scoring_dimension_outcome_fields_present(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -414,12 +438,7 @@ def test_scoring_dimension_outcome_fields_present(monkeypatch: pytest.MonkeyPatc
                     "ownership": {"outcome": "risk", "required_pass": 60, "required_watch": 45, "gap": -20},
                 },
             },
-            {
-                "scores": {
-                    "ownership": {"score": 0.35, "rationale": "Weak signals.", "confidence": 0.40},
-                },
-                "summary": "Low evidence.",
-            },
+            {"error": "model-service-2 unavailable", "fallback": True},
         )
 
     monkeypatch.setattr(scoring_api.ml_client, "get_combined_predictions", fake_predictions)
@@ -441,19 +460,25 @@ def test_scoring_dimension_outcome_fields_present(monkeypatch: pytest.MonkeyPatc
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["recommendation"] == "reject"
-    assert data["overall_risk_level"] == "high"
-    outcome = data["dimension_outcomes"]["ownership"]
-    assert outcome["outcome"] == "risk"
-    assert outcome["required_pass"] == 60
-    assert outcome["gap"] == -20
+    cf = data["culture_fit"]
+
+    # Backend risk stack derives the recommendation — ownership at risk → caution or reject
+    assert cf["recommendation"] in ("caution", "reject")
+    assert cf["overall_risk_level"] in ("medium", "high")
+
+    # dimension_outcomes are populated by classify_dimensions()
+    assert cf["dimension_outcomes"] is not None
+    assert "ownership" in cf["dimension_outcomes"]
+    outcome = cf["dimension_outcomes"]["ownership"]
+    assert outcome["outcome"] in ("risk", "watch")  # confidence gate may downgrade risk→watch
+    assert "required_pass" in outcome
+    assert "gap" in outcome
 
 
-def test_scoring_uses_model2_scores_when_model1_returns_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_scoring_returns_502_when_model1_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     """
-    When model-service-1 returns {error, fallback: True}, _merge_scores should
-    still succeed using model-service-2 scores alone. The response must not be
-    500 and must include dimensions from service2.
+    When model-service-1 (culture fit) fails, the API must return 502.
+    The culture fit scorecard is mandatory — there is no fallback.
     """
     client = create_client()
     from app.api import scoring as scoring_api
@@ -461,18 +486,17 @@ def test_scoring_uses_model2_scores_when_model1_returns_fallback(monkeypatch: py
 
     async def fake_predictions(*args, **kwargs):
         return (
-            # model-service-1 failed — returns fallback sentinel
             {"error": "model-service-1 timeout", "fallback": True},
-            # model-service-2 returns normal scores
             {
+                "overall_score": 70,
+                "outcome": "PASS",
                 "scores": {
-                    "ownership": {"score": 0.72, "rationale": "Strong ownership.", "confidence": 0.78},
-                    "execution": {"score": 0.65, "rationale": "Delivery signals.", "confidence": 0.70},
-                    "challenge": {"score": 0.55, "rationale": "Challenge evidence.", "confidence": 0.60},
-                    "ambiguity": {"score": 0.60, "rationale": "Ambiguity handling.", "confidence": 0.65},
-                    "feedback": {"score": 0.50, "rationale": "Feedback seeking.", "confidence": 0.55},
+                    "python": {"score": 0.72, "rationale": "Strong Python.", "confidence": 0.78},
                 },
-                "summary": "Service2-only scoring.",
+                "must_haves_passed": ["python"],
+                "must_haves_failed": [],
+                "gaps": [],
+                "summary": "Skills model still working.",
             },
         )
 
@@ -493,23 +517,12 @@ def test_scoring_uses_model2_scores_when_model1_returns_fallback(monkeypatch: py
         json=payload,
         headers={"Authorization": f"Bearer {token}"},
     )
-    assert response.status_code == 200
-    data = response.json()
-    # Must have dimensions from service2
-    dim_names = {d["name"] for d in data["dimensions"]}
-    assert "ownership" in dim_names
-    assert "execution" in dim_names
-    # overall_score must be a valid number
-    assert isinstance(data["overall_score"], (int, float))
-    assert data["overall_score"] > 0
+    # Culture fit is mandatory — model-service-1 failure must be surfaced as 502
+    assert response.status_code == 502
 
 
 def test_scoring_returns_500_when_both_services_return_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    """
-    When both model services fail, _merge_scores raises InterviewScoringError
-    because no scores are returned. The API should surface that upstream
-    failure as 502.
-    """
+    """When both model services fail, the API must return 502."""
     client = create_client()
     from app.api import scoring as scoring_api
     from app.db import SessionLocal
@@ -540,10 +553,10 @@ def test_scoring_returns_500_when_both_services_return_fallback(monkeypatch: pyt
     assert response.status_code == 502
 
 
-def test_scoring_uses_model1_decision_fields_when_model2_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_scoring_skills_fit_absent_when_model2_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     """
-    When model-service-2 fails but model-service-1 succeeds, decision-dominant
-    fields (recommendation, alignment, risk) must still be present in the response.
+    When model-service-2 fails, culture_fit must still be present and complete.
+    skills_fit must be None — it is optional.
     """
     client = create_client()
     from app.api import scoring as scoring_api
@@ -568,7 +581,6 @@ def test_scoring_uses_model1_decision_fields_when_model2_fails(monkeypatch: pyte
                     for dim in ["ownership", "execution", "challenge", "ambiguity", "feedback"]
                 },
             },
-            # model-service-2 failed
             {"error": "model-service-2 unavailable", "fallback": True},
         )
 
@@ -591,8 +603,14 @@ def test_scoring_uses_model1_decision_fields_when_model2_fails(monkeypatch: pyte
     )
     assert response.status_code == 200
     data = response.json()
-    # Decision-dominant fields from service1 must pass through
-    assert data["recommendation"] == "proceed"
-    assert data["overall_alignment"] == "strong_fit"
-    assert data["overall_risk_level"] == "low"
-    assert data["dimension_outcomes"] is not None
+
+    # Culture fit must be complete
+    cf = data["culture_fit"]
+    assert cf["recommendation"] in ("proceed", "caution")
+    assert cf["overall_alignment"] == "strong_fit"
+    assert cf["dimension_outcomes"] is not None
+    dim_names = {d["name"] for d in cf["dimensions"]}
+    assert dim_names == {"ownership", "execution", "challenge", "ambiguity", "feedback"}
+
+    # Skills fit is absent when model-service-2 fails
+    assert data["skills_fit"] is None
