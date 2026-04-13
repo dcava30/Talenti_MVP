@@ -17,6 +17,7 @@ data/
 __pycache__/
 .pytest_cache/
 .tmp/
+.azure-cli-temp/
 backend/.pytest_cache_local/
 pytest-cache-files-*/
 .venv/
