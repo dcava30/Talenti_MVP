@@ -1,7 +1,7 @@
 # Talenti Frontend Architecture Guide
 
-> **Version:** 1.0.0  
-> **Last Updated:** January 2026  
+> **Version:** 1.1.0  
+> **Last Updated:** April 2026  
 > **Stack:** React 18 + JavaScript (JSX) + Vite + Tailwind CSS
 
 ## Overview
@@ -29,7 +29,7 @@ This guide documents the frontend architecture, component patterns, state manage
 
 ```mermaid
 graph TD
-    A[App.tsx] --> B[QueryClientProvider]
+    A[App.jsx] --> B[QueryClientProvider]
     B --> C[TooltipProvider]
     C --> D[BrowserRouter]
     D --> E[Routes]
@@ -72,71 +72,85 @@ graph TD
 
 ```
 src/
-- components/           # Reusable components
--   - ui/              # shadcn/ui primitives
--   -   - button.tsx
--   -   - card.tsx
--   -   - dialog.tsx
--   -   - ...
--   - AuditTrailViewer.tsx
--   - CallControls.tsx
--   - CandidateComparison.tsx
--   - ProfileManagement.tsx
--   - SendInvitationDialog.tsx
--   - ShortlistView.tsx
--   - VideoRenderer.tsx
--
-- hooks/               # Custom React hooks
--   - use-mobile.tsx   # Responsive detection
--   - use-toast.ts     # Toast notifications
--   - useAcsCall.ts    # Azure Communication Services
--   - useAcsToken.ts   # ACS token management
--   - useAuditLog.ts   # Audit logging
--   - useAzureAvatar.ts # Azure avatar rendering
--   - useAzureSpeech.ts # Speech services
--   - useCandidateData.ts # Candidate CRUD
--   - useDeletionRequests.ts
--   - useInterviewContext.ts
--   - useInterviewPersistence.ts
--   - useInvitations.ts
--   - useOrgData.ts
--   - useShortlist.ts
--   - useSpeechRecognition.ts
--   - useSpeechSynthesis.ts
--
-- api/                 # API clients for FastAPI
--
-- lib/                 # Utility functions
--   - auditLog.ts
--   - generateInterviewReport.ts
--   - scoring.ts
--   - utils.ts         # cn(), formatters
--
-- pages/               # Route components
--   - Auth.tsx
--   - CandidateInterview.tsx
--   - CandidatePortal.tsx
--   - CandidateProfile.tsx
--   - EditRoleRubric.tsx
--   - Index.tsx
--   - InterviewComplete.tsx
--   - InterviewLobby.tsx
--   - InterviewReport.tsx
--   - InviteValidation.tsx
--   - LiveInterview.tsx
--   - NewRole.tsx
--   - NotFound.tsx
--   - OrgDashboard.tsx
--   - OrgOnboarding.tsx
--   - OrgSettings.tsx
--   - PracticeInterview.tsx
--   - PracticeInterviewComplete.tsx
--   - RoleDetails.tsx
--
-- App.jsx              # Root component
-- App.css              # Global styles
-- index.css            # Tailwind + design tokens
-- main.jsx             # Entry point
+├── main.jsx                        # Entry point
+├── api/                            # API clients for FastAPI backend
+│   ├── http.js                     # HTTP client with JWT token handling
+│   ├── auth.js                     # Authentication (register, login, claim-invite)
+│   ├── candidates.js               # Candidate profiles, employment, education, skills
+│   ├── interviews.js               # Interview lifecycle, transcripts, scoring
+│   ├── invitations.js              # Interview invitations
+│   ├── organisations.js            # Organisation CRUD, stats, retention
+│   ├── roles.js                    # Job role CRUD, applications
+│   ├── resumeBatches.js            # Bulk resume upload and processing
+│   ├── acs.js                      # Azure Communication Services
+│   ├── audit.js                    # Audit trail
+│   ├── requirements.js             # Role requirements extraction
+│   ├── resume.js                   # Resume handling
+│   ├── scoring.js                  # Interview scoring
+│   ├── shortlist.js                # Shortlist management
+│   ├── speech.js                   # Speech services
+│   └── storage.js                  # Azure Blob Storage upload URLs
+│
+└── lib/
+    ├── App.jsx                     # Root component with routing
+    ├── index.css                   # Tailwind + design tokens
+    │
+    ├── components/
+    │   ├── ui/                     # shadcn/ui primitives (button, card, dialog, etc.)
+    │   ├── AuditTrailViewer.jsx
+    │   ├── AvatarRenderer.jsx      # Azure Avatar AI interviewer rendering
+    │   ├── CallControls.jsx        # Video call mute/video/hangup controls
+    │   ├── CandidateComparison.jsx
+    │   ├── DataRetentionSettings.jsx
+    │   ├── ProfileManagement.jsx
+    │   ├── ResumeBatchUploadDialog.jsx  # Bulk resume upload for recruiters
+    │   ├── SendInvitationDialog.jsx
+    │   ├── ShortlistView.jsx
+    │   └── VideoRenderer.jsx       # Local/remote video stream rendering
+    │
+    ├── hooks/
+    │   ├── useAcsCall.js           # Azure Communication Services call management
+    │   ├── useAcsToken.js          # ACS token generation
+    │   ├── useAuditLog.js          # Audit logging
+    │   ├── useAzureAvatar.js       # Azure Avatar lifecycle and speaking
+    │   ├── useAzureSpeech.js       # Speech services (TTS/STT)
+    │   ├── useCandidateData.js     # Candidate profile, applications, invitations
+    │   ├── useDeletionRequests.js
+    │   ├── useInterviewContext.js   # Context-Aware Generation for competencies
+    │   ├── useInterviewPersistence.js
+    │   ├── useInvitations.js
+    │   ├── useOrgData.js           # Organisation, roles, and stats
+    │   ├── useShortlist.js
+    │   ├── useSpeechRecognition.js
+    │   ├── useSpeechSynthesis.js
+    │   └── use-toast.js
+    │
+    ├── lib/
+    │   ├── auditLog.js
+    │   ├── generateInterviewReport.js
+    │   ├── scoring.js
+    │   └── utils.js                # cn(), formatters
+    │
+    └── pages/
+        ├── Auth.jsx
+        ├── CandidateInterview.jsx
+        ├── CandidatePortal.jsx
+        ├── CandidateProfile.jsx
+        ├── EditRoleRubric.jsx
+        ├── Index.jsx
+        ├── InterviewComplete.jsx
+        ├── InterviewLobby.jsx
+        ├── InterviewReport.jsx
+        ├── InviteValidation.jsx
+        ├── LiveInterview.jsx
+        ├── NewRole.jsx
+        ├── NotFound.jsx
+        ├── OrgDashboard.jsx
+        ├── OrgOnboarding.jsx
+        ├── OrgSettings.jsx
+        ├── PracticeInterview.jsx
+        ├── PracticeInterviewComplete.jsx
+        └── RoleDetails.jsx
 ```
 
 ---
@@ -196,9 +210,9 @@ function ProfileForm({ profile, onUpdate }) {
 
 ### shadcn/ui Component Customization
 
-```typescript
-// src/components/ui/button.tsx
-import { cva, type VariantProps } from "class-variance-authority";
+```javascript
+// src/lib/components/ui/button.jsx
+import { cva } from "class-variance-authority";
 
 const buttonVariants = cva(
   // Base styles
@@ -298,32 +312,32 @@ graph TD
 
 ### Route Structure
 
-```typescript
-// App.tsx
+```javascript
+// App.jsx
 <Routes>
   {/* Public routes */}
   <Route path="/" element={<Index />} />
   <Route path="/auth" element={<Auth />} />
   <Route path="/invite/:token" element={<InviteValidation />} />
   
-  {/* Candidate routes */}
-  <Route path="/candidate" element={<CandidatePortal />} />
-  <Route path="/candidate/profile" element={<CandidateProfile />} />
-  <Route path="/candidate/interview/:id" element={<CandidateInterview />} />
-  <Route path="/practice" element={<PracticeInterview />} />
-  <Route path="/practice/complete" element={<PracticeInterviewComplete />} />
-  <Route path="/interview/lobby/:id" element={<InterviewLobby />} />
-  <Route path="/interview/live/:id" element={<LiveInterview />} />
-  <Route path="/interview/complete" element={<InterviewComplete />} />
-  
   {/* Organisation routes */}
+  <Route path="/org" element={<OrgDashboard />} />
   <Route path="/org/onboarding" element={<OrgOnboarding />} />
-  <Route path="/org/dashboard" element={<OrgDashboard />} />
   <Route path="/org/settings" element={<OrgSettings />} />
-  <Route path="/org/role/new" element={<NewRole />} />
-  <Route path="/org/role/:id" element={<RoleDetails />} />
-  <Route path="/org/role/:id/rubric" element={<EditRoleRubric />} />
-  <Route path="/org/interview/:id/report" element={<InterviewReport />} />
+  <Route path="/org/new-role" element={<NewRole />} />
+  <Route path="/org/role/:roleId" element={<RoleDetails />} />
+  <Route path="/org/role/:roleId/rubric" element={<EditRoleRubric />} />
+  <Route path="/org/interview/:interviewId" element={<InterviewReport />} />
+  
+  {/* Candidate routes */}
+  <Route path="/candidate/portal" element={<CandidatePortal />} />
+  <Route path="/candidate/profile" element={<CandidateProfile />} />
+  <Route path="/candidate/practice" element={<PracticeInterview />} />
+  <Route path="/candidate/practice/complete" element={<PracticeInterviewComplete />} />
+  <Route path="/candidate/:inviteId/lobby" element={<InterviewLobby />} />
+  <Route path="/candidate/:inviteId/live" element={<LiveInterview />} />
+  <Route path="/candidate/:inviteId" element={<CandidateInterview />} />
+  <Route path="/candidate/complete" element={<InterviewComplete />} />
   
   {/* 404 */}
   <Route path="*" element={<NotFound />} />
@@ -332,8 +346,8 @@ graph TD
 
 ### Protected Route Pattern
 
-```typescript
-function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
+```javascript
+function ProtectedRoute({ children, requiredRole }) {
   const { user, isLoading } = useAuth();
   const navigate = useNavigate();
   
@@ -351,7 +365,7 @@ function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
 
 // Usage
 <Route 
-  path="/org/dashboard" 
+  path="/org" 
   element={
     <ProtectedRoute requiredRole="org_admin">
       <OrgDashboard />
@@ -362,14 +376,14 @@ function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
 
 ### Navigation Helpers
 
-```typescript
+```javascript
 // Programmatic navigation
 const navigate = useNavigate();
-navigate('/org/dashboard');
+navigate('/org');
 navigate(-1); // Go back
 
 // With state
-navigate('/interview/complete', { 
+navigate('/candidate/complete', { 
   state: { interviewId, score } 
 });
 
@@ -384,7 +398,7 @@ const { interviewId } = location.state || {};
 
 ### React Hook Form + Zod Pattern
 
-```typescript
+```javascript
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -398,11 +412,9 @@ const profileSchema = z.object({
   availability: z.enum(['immediate', '2_weeks', '1_month', 'flexible']),
 });
 
-type ProfileFormData = z.infer<typeof profileSchema>;
-
 // 2. Create form
 function ProfileForm() {
-  const form = useForm<ProfileFormData>({
+  const form = useForm({
     resolver: zodResolver(profileSchema),
     defaultValues: {
       firstName: '',
@@ -412,7 +424,7 @@ function ProfileForm() {
     },
   });
   
-  const onSubmit = async (data: ProfileFormData) => {
+  const onSubmit = async (data) => {
     await updateProfile(data);
   };
   
@@ -649,7 +661,7 @@ const VideoRenderer = lazy(() => import('@/components/VideoRenderer'));
 
 ### Memoization
 
-```typescript
+```javascript
 // Expensive computations
 const sortedCandidates = useMemo(
   () => candidates.sort((a, b) => b.matchScore - a.matchScore),
@@ -669,11 +681,11 @@ const CandidateCard = memo(function CandidateCard({ candidate }) {
 
 ### Query Optimization
 
-```typescript
+```javascript
 // Prefetch on hover
 const queryClient = useQueryClient();
 
-const prefetchCandidate = (id: string) => {
+const prefetchCandidate = (id) => {
   queryClient.prefetchQuery({
     queryKey: ['candidate', id],
     queryFn: () => fetchCandidate(id),
@@ -696,7 +708,7 @@ useQuery({
 
 ### Image Optimization
 
-```typescript
+```javascript
 // Lazy loading images
 <img 
   src={avatarUrl} 
@@ -717,13 +729,13 @@ useQuery({
 
 ### Component Testing
 
-```typescript
+```javascript
 import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const queryClient = new QueryClient();
 
-function renderWithProviders(component: React.ReactNode) {
+function renderWithProviders(component) {
   return render(
     <QueryClientProvider client={queryClient}>
       {component}

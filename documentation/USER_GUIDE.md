@@ -1,7 +1,7 @@
 # Talenti User Guide
 
-> **Version:** 1.0.0  
-> **Last Updated:** January 2026
+> **Version:** 1.1.0  
+> **Last Updated:** April 2026
 
 Welcome to Talenti, the AI-powered interview platform. This guide covers how to use Talenti for different user roles.
 
@@ -29,6 +29,17 @@ Welcome to Talenti, the AI-powered interview platform. This guide covers how to 
    - **Organisation**: Hiring talent
 4. Enter your email and create a password
 5. Verify your email (if required)
+
+### Accepting an Interview Invitation (Claim Flow)
+
+If a recruiter has uploaded your resume and invited you directly:
+
+1. Check your email for the invitation link
+2. Click the link — you'll be taken to the invitation validation page
+3. Create your account using the email from the invitation
+4. Your profile will be pre-filled from the parsed resume
+5. Review and confirm your details
+6. Proceed to the interview lobby
 
 ### Logging In
 
@@ -202,13 +213,15 @@ If you're setting up a new organisation:
 Adjust how candidates are evaluated:
 
 1. Open the role → **Edit Rubric**
-2. Modify dimension weights:
-   - Technical Skills (default 20%)
-   - Communication (default 15%)
-   - Culture Fit (default 10%)
-   - etc.
-3. Total must equal 100%
-4. Save changes
+2. Modify dimension weights and thresholds
+3. Save changes
+
+Talenti produces a **dual scorecard** for each interview:
+
+- **Culture/Behavioural Fit** — scored across five dimensions: ownership, execution, challenge, ambiguity, and feedback. Based on your organisation's operating environment questionnaire.
+- **Skills/Technical Fit** — scored against the role's specific requirements extracted from the job description. Each competency receives a PASS / REVIEW / FAIL outcome.
+
+These two scorecards are presented independently and are never merged into a single composite score.
 
 ### Inviting Candidates
 
@@ -221,6 +234,18 @@ When you're ready to interview a candidate:
 5. Click **Send**
 
 The candidate will receive an email with a unique interview link.
+
+### Bulk Resume Upload
+
+Upload multiple resumes at once to quickly onboard candidates for a role:
+
+1. Open a job role
+2. Click **Upload Resumes**
+3. Select multiple PDF, DOCX, or TXT files
+4. Talenti parses each resume automatically, extracting name, email, skills, and experience
+5. Review parsed results — confirm or edit candidate emails
+6. Click **Invite All** to send interview invitations to the batch
+7. Candidates receive invitation emails and follow the claim flow to create their accounts
 
 ### Generating Shortlists
 
@@ -239,12 +264,14 @@ After candidates complete interviews:
 1. Go to **Interviews** tab
 2. Click on a completed interview
 3. View:
-   - Overall score
-   - Dimension breakdown
+   - **Culture Fit Score** — overall alignment and per-dimension breakdown (ownership, execution, challenge, ambiguity, feedback)
+   - **Skills Fit Score** — per-competency outcomes (PASS / REVIEW / FAIL)
    - AI narrative summary
    - Candidate feedback
    - Full transcript
    - Recording (if available)
+
+Admins can override the AI hiring recommendation with documented reasoning.
 
 ### Exporting Reports
 
@@ -418,11 +445,3 @@ If you need additional help:
 5. Review completed interviews → Make hiring decisions
 ```
 
-### Keyboard Shortcuts
-
-| Action | Windows/Linux | Mac |
-|--------|---------------|-----|
-| Save | Ctrl + S | ⌘ + S |
-| Search | Ctrl + K | ⌘ + K |
-| New Role | Ctrl + N | ⌘ + N |
-| Help | F1 | F1 |

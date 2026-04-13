@@ -1,7 +1,7 @@
 # Talenti Database Schema Documentation
 
-> **Version:** 1.0.0  
-> **Last Updated:** March 2026
+> **Version:** 1.1.0  
+> **Last Updated:** April 2026
 > **Database:** PostgreSQL
 
 ## Overview
@@ -27,11 +27,14 @@ This document provides comprehensive documentation of the Talenti database schem
 erDiagram
     organisations ||--o{ org_users : "has members"
     organisations ||--o{ job_roles : "has roles"
+    organisations ||--o{ org_environment_inputs : "has environment"
+    organisations ||--o{ resume_ingestion_batches : "has batches"
     organisations ||--o{ audit_log : "tracks"
     
-    org_users }o--|| auth_users : "references"
+    org_users }o--|| users : "references"
     
     job_roles ||--o{ applications : "receives"
+    job_roles ||--o{ resume_ingestion_batches : "targets"
     
     applications ||--o{ interviews : "has"
     applications ||--o{ invitations : "has"
@@ -44,15 +47,21 @@ erDiagram
     interviews ||--o{ background_jobs : "triggers"
     interviews ||--o{ domain_events : "emits"
     
-    candidate_profiles ||--|| auth_users : "belongs to"
+    interview_scores ||--o{ post_hire_outcomes : "tracks"
+    
+    resume_ingestion_batches ||--o{ resume_ingestion_items : "contains"
+    resume_ingestion_items }o--|| parsed_profile_snapshots : "links snapshot"
+    resume_ingestion_items }o--|| files : "links file"
+    
+    candidate_profiles ||--|| users : "belongs to"
     candidate_profiles ||--o{ candidate_skills : "has"
     candidate_profiles ||--o{ education : "has"
     candidate_profiles ||--o{ employment_history : "has"
     candidate_profiles ||--|| candidate_dei : "has optional"
     
-    auth_users ||--o{ user_roles : "has"
-    auth_users ||--o{ practice_interviews : "conducts"
-    auth_users ||--o{ data_deletion_requests : "requests"
+    users ||--o{ user_roles : "has"
+    users ||--o{ practice_interviews : "conducts"
+    users ||--o{ data_deletion_requests : "requests"
 ```
 
 ---
@@ -91,7 +100,7 @@ Team members belonging to an organisation.
 |--------|------|----------|---------|-------------|
 | id | uuid | NO | gen_random_uuid() | Primary key |
 | organisation_id | uuid | NO | - | FK to organisations |
-| user_id | uuid | NO | - | FK to auth.users |
+| user_id | uuid | NO | - | FK to users |
 | role | text | NO | 'member' | Role in org (admin, recruiter, viewer) |
 | created_at | timestamptz | NO | now() | When added to org |
 
@@ -163,7 +172,7 @@ Candidate personal information and profile data.
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
 | id | uuid | NO | gen_random_uuid() | Primary key |
-| user_id | uuid | NO | - | FK to auth.users |
+| user_id | uuid | NO | - | FK to users |
 | first_name | text | YES | NULL | First name |
 | last_name | text | YES | NULL | Last name |
 | email | text | YES | NULL | Contact email |
@@ -200,7 +209,7 @@ Skills listed by candidates.
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
 | id | uuid | NO | gen_random_uuid() | Primary key |
-| user_id | uuid | NO | - | FK to auth.users |
+| user_id | uuid | NO | - | FK to users |
 | skill_name | text | NO | - | Skill name |
 | skill_type | text | NO | - | hard/soft |
 | proficiency_level | text | YES | NULL | beginner/intermediate/expert |
@@ -219,7 +228,7 @@ Educational history for candidates.
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
 | id | uuid | NO | gen_random_uuid() | Primary key |
-| user_id | uuid | NO | - | FK to auth.users |
+| user_id | uuid | NO | - | FK to users |
 | institution | text | NO | - | School/university name |
 | degree | text | NO | - | Degree title |
 | field_of_study | text | YES | NULL | Major/field |
@@ -241,7 +250,7 @@ Work history for candidates.
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
 | id | uuid | NO | gen_random_uuid() | Primary key |
-| user_id | uuid | NO | - | FK to auth.users |
+| user_id | uuid | NO | - | FK to users |
 | company_name | text | NO | - | Employer name |
 | job_title | text | NO | - | Position title |
 | description | text | YES | NULL | Role description |
@@ -263,7 +272,7 @@ Diversity, equity, and inclusion data (optional, extra sensitive).
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
 | id | uuid | NO | gen_random_uuid() | Primary key |
-| user_id | uuid | NO | - | FK to auth.users |
+| user_id | uuid | NO | - | FK to users |
 | gender | text | YES | NULL | Gender identity |
 | ethnicity | text | YES | NULL | Ethnic background |
 | disability_status | text | YES | NULL | Disability disclosure |
@@ -282,7 +291,7 @@ Job applications from candidates.
 |--------|------|----------|---------|-------------|
 | id | uuid | NO | gen_random_uuid() | Primary key |
 | job_role_id | uuid | NO | - | FK to job_roles |
-| candidate_id | uuid | NO | - | FK to auth.users (candidate) |
+| candidate_id | uuid | NO | - | FK to users (candidate) |
 | status | text | NO | 'applied' | Application status |
 | match_score | integer | YES | NULL | AI match score (0-100) |
 | created_at | timestamptz | NO | now() | Application date |
@@ -483,15 +492,7 @@ Individual dimension scores for interviews.
 | cited_quotes | jsonb | YES | NULL | Supporting quotes |
 | created_at | timestamptz | NO | now() | Creation timestamp |
 
-**Default Dimensions:**
-- vocabulary
-- domain_knowledge
-- technical_skills
-- experience_depth
-- communication
-- culture_fit
-- motivation
-- confidence
+**Dimensions are dynamic** and produced by the scoring pipeline. Culture fit dimensions from model-service-1 follow the canonical five (ownership, execution, challenge, ambiguity, feedback). Skills fit dimensions from model-service-2 are role-specific and derived from the job description.
 
 **Indexes:**
 - `score_dimensions_pkey` (id)
@@ -535,7 +536,7 @@ Practice interview sessions (not tied to real jobs).
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
 | id | uuid | NO | gen_random_uuid() | Primary key |
-| user_id | uuid | NO | - | FK to auth.users |
+| user_id | uuid | NO | - | FK to users |
 | sample_role_type | text | NO | - | Practice role category |
 | status | text | NO | 'pending' | Session status |
 | started_at | timestamptz | YES | NULL | Start time |
@@ -553,7 +554,7 @@ Application-level role assignments.
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
 | id | uuid | NO | gen_random_uuid() | Primary key |
-| user_id | uuid | NO | - | FK to auth.users |
+| user_id | uuid | NO | - | FK to users |
 | role | app_role | NO | - | Role enum value |
 | created_at | timestamptz | NO | now() | When assigned |
 
@@ -616,6 +617,136 @@ GDPR data deletion request tracking.
 - `processing` - Currently being processed
 - `completed` - Successfully processed
 - `failed` - Processing failed
+
+---
+
+### org_environment_inputs
+
+Organisation operating-environment survey responses used to configure culture fit scoring.
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | text | NO | uuid | Primary key |
+| organisation_id | text | NO | - | FK to organisations (CASCADE) |
+| raw_answers | text | NO | - | JSON-encoded questionnaire answers |
+| signals_json | text | YES | NULL | Extracted behavioural signals |
+| derived_environment | text | NO | - | JSON-encoded derived environment profile |
+| defaulted_variables | text | YES | NULL | Variables that used defaults |
+| extra_fatal_risks | text | YES | NULL | Additional fatal risk flags |
+| submitted_by | text | YES | NULL | User who submitted |
+| created_at | timestamptz | NO | now() | Creation timestamp |
+
+**Foreign Keys:**
+- `org_environment_inputs_organisation_id_fkey` - organisations(id) ON DELETE CASCADE
+
+---
+
+### resume_ingestion_batches
+
+Bulk resume upload batches created by recruiters for a specific job role.
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | text | NO | uuid | Primary key |
+| organisation_id | text | NO | - | FK to organisations |
+| job_role_id | text | NO | - | FK to job_roles |
+| status | text | NO | 'draft' | Batch status (draft, processing, completed) |
+| title | text | YES | NULL | Batch label |
+| created_by | text | YES | NULL | FK to users |
+| created_at | timestamptz | NO | now() | Creation timestamp |
+| updated_at | timestamptz | NO | now() | Last update |
+
+**Foreign Keys:**
+- `resume_ingestion_batches_organisation_id_fkey` - organisations(id)
+- `resume_ingestion_batches_job_role_id_fkey` - job_roles(id)
+- `resume_ingestion_batches_created_by_fkey` - users(id)
+
+---
+
+### resume_ingestion_items
+
+Individual resume items within a batch, tracking parse status and candidate matching.
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | text | NO | uuid | Primary key |
+| batch_id | text | NO | - | FK to resume_ingestion_batches |
+| file_id | text | NO | - | FK to files |
+| parse_status | text | NO | 'pending' | Parse status (pending, completed, failed) |
+| recruiter_review_status | text | NO | 'pending_review' | Recruiter review state |
+| candidate_email | text | YES | NULL | Extracted or assigned email |
+| candidate_name | text | YES | NULL | Extracted name |
+| parse_confidence_json | text | YES | NULL | JSON parse confidence scores |
+| parse_error | text | YES | NULL | Parse failure message |
+| matched_user_id | text | YES | NULL | FK to users (matched candidate) |
+| candidate_profile_id | text | YES | NULL | FK to candidate_profiles |
+| application_id | text | YES | NULL | FK to applications |
+| snapshot_id | text | YES | NULL | FK to parsed_profile_snapshots |
+| invitation_id | text | YES | NULL | FK to invitations |
+| uploaded_at | timestamptz | YES | NULL | Upload timestamp |
+| processed_at | timestamptz | YES | NULL | Parse completion time |
+| invited_at | timestamptz | YES | NULL | When invitation was sent |
+| created_at | timestamptz | NO | now() | Creation timestamp |
+| updated_at | timestamptz | NO | now() | Last update |
+
+**Foreign Keys:**
+- `resume_ingestion_items_batch_id_fkey` - resume_ingestion_batches(id)
+- `resume_ingestion_items_file_id_fkey` - files(id)
+- `resume_ingestion_items_matched_user_id_fkey` - users(id)
+- `resume_ingestion_items_candidate_profile_id_fkey` - candidate_profiles(id)
+- `resume_ingestion_items_application_id_fkey` - applications(id)
+- `resume_ingestion_items_snapshot_id_fkey` - parsed_profile_snapshots(id)
+- `resume_ingestion_items_invitation_id_fkey` - invitations(id)
+
+---
+
+### parsed_profile_snapshots
+
+Immutable snapshots of parsed resume data, preserving the extraction result at parse time.
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | text | NO | uuid | Primary key |
+| user_id | text | YES | NULL | FK to users (if matched) |
+| file_id | text | NO | - | FK to files (source document) |
+| snapshot_type | text | NO | 'resume_parse' | Snapshot category |
+| parser_version | text | YES | NULL | Parser version used |
+| source_kind | text | YES | NULL | Source type (pdf, docx, etc.) |
+| data_json | text | NO | - | JSON-encoded parsed profile data |
+| confidence_json | text | YES | NULL | JSON field-level confidence scores |
+| raw_text | text | YES | NULL | Extracted raw text |
+| created_at | timestamptz | NO | now() | Creation timestamp |
+
+**Foreign Keys:**
+- `parsed_profile_snapshots_user_id_fkey` - users(id)
+- `parsed_profile_snapshots_file_id_fkey` - files(id)
+
+---
+
+### post_hire_outcomes
+
+Post-hire performance data linked to interview scores for predictive validation.
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | text | NO | uuid | Primary key |
+| interview_score_id | text | NO | - | FK to interview_scores (CASCADE) |
+| observed_at | timestamptz | NO | - | When performance was observed |
+| snapshot_period | text | NO | 'custom' | Observation period (e.g., 30d, 90d, custom) |
+| outcome_rating | float | NO | - | Performance rating |
+| outcome_notes | text | YES | NULL | Freeform notes |
+| dimension_ratings | text | YES | NULL | JSON per-dimension performance ratings |
+| recorded_by | text | YES | NULL | FK to users (SET NULL on delete) |
+| created_at | timestamptz | NO | now() | Creation timestamp |
+
+**Indexes:**
+- `ix_post_hire_outcomes_interview_score_id` (interview_score_id)
+- `ix_post_hire_outcomes_observed_at` (observed_at)
+- `ix_post_hire_outcomes_snapshot_period` (snapshot_period)
+
+**Foreign Keys:**
+- `post_hire_outcomes_interview_score_id_fkey` - interview_scores(id) ON DELETE CASCADE
+- `post_hire_outcomes_recorded_by_fkey` - users(id) ON DELETE SET NULL
 
 ---
 
