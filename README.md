@@ -1,19 +1,23 @@
 # Talenti AI Interview Platform
 
-> [View Full Documentation Index](old/DOCS.md) - Find setup guides, API references, security docs, and more.
+> Last Updated: April 2026
+
+Talenti is a B2B AI-powered interview platform that conducts, scores, and reports on candidate interviews using Azure Cognitive Services. The platform produces a **dual scorecard** — culture/behavioural fit and skills/technical fit — scored independently and never merged.
 
 ---
 
-## Project Info
+## Architecture
 
-Talenti is a FastAPI + PostgreSQL backend with a React (Vite) frontend and Azure Cognitive Services integrations.
+| Service | Stack | Port |
+|---------|-------|------|
+| Frontend | React 18 + Vite + Tailwind + shadcn/ui | 8080 |
+| Backend API | FastAPI + PostgreSQL 16 | 8000 |
+| Backend Worker | Same codebase as backend | — |
+| model-service-1 | FastAPI (culture fit scoring) | 8001 |
+| model-service-2 | FastAPI (skills fit scoring) | 8002 |
+| python-acs-service | FastAPI (call automation) | Internal |
 
-## Target architecture
-
-- FastAPI backend with PostgreSQL.
-- Dedicated backend worker for DB-backed jobs and domain events.
-- React frontend (JavaScript/JSX).
-- Azure Cognitive Services integrations.
+Key integrations: Azure Communication Services (video calls), Azure Speech (TTS/STT), Azure OpenAI (AI interviewer), Azure Blob Storage (files).
 
 ## How can I edit this code?
 
@@ -94,39 +98,40 @@ npm run dev
 
 ## What technologies are used for this project?
 
-This project is built with:
+**Frontend:**
+- React 18 + Vite + JavaScript (JSX)
+- TanStack React Query 5 (server state)
+- React Hook Form + Zod (forms and validation)
+- shadcn/ui + Tailwind CSS (styling)
+- Azure SDKs: Communication Calling, Speech SDK, Avatar
 
-- Vite
-- React
-- JavaScript (JSX)
-- shadcn-ui
-- Tailwind CSS
-- FastAPI
-- PostgreSQL
-- Azure Communication Services
-- Azure Speech Services
+**Backend:**
+- FastAPI + Python 3.11
+- PostgreSQL 16 + SQLAlchemy 2 + Alembic
+- JWT authentication (python-jose + bcrypt)
+- Azure SDKs: Blob Storage, Communication Identity, OpenAI
+
+**ML Scoring:**
+- model-service-1: Culture fit (decision-dominant, deterministic rules)
+- model-service-2: Skills fit (hybrid deterministic + ML)
 
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [DOCS.md](old/DOCS.md) | Master index of current and legacy docs |
-| [HANDOVER.md](documentation/HANDOVER.md) | Technical handover and architecture overview |
-| [CODEX_CAPABILITY_SETUP.md](documentation/CODEX_CAPABILITY_SETUP.md) | Local GitHub/Azure auth, model repo setup, and OIDC bootstrap |
-| [ENV_SETUP.md](documentation/ENV_SETUP.md) | Environment setup and local configuration |
-| [FRONTEND_GUIDE.md](documentation/FRONTEND_GUIDE.md) | React architecture and implementation guide |
-| [API_REFERENCE.md](documentation/API_REFERENCE.md) | FastAPI endpoint reference |
+| [HANDOVER.md](documentation/HANDOVER.md) | Technical handover and system overview |
+| [ARCHITECTURE_DIAGRAM.md](documentation/ARCHITECTURE_DIAGRAM.md) | Mermaid architecture diagrams (system, runtime, infra, CI/CD) |
+| [ARCHITECTURE_DECISIONS.md](documentation/ARCHITECTURE_DECISIONS.md) | Architecture decision records (ADRs) |
+| [API_REFERENCE.md](documentation/API_REFERENCE.md) | FastAPI endpoint reference (~90 endpoints) |
 | [DATABASE_SCHEMA.md](documentation/DATABASE_SCHEMA.md) | PostgreSQL tables and relationships |
-| [MONITORING.md](documentation/MONITORING.md) | Logging, metrics, and observability guidance |
-| [RELEASE_PIPELINE.md](documentation/RELEASE_PIPELINE.md) | Release, promotion, and GitHub Actions workflow guide |
-| [ARCHITECTURE_DECISIONS.md](documentation/ARCHITECTURE_DECISIONS.md) | Architecture decision records |
-| [POSTGRESQL_MIGRATION.md](documentation/POSTGRESQL_MIGRATION.md) | PostgreSQL migration notes |
-| [DEPLOYMENT_DEV_V2.md](documentation/DEPLOYMENT_DEV_V2.md) | Dev deployment topology and runbook |
-| [AZURE_DEV_UAT_PROD_SETUP.txt](documentation/AZURE_DEV_UAT_PROD_SETUP.txt) | Azure environment setup notes |
-| [PYTHON_REBUILD_GUIDE.md](documentation/PYTHON_REBUILD_GUIDE.md) | Historical migration reference |
-| [PYTHON_MIGRATION_CHECKLIST.md](documentation/PYTHON_MIGRATION_CHECKLIST.md) | Historical migration checklist |
-| [PYTHON_MIGRATION_PROMPT.md](documentation/PYTHON_MIGRATION_PROMPT.md) | Historical migration prompt |
+| [FRONTEND_GUIDE.md](documentation/FRONTEND_GUIDE.md) | React architecture and implementation guide |
 | [USER_GUIDE.md](documentation/USER_GUIDE.md) | End-user workflow guide |
+| [ENV_SETUP.md](documentation/ENV_SETUP.md) | Environment setup and local configuration |
+| [CODEX_CAPABILITY_SETUP.md](documentation/CODEX_CAPABILITY_SETUP.md) | Local GitHub/Azure auth, model repo setup, and OIDC bootstrap |
+| [RELEASE_PIPELINE.md](documentation/RELEASE_PIPELINE.md) | Release, promotion, and GitHub Actions workflow guide |
+| [DEPLOYMENT_DEV_V2.md](documentation/DEPLOYMENT_DEV_V2.md) | Dev deployment topology and runbook |
+| [MONITORING.md](documentation/MONITORING.md) | Logging, metrics, and observability guidance |
+| [AZURE_DEV_UAT_PROD_SETUP.txt](documentation/AZURE_DEV_UAT_PROD_SETUP.txt) | Azure environment setup notes |
 
 ## How can I deploy this project?
 

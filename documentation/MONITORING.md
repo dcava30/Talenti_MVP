@@ -1,11 +1,16 @@
 # Monitoring & Observability
 
-Talenti runs as a FastAPI service backed by PostgreSQL, Azure integrations, and GitHub Actions deployments. The platform now assumes Azure-native observability with Log Analytics, Application Insights, Azure Monitor alerts, and GitHub Release metadata.
+> Last Updated: April 2026
+
+Talenti runs as a set of FastAPI microservices (backend API, backend-worker, model-service-1, model-service-2, python-acs-service) backed by PostgreSQL, Azure integrations, and GitHub Actions deployments. The platform assumes Azure-native observability with Log Analytics, Application Insights, Azure Monitor alerts, and GitHub Release metadata.
 
 ## What to Monitor
 
 ### API Health
-- `/health` endpoint for liveness checks.
+- Backend API: `GET /health` on port 8000.
+- model-service-1: `GET /health` on port 8001.
+- model-service-2: `GET /health` on port 8002.
+- python-acs-service: `GET /health`, `GET /health/ready`, `GET /health/live` (internal).
 - HTTP 5xx error rate on `/api/*` routes.
 - Latency percentiles (p50/p95/p99).
 - Presence of `X-Request-ID` on backend responses for incident traceability.
@@ -23,12 +28,15 @@ Talenti runs as a FastAPI service backed by PostgreSQL, Azure integrations, and 
 - Azure OpenAI request errors/timeouts.
 - Azure Blob Storage upload URL generation failures.
 
-### Workers
+### Workers & Model Services
 - `backend-worker` process health and restart count.
 - Structured queue metrics emitted by `backend-worker`:
   - `pending_jobs`
   - `oldest_pending_job_age_seconds`
-- ACS worker callback failures.
+- `python-acs-service` readiness (ACS connection, storage, backend callback connectivity).
+- ACS worker callback failures (`/api/v1/acs/worker-events`).
+- model-service-1 and model-service-2 prediction latency and error rate.
+- Model service container restart count and memory usage (model loading can require 2-4GB).
 
 ## Logs
 
@@ -71,7 +79,9 @@ Each environment should have:
 
 1. Check FastAPI logs for stack traces.
 2. Check `backend-worker` logs if orchestration, CV post-processing, or async scoring is stalled.
-3. Use the `X-Request-ID` response header to correlate API failures to backend logs in Log Analytics.
+3. Check model-service-1/model-service-2 logs if scoring returns errors or timeouts. Verify `MODEL_SERVICE_1_URL` and `MODEL_SERVICE_2_URL` are reachable from the backend.
+4. Check `python-acs-service` logs if call automation or recordings fail. Verify `ACS_WORKER_SHARED_SECRET` matches between backend and ACS service.
+5. Use the `X-Request-ID` response header to correlate API failures to backend logs in Log Analytics.
 4. Verify `.env` or Container App configuration for Azure keys, `DATABASE_URL`, `BACKGROUND_WORKER_POLL_INTERVAL_SECONDS`, `BACKGROUND_WORKER_METRICS_LOG_INTERVAL_SECONDS`, and `AUTO_SCORE_INTERVIEWS`.
 5. Confirm Azure Monitor alert state, web test health, and Action Group delivery.
 6. Confirm PostgreSQL connectivity, storage capacity, and server health.
