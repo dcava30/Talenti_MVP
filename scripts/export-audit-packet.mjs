@@ -111,6 +111,10 @@ function slugify(value) {
     .replace(/^-+|-+$/g, "") || "section";
 }
 
+function buildHeadingKey(depth, text) {
+  return `${depth}:${text.trim()}`;
+}
+
 function normalizeMarkdown(markdown) {
   const lines = markdown.replace(/\r\n/g, "\n").split("\n");
 
@@ -143,19 +147,34 @@ function normalizeMarkdown(markdown) {
   return output.join("\n").trim();
 }
 
-function renderMarkdownBlock(markdown, docId) {
+function renderMarkdownBlock(markdown, docId, options = {}) {
   if (!markdown.trim()) {
-    return "";
+    return {
+      html: "",
+      headings: [],
+    };
   }
 
   let headingCount = 0;
+  const headings = [];
   const renderer = new marked.Renderer();
+  const skipTocHeadingKeys = options.skipTocHeadingKeys || new Set();
 
   renderer.heading = function heading(token) {
     headingCount += 1;
     const level = Math.min(token.depth + 1, 6);
     const text = token.text;
     const id = `${docId}-${slugify(text)}-${headingCount}`;
+    const headingKey = buildHeadingKey(token.depth, text);
+
+    if (!skipTocHeadingKeys.has(headingKey)) {
+      headings.push({
+        id,
+        title: text.trim(),
+        level: Math.max(2, token.depth),
+      });
+    }
+
     return `<h${level} id="${id}">${this.parser.parseInline(token.tokens)}</h${level}>`;
   };
 
@@ -186,11 +205,14 @@ function renderMarkdownBlock(markdown, docId) {
     `;
   };
 
-  return marked.parse(markdown, {
-    gfm: true,
-    breaks: false,
-    renderer,
-  });
+  return {
+    html: marked.parse(markdown, {
+      gfm: true,
+      breaks: false,
+      renderer,
+    }),
+    headings,
+  };
 }
 
 function splitIntoSegments(markdown, defaultHeading) {
@@ -198,6 +220,7 @@ function splitIntoSegments(markdown, defaultHeading) {
   const buffer = [];
   const lines = markdown.split("\n");
   let currentHeading = defaultHeading;
+  let currentHeadingDepth = 2;
   let inRegularFence = false;
 
   function flushBuffer() {
@@ -227,6 +250,7 @@ function splitIntoSegments(markdown, defaultHeading) {
       segments.push({
         type: "mermaid",
         title: currentHeading,
+        headingDepth: currentHeadingDepth,
         code: mermaidLines.join("\n").trim(),
       });
       continue;
@@ -244,9 +268,10 @@ function splitIntoSegments(markdown, defaultHeading) {
     }
 
     if (!inRegularFence) {
-      const headingMatch = line.match(/^##+\s+(.*)$/);
+      const headingMatch = line.match(/^(##+)\s+(.*)$/);
       if (headingMatch) {
-        currentHeading = headingMatch[1].trim();
+        currentHeadingDepth = headingMatch[1].length;
+        currentHeading = headingMatch[2].trim();
       }
     }
 
@@ -259,17 +284,41 @@ function splitIntoSegments(markdown, defaultHeading) {
 
 function renderDocumentSection(doc, markdown) {
   const segments = splitIntoSegments(markdown, doc.title);
+  const diagramHeadingKeys = new Set(
+    segments
+      .filter((segment) => segment.type === "mermaid")
+      .map((segment) => buildHeadingKey(segment.headingDepth, segment.title)),
+  );
+  const tocEntries = [
+    {
+      id: doc.id,
+      title: doc.title,
+      level: 1,
+      path: doc.path,
+    },
+  ];
   const renderedSegments = segments
     .map((segment, index) => {
       if (segment.type === "markdown") {
-        return `<section class="document-fragment">${renderMarkdownBlock(segment.content, `${doc.id}-${index}`)}</section>`;
+        const rendered = renderMarkdownBlock(segment.content, `${doc.id}-${index}`, {
+          skipTocHeadingKeys: diagramHeadingKeys,
+        });
+        tocEntries.push(...rendered.headings);
+        return `<section class="document-fragment">${rendered.html}</section>`;
       }
+
+      const headingId = `${doc.id}-diagram-${slugify(segment.title)}-${index}`;
+      tocEntries.push({
+        id: headingId,
+        title: segment.title,
+        level: Math.max(2, segment.headingDepth),
+      });
 
       return `
         <section class="diagram-sheet">
           <div class="diagram-sheet__header">
             <p class="diagram-sheet__eyebrow">${escapeHtml(doc.title)}</p>
-            <h2>${escapeHtml(segment.title)}</h2>
+            <h2 id="${headingId}">${escapeHtml(segment.title)}</h2>
             <p class="diagram-sheet__source">${escapeHtml(doc.path)}</p>
           </div>
           <div class="diagram-sheet__canvas">
@@ -280,7 +329,8 @@ function renderDocumentSection(doc, markdown) {
     })
     .join("\n");
 
-  return `
+  return {
+    html: `
     <article class="source-document" id="${doc.id}">
       <header class="source-document__cover">
         <p class="source-document__kicker">Compiled Source Document</p>
@@ -290,10 +340,37 @@ function renderDocumentSection(doc, markdown) {
       </header>
       ${renderedSegments}
     </article>
-  `;
+  `,
+    tocEntries,
+  };
 }
 
-function buildHtml(documentSections, documentManifest, generatedDateLabel, mermaidScriptUrl) {
+function buildTableOfContents(documentToc) {
+  return documentToc
+    .map(
+      (doc) => `
+        <section class="toc-group">
+          <a class="toc-group__title" href="#${doc.id}">${escapeHtml(doc.title)}</a>
+          <p class="toc-group__path">${escapeHtml(doc.path)}</p>
+          <ol class="toc-entry-list">
+            ${doc.entries
+              .filter((entry) => entry.level > 1)
+              .map(
+                (entry) => `
+                  <li class="toc-entry toc-level-${Math.min(entry.level, 4)}">
+                    <a href="#${entry.id}">${escapeHtml(entry.title)}</a>
+                  </li>
+                `,
+              )
+              .join("\n")}
+          </ol>
+        </section>
+      `,
+    )
+    .join("\n");
+}
+
+function buildHtml(documentSections, tableOfContents, generatedDateLabel, mermaidScriptUrl) {
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -415,22 +492,56 @@ function buildHtml(documentSections, documentManifest, generatedDateLabel, merma
         font-size: 1.7rem;
       }
 
-      .toc-list {
-        margin: 0;
-        padding-left: 18px;
+      .toc-grid {
+        column-gap: 12mm;
+        columns: 2;
       }
 
-      .toc-list li {
-        margin: 0 0 10px;
+      .toc-group {
+        break-inside: avoid;
+        margin: 0 0 16px;
       }
 
-      .toc-list strong {
+      .toc-group__title {
         display: block;
+        margin-bottom: 4px;
         color: var(--ink);
+        font-size: 1rem;
+        font-weight: 700;
       }
 
-      .toc-list span {
+      .toc-group__path {
+        margin: 0 0 8px;
         color: var(--muted);
+        font-family: var(--mono);
+        font-size: 0.84rem;
+      }
+
+      .toc-entry-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .toc-entry {
+        margin: 0 0 5px;
+      }
+
+      .toc-entry a {
+        display: block;
+        color: var(--accent);
+      }
+
+      .toc-level-2 a {
+        padding-left: 0;
+      }
+
+      .toc-level-3 a {
+        padding-left: 12px;
+      }
+
+      .toc-level-4 a {
+        padding-left: 24px;
       }
 
       .source-document {
@@ -716,11 +827,11 @@ function buildHtml(documentSections, documentManifest, generatedDateLabel, merma
       </section>
 
       <section class="page-shell">
-        <section class="toc-page">
-          <h2>Included Source Documents</h2>
-          <ol class="toc-list">
-            ${documentManifest}
-          </ol>
+        <section class="toc-page" id="table-of-contents">
+          <h2>Table of Contents</h2>
+          <div class="toc-grid">
+            ${tableOfContents}
+          </div>
         </section>
       </section>
 
@@ -858,17 +969,19 @@ async function main() {
     }),
   );
 
-  const documentSections = documents.map((doc) => renderDocumentSection(doc, doc.markdown)).join("\n");
-  const documentManifest = documents
-    .map(
-      (doc) => `
-        <li>
-          <strong>${escapeHtml(doc.title)}</strong>
-          <span>${escapeHtml(doc.path)} — ${escapeHtml(doc.purpose)}</span>
-        </li>
-      `,
-    )
-    .join("\n");
+  const renderedDocuments = documents.map((doc) => renderDocumentSection(doc, doc.markdown));
+  const documentSections = renderedDocuments.map((doc) => doc.html).join("\n");
+  const tableOfContents = renderedDocuments
+    .map((doc) => ({
+      id: doc.tocEntries[0].id,
+      title: doc.tocEntries[0].title,
+      path: doc.tocEntries[0].path,
+      entries: doc.tocEntries,
+    }))
+    .map((doc) => ({
+      ...doc,
+      title: doc.title,
+    }));
 
   await fs.mkdir(outputDir, { recursive: true });
 
@@ -886,7 +999,7 @@ async function main() {
 
   const html = buildHtml(
     documentSections,
-    documentManifest,
+    buildTableOfContents(tableOfContents),
     generatedDateLabel,
     pathToFileURL(mermaidScriptPath).href,
   );
