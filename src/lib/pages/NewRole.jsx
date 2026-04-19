@@ -13,6 +13,7 @@ import { authApi } from "@/api/auth";
 import { requirementsApi } from "@/api/requirements";
 import { rolesApi } from "@/api/roles";
 import { useCurrentOrg } from "@/hooks/useOrgData";
+import SkillsRequirementsEditor from "@/components/SkillsRequirementsEditor";
 const NewRole = () => {
     const navigate = useNavigate();
     const { toast } = useToast();
@@ -20,6 +21,8 @@ const NewRole = () => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isExtracting, setIsExtracting] = useState(false);
     const [extractedRequirements, setExtractedRequirements] = useState(null);
+    const [jobProfile, setJobProfile] = useState(null);
+    const [isReparsing, setIsReparsing] = useState(false);
     // Form state
     const [title, setTitle] = useState("");
     const [department, setDepartment] = useState("");
@@ -46,14 +49,20 @@ const NewRole = () => {
         }
         setIsExtracting(true);
         try {
-            const data = await requirementsApi.extract({ job_description: description, job_title: title });
+            const [data, skillsData] = await Promise.all([
+                requirementsApi.extract({ job_description: description, job_title: title }),
+                requirementsApi.parseSkills({ job_description: description, role_title: title }).catch(() => null),
+            ]);
             if (data) {
                 setExtractedRequirements(data);
-                toast({
-                    title: "Requirements Extracted",
-                    description: "AI has analyzed your job description and extracted key requirements.",
-                });
             }
+            if (skillsData?.job_profile) {
+                setJobProfile(skillsData.job_profile);
+            }
+            toast({
+                title: "Requirements Extracted",
+                description: "AI has analyzed your job description and extracted key requirements.",
+            });
         }
         catch (error) {
             console.error("Extraction error:", error);
@@ -65,6 +74,20 @@ const NewRole = () => {
         }
         finally {
             setIsExtracting(false);
+        }
+    };
+    const handleReparseSkills = async () => {
+        if (!description.trim()) return;
+        setIsReparsing(true);
+        try {
+            const skillsData = await requirementsApi.parseSkills({ job_description: description, role_title: title });
+            if (skillsData?.job_profile) {
+                setJobProfile(skillsData.job_profile);
+            }
+        } catch (error) {
+            console.error("Re-parse error:", error);
+        } finally {
+            setIsReparsing(false);
         }
     };
     const updateWeight = (index, value) => {
@@ -83,12 +106,16 @@ const NewRole = () => {
         setIsSubmitting(true);
         try {
             // Build requirements JSON - cast to plain object for Json type compatibility
-            const requirementsJson = JSON.parse(JSON.stringify(extractedRequirements || {
+            const baseRequirements = extractedRequirements || {
                 skills: [],
                 experience: [],
                 qualifications: [],
                 responsibilities: [],
                 interviewQuestions: [],
+            };
+            const requirementsJson = JSON.parse(JSON.stringify({
+                ...baseRequirements,
+                ...(jobProfile ? { job_profile: jobProfile } : {}),
             }));
             // Build scoring rubric JSON
             const scoringRubricJson = scoringWeights.reduce((acc, w) => {
@@ -301,6 +328,15 @@ const NewRole = () => {
                   </div>)}
               </div>
             </Card>)}
+
+          {jobProfile && jobProfile.expectations?.length > 0 && (
+            <SkillsRequirementsEditor
+              jobProfile={jobProfile}
+              onUpdate={setJobProfile}
+              onReparse={handleReparseSkills}
+              isReparsing={isReparsing}
+            />
+          )}
 
           <Card className="p-6">
             <h2 className="text-xl font-semibold mb-4">Screening Criteria</h2>

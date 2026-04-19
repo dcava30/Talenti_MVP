@@ -13,6 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, } from "@/components/ui/dialog";
 import { ArrowLeft, FileText, TrendingUp, MessageSquare, AlertTriangle, CheckCircle, Clock, Edit2, Save, X, Loader2, Download, Play, User, Bot, } from "lucide-react";
 import { interviewsApi } from "@/api/interviews";
+import SkillsFitCard from "@/components/SkillsFitCard";
 import { toast } from "sonner";
 import { downloadInterviewReport } from "@/lib/generateInterviewReport";
 const formatTime = (ms) => {
@@ -220,9 +221,10 @@ const InterviewReport = () => {
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
             <Tabs defaultValue="summary" className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="summary">Summary</TabsTrigger>
                 <TabsTrigger value="dimensions">Score Details</TabsTrigger>
+                <TabsTrigger value="skills">Skills Fit</TabsTrigger>
                 <TabsTrigger value="transcript">Transcript</TabsTrigger>
               </TabsList>
 
@@ -285,6 +287,18 @@ const InterviewReport = () => {
                       </p>)}
                   </div>
                 </Card>
+              </TabsContent>
+
+              <TabsContent value="skills" className="mt-6">
+                {score?.service2_raw ? (
+                  <SkillsFitCard skillsData={score.service2_raw} />
+                ) : (
+                  <Card className="p-6">
+                    <p className="text-center text-muted-foreground py-8">
+                      No skills fit data available for this interview.
+                    </p>
+                  </Card>
+                )}
               </TabsContent>
 
               <TabsContent value="transcript" className="mt-6">
@@ -394,6 +408,45 @@ const InterviewReport = () => {
                   </div>))}
               </div>
             </Card>
+
+            {/* Skills Fit Summary */}
+            {score?.service2_raw && (
+              <Card className="p-6">
+                <h3 className="font-semibold mb-4">Skills Fit</h3>
+                <div className="text-center mb-3">
+                  <span className="text-3xl font-bold text-primary">
+                    {score.service2_raw.overall_score != null
+                      ? Math.round(score.service2_raw.overall_score)
+                      : "—"}
+                  </span>
+                  <span className="text-sm text-muted-foreground">/100</span>
+                </div>
+                {score.service2_raw.outcome && (
+                  <div className="text-center mb-3">
+                    <Badge
+                      variant={
+                        score.service2_raw.outcome.toUpperCase() === "PASS"
+                          ? "default"
+                          : score.service2_raw.outcome.toUpperCase() === "FAIL"
+                          ? "destructive"
+                          : "secondary"
+                      }
+                    >
+                      {score.service2_raw.outcome}
+                    </Badge>
+                  </div>
+                )}
+                {(score.service2_raw.must_haves_passed?.length > 0 ||
+                  score.service2_raw.must_haves_failed?.length > 0) && (
+                  <p className="text-sm text-muted-foreground text-center">
+                    Must-haves: {score.service2_raw.must_haves_passed?.length || 0}/
+                    {(score.service2_raw.must_haves_passed?.length || 0) +
+                      (score.service2_raw.must_haves_failed?.length || 0)}{" "}
+                    passed
+                  </p>
+                )}
+              </Card>
+            )}
 
             {/* Anti-Cheat Info */}
             {score?.anti_cheat_risk_level && (<Card className="p-6">
