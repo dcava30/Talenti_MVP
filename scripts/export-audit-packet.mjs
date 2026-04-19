@@ -57,7 +57,7 @@ const sourceDocs = [
     title: "Monitoring and Observability",
     path: "documentation/MONITORING.md",
     purpose:
-      "Operational monitoring baseline covering health, alerting, logs, troubleshooting, and incident support expectations.",
+      "Operational monitoring baseline covering health, alerting, logs, troubleshooting, and incident-response expectations.",
   },
   {
     id: "api-reference",
@@ -92,7 +92,7 @@ const sourceDocs = [
     title: "User and Operational Workflows",
     path: "documentation/USER_GUIDE.md",
     purpose:
-      "User-facing flows for candidates, recruiters, and administrators, including audit log access, reporting, privacy handling, and support-oriented operations.",
+      "User-facing flows for candidates, recruiters, and administrators, including audit log access, reporting, privacy handling, and operational workflows.",
   },
 ];
 

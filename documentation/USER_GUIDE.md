@@ -336,7 +336,7 @@ View activity history:
 ### General
 
 **Q: Is Talenti free to use?**
-A: Talenti offers both free and paid plans. Contact us for pricing.
+A: Commercial packaging and pricing are outside the scope of this document.
 
 **Q: What browsers are supported?**
 A: Chrome, Edge, and Firefox. Safari has limited support.
@@ -347,13 +347,13 @@ A: Yes. We use encryption, secure authentication, and follow GDPR guidelines.
 ### For Candidates
 
 **Q: Can I redo my interview?**
-A: This depends on the employer's settings. Contact them directly.
+A: This depends on the employer's settings and whether a new interview is issued for your application.
 
 **Q: How long are interviews?**
 A: Typically 10-15 minutes for AI interviews.
 
 **Q: What if I have technical issues?**
-A: Refresh the page. If problems persist, contact support.
+A: Refresh the page, confirm browser permissions, and retry from a stable connection.
 
 **Q: Will the AI judge my accent?**
 A: No. The AI evaluates content, not accent or speech patterns.
@@ -367,7 +367,7 @@ A: AI scoring provides consistent evaluation. Human review is recommended for fi
 A: Yes. Admins can override scores with documented reasoning.
 
 **Q: How do I delete a role?**
-A: Close the role first, then contact support for deletion.
+A: Close the role first. Any subsequent deletion is governed by the platform's administrative and data-retention processes.
 
 ---
 
@@ -389,7 +389,7 @@ A: Close the role first, then contact support for deletion.
 
 ### Invitation Link Expired
 
-Contact the recruiter who sent the invitation to request a new link.
+Expired invitation links cannot be reused. A new invitation must be issued through the recruiting workflow.
 
 ### Audio Quality Issues
 
@@ -411,16 +411,6 @@ Contact the recruiter who sent the invitation to request a new link.
 2. Try password reset
 3. Check for caps lock
 4. Clear cookies and try again
-
----
-
-## Contact Support
-
-If you need additional help:
-
-- **Email**: support@talenti.app
-- **In-App**: Click the help icon in the bottom right
-- **Documentation**: docs.talenti.app
 
 ---
 
