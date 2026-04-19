@@ -9,6 +9,8 @@
     "build:dev": "vite build --mode development",
     "docs:arch:html": "node scripts/export-architecture-diagrams.mjs --html-only",
     "docs:arch:pdf": "node scripts/export-architecture-diagrams.mjs",
+    "docs:audit:html": "node scripts/export-audit-packet.mjs --html-only",
+    "docs:audit:pdf": "node scripts/export-audit-packet.mjs",
     "lint": "eslint src/api src/lib/lib vite.config.js eslint.config.js tailwind.config.js postcss.config.js --ignore-pattern \"src/api/__tests__/**\"",
     "test": "vitest run",
     "preview": "vite preview",
