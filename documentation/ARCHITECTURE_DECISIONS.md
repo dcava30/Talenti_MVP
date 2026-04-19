@@ -1,6 +1,8 @@
 # Architecture Decisions
 
 > Last Updated: April 2026
+>
+> **Note:** The canonical ADR reference with full evidence tracing is now in [ARCHITECTURE_OVERVIEW.md, Section 19](./ARCHITECTURE_OVERVIEW.md#19-architecture-decision-records). This file is retained as the original ADR source and remains accurate.
 
 This document captures the current architecture for Talenti. The system is a FastAPI + PostgreSQL backend with a React frontend, two ML model scoring services, an Azure Communication Services worker, and Azure service integrations.
 

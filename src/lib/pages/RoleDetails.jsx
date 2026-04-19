@@ -248,15 +248,39 @@ const RoleDetails = () => {
                         </div>
                       </div>
 
-                      {score?.overall_score !== null && score?.overall_score !== undefined && (<div className="text-right">
-                          <div className="flex items-center gap-2 mb-1">
-                            <TrendingUp className="w-5 h-5 text-primary"/>
-                            <span className="text-3xl font-bold text-primary">
-                              {Math.round(score.overall_score)}%
-                            </span>
-                          </div>
-                          <p className="text-sm text-muted-foreground">Interview Score</p>
-                        </div>)}
+                      <div className="text-right space-y-2">
+                        {score?.overall_score !== null && score?.overall_score !== undefined && (<div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <TrendingUp className="w-5 h-5 text-primary"/>
+                              <span className="text-3xl font-bold text-primary">
+                                {Math.round(score.overall_score)}%
+                              </span>
+                            </div>
+                            <p className="text-sm text-muted-foreground">Interview Score</p>
+                          </div>)}
+                        {score?.service2_raw?.overall_score != null && (<div className="border-t pt-2">
+                            <div className="flex items-center justify-end gap-2">
+                              <span className="text-lg font-bold">
+                                {Math.round(score.service2_raw.overall_score)}%
+                              </span>
+                              {score.service2_raw.outcome && (
+                                <Badge variant={
+                                  score.service2_raw.outcome.toUpperCase() === "PASS" ? "default"
+                                  : score.service2_raw.outcome.toUpperCase() === "FAIL" ? "destructive"
+                                  : "secondary"
+                                } className="text-xs">
+                                  {score.service2_raw.outcome}
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Skills Fit
+                              {(score.service2_raw.must_haves_passed?.length > 0 || score.service2_raw.must_haves_failed?.length > 0) && (
+                                <> — {score.service2_raw.must_haves_passed?.length || 0}/{(score.service2_raw.must_haves_passed?.length || 0) + (score.service2_raw.must_haves_failed?.length || 0)} must-haves</>
+                              )}
+                            </p>
+                          </div>)}
+                      </div>
                     </div>
 
                     {dimensions.length > 0 && (<div className="space-y-3 mb-4">

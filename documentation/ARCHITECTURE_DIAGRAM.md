@@ -1,5 +1,7 @@
 # Talenti Architecture Views
 
+> **Note:** For the canonical auditor-ready architecture documentation, see [ARCHITECTURE_OVERVIEW.md](./ARCHITECTURE_OVERVIEW.md). This diagram document is retained as a supporting visual reference and remains accurate.
+
 This document refreshes the Talenti diagrams around the Azure-first platform that is now encoded in the repository. It separates the system into four views:
 
 - high-level system design

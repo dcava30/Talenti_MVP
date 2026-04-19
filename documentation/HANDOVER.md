@@ -1,6 +1,8 @@
 # Talenti Handover
 
 > Last Updated: April 2026
+>
+> **Note:** For the full auditor-ready architecture documentation, see [ARCHITECTURE_OVERVIEW.md](./ARCHITECTURE_OVERVIEW.md). This handover document is retained for onboarding context and remains accurate.
 
 This handover describes the Talenti AI interview platform — a microservices system for conducting, scoring, and reporting on AI-powered candidate interviews.
 

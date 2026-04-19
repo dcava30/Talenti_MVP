@@ -14,6 +14,53 @@ export const CandidateComparison = ({ selectedApplications, onRemoveCandidate, o
         });
     });
     const dimensionsList = Array.from(allDimensions);
+    // Get all unique skill competencies across selected candidates
+    const allSkills = new Set();
+    selectedApplications.forEach((app) => {
+        const interview = app.interviews?.[0];
+        const s2 = interview?.interview_scores?.[0]?.service2_raw;
+        if (s2?.scores) {
+            Object.keys(s2.scores).forEach((skill) => allSkills.add(skill));
+        }
+    });
+    const skillsList = Array.from(allSkills);
+    const getSkillsScore = (application) => {
+        const interview = application.interviews?.[0];
+        const s2 = interview?.interview_scores?.[0]?.service2_raw;
+        return s2?.overall_score ?? null;
+    };
+    const getSkillsOutcome = (application) => {
+        const interview = application.interviews?.[0];
+        const s2 = interview?.interview_scores?.[0]?.service2_raw;
+        return s2?.outcome ?? null;
+    };
+    const getSkillCompetencyScore = (application, skill) => {
+        const interview = application.interviews?.[0];
+        const s2 = interview?.interview_scores?.[0]?.service2_raw;
+        const data = s2?.scores?.[skill];
+        if (!data) return null;
+        const score = data.score ?? 0;
+        return score <= 1 ? score * 100 : score;
+    };
+    const getHighestSkillScore = () => {
+        let highest = -1;
+        let id = null;
+        selectedApplications.forEach((app) => {
+            const s = getSkillsScore(app);
+            if (s !== null && s > highest) { highest = s; id = app.id; }
+        });
+        return id;
+    };
+    const getHighestCompetencyScore = (skill) => {
+        let highest = -1;
+        let id = null;
+        selectedApplications.forEach((app) => {
+            const s = getSkillCompetencyScore(app, skill);
+            if (s !== null && s > highest) { highest = s; id = app.id; }
+        });
+        return id;
+    };
+    const highestSkillsId = getHighestSkillScore();
     const getDimensionScore = (application, dimension) => {
         const interview = application.interviews?.[0];
         const dim = interview?.score_dimensions?.find((d) => d.dimension === dimension);
@@ -120,7 +167,52 @@ export const CandidateComparison = ({ selectedApplications, onRemoveCandidate, o
               </div>);
         })}
 
-          {dimensionsList.length === 0 && (<div className="text-center py-8 text-muted-foreground">
+          {/* Skills Fit row */}
+          {skillsList.length > 0 && (<>
+            <div className="grid gap-4 py-4 border-t-2 border-primary/20 items-center" style={{ gridTemplateColumns: `200px repeat(${selectedApplications.length}, minmax(180px, 1fr))` }}>
+              <div className="font-medium flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-primary"/>
+                Skills Fit
+              </div>
+              {selectedApplications.map((app) => {
+                const score = getSkillsScore(app);
+                const outcome = getSkillsOutcome(app);
+                const isHighest = app.id === highestSkillsId && selectedApplications.length > 1;
+                return (<div key={app.id} className={`text-center ${isHighest ? 'bg-primary/10 rounded-lg p-2 -m-2' : ''}`}>
+                  {score !== null ? (<>
+                    <span className={`text-xl font-bold ${isHighest ? 'text-primary' : ''}`}>
+                      {Math.round(score)}%
+                    </span>
+                    {outcome && (<Badge variant={outcome.toUpperCase() === 'PASS' ? 'default' : outcome.toUpperCase() === 'FAIL' ? 'destructive' : 'secondary'} className="ml-2 text-xs">
+                      {outcome}
+                    </Badge>)}
+                  </>) : (<span className="text-muted-foreground">&mdash;</span>)}
+                </div>);
+              })}
+            </div>
+            {skillsList.map((skill) => {
+              const highestId = getHighestCompetencyScore(skill);
+              return (<div key={skill} className="grid gap-4 py-4 border-t border-border items-center" style={{ gridTemplateColumns: `200px repeat(${selectedApplications.length}, minmax(180px, 1fr))` }}>
+                <div className="font-medium capitalize text-muted-foreground pl-4">
+                  {skill.replace(/_/g, " ")}
+                </div>
+                {selectedApplications.map((app) => {
+                  const score = getSkillCompetencyScore(app, skill);
+                  const isHighest = app.id === highestId && selectedApplications.length > 1;
+                  return (<div key={app.id} className="space-y-1">
+                    {score !== null ? (<>
+                      <div className={`text-center font-medium ${isHighest ? 'text-primary' : ''}`}>
+                        {Math.round(score)}/100
+                      </div>
+                      <Progress value={score} className={`h-2 ${isHighest ? '[&>div]:bg-primary' : ''}`}/>
+                    </>) : (<div className="text-center text-muted-foreground">&mdash;</div>)}
+                  </div>);
+                })}
+              </div>);
+            })}
+          </>)}
+
+          {dimensionsList.length === 0 && skillsList.length === 0 && (<div className="text-center py-8 text-muted-foreground">
               No scoring data available for comparison. Select candidates with completed interviews.
             </div>)}
         </div>
