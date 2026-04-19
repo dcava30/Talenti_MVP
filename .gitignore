@@ -23,6 +23,7 @@ pytest-cache-files-*/
 .venv/
 .coverage
 .tmp-acscheck/
+documentation/generated/
 model-service-1/
 model-service-2/
 
