@@ -1,6 +1,8 @@
 # Monitoring & Observability
 
 > Last Updated: April 2026
+>
+> **See also:** [ARCHITECTURE_OVERVIEW.md, Section 17](./ARCHITECTURE_OVERVIEW.md#17-logging-monitoring-and-operational-support) for the architectural context of monitoring and observability.
 
 Talenti runs as a set of FastAPI microservices (backend API, backend-worker, model-service-1, model-service-2, python-acs-service) backed by PostgreSQL, Azure integrations, and GitHub Actions deployments. The platform assumes Azure-native observability with Log Analytics, Application Insights, Azure Monitor alerts, and GitHub Release metadata.
 

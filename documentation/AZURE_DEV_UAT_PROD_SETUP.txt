@@ -1,3 +1,10 @@
+LEGACY DOCUMENT — SUPERSEDED
+=============================
+This document contains manual Azure portal setup notes from early development.
+Infrastructure is now managed via Bicep IaC (infra/modules/platform.bicep) and
+GitHub Actions workflows (infra-dev.yml, infra-uat.yml, infra-prod.yml).
+See documentation/ARCHITECTURE_OVERVIEW.md for the current architecture reference.
+
 Talenti Azure Setup Guide (DEV, UAT, PROD)
 ==========================================
 

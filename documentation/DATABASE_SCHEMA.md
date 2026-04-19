@@ -6,7 +6,7 @@
 
 ## Overview
 
-This document provides comprehensive documentation of the Talenti database schema, including table structures, relationships, RLS policies, and data flow patterns.
+This document provides comprehensive documentation of the Talenti database schema, including table structures, relationships, access control policies, and data flow patterns.
 
 ---
 
@@ -16,7 +16,7 @@ This document provides comprehensive documentation of the Talenti database schem
 2. [Tables](#tables)
 3. [Enums](#enums)
 4. [Functions](#functions)
-5. [RLS Policy Summary](#rls-policy-summary)
+5. [Access Control Policy Summary](#access-control-policy-summary)
 6. [Data Flow Patterns](#data-flow-patterns)
 
 ---
@@ -867,7 +867,9 @@ $$ LANGUAGE sql SECURITY DEFINER;
 
 ---
 
-## RLS Policy Summary
+## Access Control Policy Summary
+
+> **Important:** The policies below describe the *intended* access control matrix. These are currently enforced at the **application layer** (FastAPI dependency injection in `backend/app/api/deps.py`) and **not** via PostgreSQL Row-Level Security (RLS). No RLS policies exist in the Alembic migrations. See [ARCHITECTURE_OVERVIEW.md, Appendix C, IMP-03](./ARCHITECTURE_OVERVIEW.md#c2-implementation-gaps) for the related audit finding.
 
 | Table | SELECT | INSERT | UPDATE | DELETE |
 |-------|--------|--------|--------|--------|

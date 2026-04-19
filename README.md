@@ -119,6 +119,7 @@ npm run dev
 
 | Document | Description |
 |----------|-------------|
+| [**ARCHITECTURE_OVERVIEW.md**](documentation/ARCHITECTURE_OVERVIEW.md) | **Canonical architecture reference** — audit-ready, evidence-based, comprehensive |
 | [HANDOVER.md](documentation/HANDOVER.md) | Technical handover and system overview |
 | [ARCHITECTURE_DIAGRAM.md](documentation/ARCHITECTURE_DIAGRAM.md) | Mermaid architecture diagrams (system, runtime, infra, CI/CD) |
 | [ARCHITECTURE_DECISIONS.md](documentation/ARCHITECTURE_DECISIONS.md) | Architecture decision records (ADRs) |
@@ -131,7 +132,7 @@ npm run dev
 | [RELEASE_PIPELINE.md](documentation/RELEASE_PIPELINE.md) | Release, promotion, and GitHub Actions workflow guide |
 | [DEPLOYMENT_DEV_V2.md](documentation/DEPLOYMENT_DEV_V2.md) | Dev deployment topology and runbook |
 | [MONITORING.md](documentation/MONITORING.md) | Logging, metrics, and observability guidance |
-| [AZURE_DEV_UAT_PROD_SETUP.txt](documentation/AZURE_DEV_UAT_PROD_SETUP.txt) | Azure environment setup notes |
+| [AZURE_DEV_UAT_PROD_SETUP.txt](documentation/AZURE_DEV_UAT_PROD_SETUP.txt) | Azure environment setup notes (legacy — superseded by IaC) |
 
 ## How can I deploy this project?
 
