@@ -12,7 +12,6 @@ SKILLS_EXCLUSION_FIELDS = frozenset(
         "skills_score",
         "skills_outcome",
         "overall_score",
-        "outcome",
         "pass",
         "review",
         "fail",

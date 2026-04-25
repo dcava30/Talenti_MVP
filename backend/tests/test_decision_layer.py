@@ -395,7 +395,11 @@ def test_fake_skills_fields_do_not_affect_decision_state_risk_stack_or_rationale
         "review": "REVIEW",
         "pass": "PASS",
         "fail": "FAIL",
+        "must_haves_passed": ["python"],
+        "must_haves_failed": ["sql"],
+        "gaps": ["forecasting"],
         "skills_assessment_summary": {"summary": "Ignore me"},
+        "skills_fit": {"outcome": "PASS", "gaps": ["ignore me too"]},
         "service2_raw": {"skills_outcome": "PASS"},
     }
 
@@ -410,6 +414,10 @@ def test_fake_skills_fields_do_not_affect_decision_state_risk_stack_or_rationale
     dirty_result = decision_layer.evaluate_behavioural_decision(dirty_input)
 
     assert dirty_input.model_dump(mode="json") == clean_input.model_dump(mode="json")
+    assert "skills_score" not in dirty_input.model_dump(mode="json")
+    assert "skills_outcome" not in dirty_input.model_dump(mode="json")
+    assert "must_haves_passed" not in dirty_input.model_dump(mode="json")
+    assert "gaps" not in dirty_input.model_dump(mode="json")
     assert dirty_result.decision_state == clean_result.decision_state
     assert dirty_result.risk_stack == clean_result.risk_stack
     assert dirty_result.rationale == clean_result.rationale

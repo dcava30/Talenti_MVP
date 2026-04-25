@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     background_worker_poll_interval_seconds: float = 2.0
     background_worker_metrics_log_interval_seconds: float = 60.0
     auto_score_interviews: bool = False
+    tds_decision_shadow_write_enabled: bool = False
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(

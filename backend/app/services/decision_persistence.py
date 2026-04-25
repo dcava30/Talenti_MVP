@@ -102,6 +102,23 @@ def get_latest_decision_for_interview(db: Session, *, interview_id: str) -> Deci
     ).scalar_one_or_none()
 
 
+def get_latest_decision_for_interview_version(
+    db: Session,
+    *,
+    interview_id: str,
+    rule_version: str,
+    policy_version: str,
+) -> DecisionOutcome | None:
+    return db.execute(
+        select(DecisionOutcome)
+        .where(DecisionOutcome.interview_id == interview_id)
+        .where(DecisionOutcome.rule_version == rule_version)
+        .where(DecisionOutcome.policy_version == policy_version)
+        .order_by(DecisionOutcome.created_at.desc(), DecisionOutcome.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
 def get_decision_by_id(db: Session, *, decision_id: str) -> DecisionOutcome | None:
     return db.get(DecisionOutcome, decision_id)
 

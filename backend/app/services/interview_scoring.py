@@ -5,13 +5,17 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models import (
     Application,
+    DecisionOutcome,
     Interview,
     InterviewScore,
     JobRole,
+    OrgEnvironmentInput,
     Organisation,
     ScoreDimension,
     TranscriptSegment,
@@ -29,6 +33,12 @@ from app.schemas.decisioning import (
     ConfidenceBand as DecisionConfidenceBand,
 )
 from app.services.culture_fit import CultureContextError, load_org_culture_context
+from app.services.decision_layer import evaluate_behavioural_decision
+from app.services.decision_persistence import (
+    create_decision_audit_event,
+    create_decision_outcome_from_result,
+    get_latest_decision_for_interview_version,
+)
 from app.services.ml_client import MLServiceError, ml_client
 from app.talenti_canonical.dimensions import (
     compute_dimension_requirements,
@@ -123,6 +133,12 @@ def build_shadow_behavioural_decision_input(
     rule_version: str = "tds-phase2-shadow-v1",
     policy_version: str = "mvp1-behaviour-decides-v1",
 ) -> BehaviouralDecisionInput:
+    """
+    Build the behavioural-only TDS payload from the existing scoring context.
+
+    Persistence metadata such as org_environment_input_id is resolved separately
+    at the integration point so the Decision Layer contract stays behaviour-only.
+    """
     tiers = dimension_tiers or {}
     behavioural_dimension_evidence = [
         BehaviouralDimensionEvidence(
@@ -168,6 +184,164 @@ def build_shadow_behavioural_decision_input(
         "policy_version": policy_version,
     }
     return build_behavioural_decision_input_from_scoring_context(scoring_context)
+
+
+def _get_latest_org_environment_input_id(
+    db: Session,
+    *,
+    organisation_id: str,
+) -> str | None:
+    return db.execute(
+        select(OrgEnvironmentInput.id)
+        .where(OrgEnvironmentInput.organisation_id == organisation_id)
+        .order_by(OrgEnvironmentInput.created_at.desc(), OrgEnvironmentInput.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def _run_shadow_behavioural_decision_write(
+    db: Session,
+    *,
+    interview_id: str,
+    candidate_id: str,
+    role_id: str,
+    organisation_id: str,
+    operating_environment: dict[str, Any],
+    culture_fit: CultureFitResult,
+    dimension_tiers: dict[str, str] | None = None,
+) -> DecisionOutcome | None:
+    decision_input = build_shadow_behavioural_decision_input(
+        interview_id=interview_id,
+        candidate_id=candidate_id,
+        role_id=role_id,
+        organisation_id=organisation_id,
+        operating_environment=operating_environment,
+        culture_fit=culture_fit,
+        dimension_tiers=dimension_tiers,
+    )
+    org_environment_input_id = _get_latest_org_environment_input_id(
+        db,
+        organisation_id=organisation_id,
+    )
+
+    logger.info(
+        "TDS shadow decision evaluation started",
+        extra={
+            "interview_id": interview_id,
+            "candidate_id": candidate_id,
+            "role_id": role_id,
+            "organisation_id": organisation_id,
+            "rule_version": decision_input.rule_version,
+            "policy_version": decision_input.policy_version,
+            "skills_inputs_excluded": True,
+        },
+    )
+
+    # Idempotency strategy: skip duplicate shadow writes for the same interview
+    # and exact rule_version/policy_version pair so reruns do not create
+    # indistinguishable duplicates while later policy revisions can still append.
+    existing = get_latest_decision_for_interview_version(
+        db,
+        interview_id=interview_id,
+        rule_version=decision_input.rule_version,
+        policy_version=decision_input.policy_version,
+    )
+    if existing is not None:
+        logger.info(
+            "TDS shadow decision skipped because matching version already exists",
+            extra={
+                "interview_id": interview_id,
+                "decision_id": existing.id,
+                "rule_version": decision_input.rule_version,
+                "policy_version": decision_input.policy_version,
+            },
+        )
+        return existing
+
+    decision_result = evaluate_behavioural_decision(decision_input)
+    decision = create_decision_outcome_from_result(
+        db,
+        decision_result=decision_result,
+        interview_id=interview_id,
+        candidate_id=candidate_id,
+        role_id=role_id,
+        organisation_id=organisation_id,
+        org_environment_input_id=org_environment_input_id,
+        environment_profile=decision_input.environment_profile,
+    )
+    create_decision_audit_event(
+        db,
+        decision_id=decision.id,
+        event_type="shadow_decision_evaluated",
+        actor_type="system",
+        rule_version=decision_result.rule_version,
+        policy_version=decision_result.policy_version,
+        event_payload={
+            "mode": "shadow",
+            "interview_id": interview_id,
+            "skills_inputs_excluded": True,
+            "decision_state": decision_result.decision_state.value,
+        },
+    )
+    logger.info(
+        "TDS shadow decision persisted",
+        extra={
+            "interview_id": interview_id,
+            "decision_id": decision.id,
+            "rule_version": decision_result.rule_version,
+            "policy_version": decision_result.policy_version,
+        },
+    )
+    return decision
+
+
+def _maybe_run_shadow_behavioural_decision_write(
+    db: Session,
+    *,
+    interview_id: str,
+    candidate_id: str,
+    role_id: str,
+    organisation_id: str,
+    operating_environment: dict[str, Any],
+    culture_fit: CultureFitResult,
+    dimension_tiers: dict[str, str] | None = None,
+) -> DecisionOutcome | None:
+    if not settings.tds_decision_shadow_write_enabled:
+        logger.info(
+            "TDS shadow decision skipped because feature flag disabled",
+            extra={
+                "interview_id": interview_id,
+                "candidate_id": candidate_id,
+                "role_id": role_id,
+                "organisation_id": organisation_id,
+            },
+        )
+        return None
+
+    try:
+        with db.begin_nested():
+            return _run_shadow_behavioural_decision_write(
+                db,
+                interview_id=interview_id,
+                candidate_id=candidate_id,
+                role_id=role_id,
+                organisation_id=organisation_id,
+                operating_environment=operating_environment,
+                culture_fit=culture_fit,
+                dimension_tiers=dimension_tiers,
+            )
+    except Exception:
+        logger.warning(
+            "TDS shadow decision failed non-fatally",
+            extra={
+                "interview_id": interview_id,
+                "candidate_id": candidate_id,
+                "role_id": role_id,
+                "organisation_id": organisation_id,
+            },
+            exc_info=True,
+        )
+        return None
 
 
 def _parse_rubric(
@@ -788,11 +962,19 @@ async def run_auto_scoring_for_interview(
     # Step 3: derive the final recommendation from risk-count stacking
     culture_fit = compute_risk_stack(culture_fit, operating_environment, dimension_tiers=dimension_tiers)
 
-    # Dark integration point for the upcoming TDS Decision Layer:
-    # build_shadow_behavioural_decision_input(...) prepares a behavioural-only
-    # contract after culture-fit extraction and before persistence. It is kept
-    # out of the production response path for now so existing scoring behaviour
-    # remains unchanged while the Decision Layer skeleton lands safely.
+    # Shadow TDS integration point: behavioural evidence is normalized and the
+    # org/role/interview context is available, but no public response or skills
+    # handling has been touched yet. This keeps MVP1 "behaviour decides" dark.
+    _maybe_run_shadow_behavioural_decision_write(
+        db,
+        interview_id=interview_id,
+        candidate_id=application.candidate_profile_id,
+        role_id=job_role.id,
+        organisation_id=organisation.id,
+        operating_environment=operating_environment,
+        culture_fit=culture_fit,
+        dimension_tiers=dimension_tiers,
+    )
 
     # Step 4: extract skills scorecard independently
     skills_fit = _extract_skills_fit(model2_result)
