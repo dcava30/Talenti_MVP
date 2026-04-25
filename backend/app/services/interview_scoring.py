@@ -23,6 +23,11 @@ from app.schemas.scoring import (
     SkillScore,
     SkillsFitResult,
 )
+from app.schemas.decisioning import (
+    BehaviouralDecisionInput,
+    BehaviouralDimensionEvidence,
+    ConfidenceBand as DecisionConfidenceBand,
+)
 from app.services.culture_fit import CultureContextError, load_org_culture_context
 from app.services.ml_client import MLServiceError, ml_client
 from app.talenti_canonical.dimensions import (
@@ -33,10 +38,136 @@ from app.talenti_canonical.dimensions import (
 logger = logging.getLogger(__name__)
 
 CANONICAL_DIMENSIONS = ["ownership", "execution", "challenge", "ambiguity", "feedback"]
+DECISION_LAYER_SHADOW_CONTEXT_KEYS = {
+    "interview_id",
+    "candidate_id",
+    "role_id",
+    "organisation_id",
+    "environment_profile",
+    "environment_confidence",
+    "behavioural_dimension_evidence",
+    "critical_dimensions",
+    "minimum_dimensions",
+    "priority_dimensions",
+    "rule_version",
+    "policy_version",
+}
 
 
 class InterviewScoringError(RuntimeError):
     pass
+
+
+def _to_decision_confidence_band(value: str | None) -> DecisionConfidenceBand:
+    mapping = {
+        "high": DecisionConfidenceBand.HIGH,
+        "medium": DecisionConfidenceBand.MEDIUM,
+        "low": DecisionConfidenceBand.LOW,
+    }
+    if value is None:
+        return DecisionConfidenceBand.LOW
+    return mapping.get(value.strip().lower(), DecisionConfidenceBand.LOW)
+
+
+def _to_internal_behavioural_score(score: int) -> int:
+    """
+    Map the existing 0-100 culture-fit score into the signed TDS shadow scale.
+
+    This helper keeps the Decision Layer dark and deterministic without changing
+    the production scoring contract. The thresholds roughly follow the backend's
+    current pass/watch segmentation:
+      70+ -> +2
+      55+ -> +1
+      40+ ->  0
+      25+ -> -1
+      else -> -2
+    """
+    if score >= 70:
+        return 2
+    if score >= 55:
+        return 1
+    if score >= 40:
+        return 0
+    if score >= 25:
+        return -1
+    return -2
+
+
+def build_behavioural_decision_input_from_scoring_context(
+    scoring_context: dict[str, Any],
+) -> BehaviouralDecisionInput:
+    """
+    Dark integration helper for the upcoming behavioural Decision Layer.
+
+    This deliberately reads only the behavioural contract keys from a broader
+    scoring context so model-service-2 outputs cannot leak into TDS decisioning.
+    The helper is not called by the production scoring flow yet.
+    """
+    behavioural_context = {
+        key: scoring_context[key]
+        for key in DECISION_LAYER_SHADOW_CONTEXT_KEYS
+        if key in scoring_context
+    }
+    return BehaviouralDecisionInput.model_validate(behavioural_context)
+
+
+def build_shadow_behavioural_decision_input(
+    *,
+    interview_id: str,
+    candidate_id: str,
+    role_id: str,
+    organisation_id: str,
+    operating_environment: dict[str, Any],
+    culture_fit: CultureFitResult,
+    dimension_tiers: dict[str, str] | None = None,
+    rule_version: str = "tds-phase2-shadow-v1",
+    policy_version: str = "mvp1-behaviour-decides-v1",
+) -> BehaviouralDecisionInput:
+    tiers = dimension_tiers or {}
+    behavioural_dimension_evidence = [
+        BehaviouralDimensionEvidence(
+            dimension=dimension.name,
+            score_internal=_to_internal_behavioural_score(dimension.score),
+            confidence=_to_decision_confidence_band(dimension.confidence_band),
+            evidence_summary=dimension.rationale,
+            rationale=dimension.rationale,
+            valid_signals=list(dimension.matched_signals or []),
+            invalid_signals=[],
+            conflict_flags=[],
+        )
+        for dimension in culture_fit.dimensions
+        if dimension.name in CANONICAL_DIMENSIONS
+    ]
+
+    scoring_context: dict[str, Any] = {
+        "interview_id": interview_id,
+        "candidate_id": candidate_id,
+        "role_id": role_id,
+        "organisation_id": organisation_id,
+        "environment_profile": dict(operating_environment),
+        "environment_confidence": _to_decision_confidence_band(
+            operating_environment.get("environment_confidence")
+        ),
+        "behavioural_dimension_evidence": behavioural_dimension_evidence,
+        "critical_dimensions": [
+            dimension
+            for dimension in CANONICAL_DIMENSIONS
+            if tiers.get(dimension) == "Critical"
+        ],
+        "minimum_dimensions": [
+            dimension
+            for dimension in CANONICAL_DIMENSIONS
+            if tiers.get(dimension) in {"Critical", "Important"}
+        ],
+        "priority_dimensions": [
+            dimension.name
+            for dimension in culture_fit.dimensions
+            if dimension.name in CANONICAL_DIMENSIONS
+        ],
+        "rule_version": rule_version,
+        "policy_version": policy_version,
+    }
+    return build_behavioural_decision_input_from_scoring_context(scoring_context)
 
 
 def _parse_rubric(
@@ -656,6 +787,12 @@ async def run_auto_scoring_for_interview(
 
     # Step 3: derive the final recommendation from risk-count stacking
     culture_fit = compute_risk_stack(culture_fit, operating_environment, dimension_tiers=dimension_tiers)
+
+    # Dark integration point for the upcoming TDS Decision Layer:
+    # build_shadow_behavioural_decision_input(...) prepares a behavioural-only
+    # contract after culture-fit extraction and before persistence. It is kept
+    # out of the production response path for now so existing scoring behaviour
+    # remains unchanged while the Decision Layer skeleton lands safely.
 
     # Step 4: extract skills scorecard independently
     skills_fit = _extract_skills_fit(model2_result)
