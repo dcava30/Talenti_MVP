@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     background_worker_metrics_log_interval_seconds: float = 60.0
     auto_score_interviews: bool = False
     tds_decision_shadow_write_enabled: bool = False
+    tds_skills_summary_shadow_write_enabled: bool = False
     tds_decision_inspection_api_enabled: bool = False
     log_level: str = "INFO"
 

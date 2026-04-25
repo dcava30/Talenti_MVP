@@ -39,6 +39,14 @@ from app.services.decision_persistence import (
     create_decision_outcome_from_result,
     get_latest_decision_for_interview_version,
 )
+from app.services.skills_assessment_mapper import (
+    SkillsAssessmentSummaryPayload,
+    map_model_service_2_output_to_skills_assessment_summary,
+)
+from app.services.skills_assessment_summary import (
+    create_skills_assessment_summary,
+    get_latest_skills_assessment_summary_for_interview_model_version,
+)
 from app.services.ml_client import MLServiceError, ml_client
 from app.talenti_canonical.dimensions import (
     compute_dimension_requirements,
@@ -342,6 +350,117 @@ def _maybe_run_shadow_behavioural_decision_write(
             exc_info=True,
         )
         return None
+
+
+def _run_shadow_skills_assessment_summary_write(
+    db: Session,
+    *,
+    interview_id: str,
+    candidate_id: str,
+    role_id: str,
+    organisation_id: str,
+    model2_result: dict[str, Any],
+) -> None:
+    logger.info(
+        "TDS skills summary shadow mapping started",
+        extra={
+            "interview_id": interview_id,
+            "candidate_id": candidate_id,
+            "role_id": role_id,
+            "organisation_id": organisation_id,
+        },
+    )
+
+    payload: SkillsAssessmentSummaryPayload = map_model_service_2_output_to_skills_assessment_summary(
+        model2_result
+    )
+    model_version = payload.get("model_version")
+
+    # Idempotency strategy: skip duplicate shadow writes only when model-service-2
+    # supplied a concrete version for the same interview. If the upstream payload
+    # omits model_version we allow append-only writes because there is no safe
+    # version key to deduplicate against.
+    if model_version:
+        existing = get_latest_skills_assessment_summary_for_interview_model_version(
+            db,
+            interview_id=interview_id,
+            model_version=model_version,
+        )
+        if existing is not None:
+            logger.info(
+                "TDS skills summary shadow duplicate skipped",
+                extra={
+                    "interview_id": interview_id,
+                    "skills_summary_id": existing.id,
+                    "model_version": model_version,
+                },
+            )
+            return
+
+    summary = create_skills_assessment_summary(
+        db,
+        interview_id=interview_id,
+        candidate_id=candidate_id,
+        role_id=role_id,
+        organisation_id=organisation_id,
+        **payload,
+    )
+    logger.info(
+        "TDS skills summary shadow persisted",
+        extra={
+            "interview_id": interview_id,
+            "skills_summary_id": summary.id,
+            "model_version": summary.model_version,
+            "excluded_from_tds_decisioning": summary.excluded_from_tds_decisioning,
+        },
+    )
+
+
+def _maybe_run_shadow_skills_assessment_summary_write(
+    db: Session,
+    *,
+    interview_id: str,
+    candidate_id: str,
+    role_id: str,
+    organisation_id: str,
+    model2_result: dict[str, Any] | None,
+) -> None:
+    if not settings.tds_skills_summary_shadow_write_enabled:
+        logger.info(
+            "TDS skills summary shadow write skipped because feature flag disabled",
+            extra={
+                "interview_id": interview_id,
+                "candidate_id": candidate_id,
+                "role_id": role_id,
+                "organisation_id": organisation_id,
+            },
+        )
+        return
+
+    if not isinstance(model2_result, dict):
+        return
+
+    try:
+        with db.begin_nested():
+            _run_shadow_skills_assessment_summary_write(
+                db,
+                interview_id=interview_id,
+                candidate_id=candidate_id,
+                role_id=role_id,
+                organisation_id=organisation_id,
+                model2_result=model2_result,
+            )
+    except Exception:
+        logger.warning(
+            "TDS skills summary shadow write failed non-fatally",
+            extra={
+                "interview_id": interview_id,
+                "candidate_id": candidate_id,
+                "role_id": role_id,
+                "organisation_id": organisation_id,
+            },
+            exc_info=True,
+        )
 
 
 def _parse_rubric(
@@ -988,6 +1107,15 @@ async def run_auto_scoring_for_interview(
         model_version=model1_result.get("model_version"),
         service1_raw=model1_result,
         service2_raw=model2_result,
+    )
+
+    _maybe_run_shadow_skills_assessment_summary_write(
+        db,
+        interview_id=interview_id,
+        candidate_id=application.candidate_profile_id,
+        role_id=job_role.id,
+        organisation_id=organisation.id,
+        model2_result=model2_result,
     )
 
     interview.summary = culture_fit.summary
