@@ -59,6 +59,8 @@ Or use the one-command local bootstrap from the repo root:
 | `ACS_WORKER_URL` | Python ACS service URL | `` |
 | `ACS_WORKER_SHARED_SECRET` | Shared secret for ACS worker callbacks | `` |
 | `AUTO_SCORE_INTERVIEWS` | Auto-run scoring on interview completion | `false` |
+| `TDS_RECRUITER_DECISION_API_ENABLED` | Enable recruiter-facing behavioural decision reads | `false` |
+| `TDS_RECRUITER_SKILLS_SUMMARY_API_ENABLED` | Enable recruiter-facing Skills Assessment Summary reads | `false` |
 | `AZURE_STORAGE_ACCOUNT` | Azure Blob Storage account name | `` |
 | `AZURE_ACS_CONNECTION_STRING` | Azure Communication Services connection | `` |
 | `AZURE_SPEECH_KEY` | Azure Speech Services key | `` |

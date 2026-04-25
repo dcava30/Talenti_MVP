@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     tds_shadow_comparison_api_enabled: bool = False
     tds_ranking_and_shortlist_quarantine_enabled: bool = False
     tds_recruiter_decision_api_enabled: bool = False
+    tds_recruiter_skills_summary_api_enabled: bool = False
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(
