@@ -14,6 +14,7 @@ from app.api import (
     auth,
     call_automation,
     candidates,
+    decision_inspection,
     interview_scores,
     interviews,
     invitations,
@@ -113,6 +114,7 @@ app.include_router(shortlist.router)
 app.include_router(retention.router)
 app.include_router(applications.router)
 app.include_router(audit_log.router)
+app.include_router(decision_inspection.router)
 app.include_router(invitations.router)
 app.include_router(invitations.v1_router)
 app.include_router(interviews.router)

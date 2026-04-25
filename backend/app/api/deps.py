@@ -48,3 +48,13 @@ def require_org_member(org_id: str, db: Session, user: User) -> OrgUser:
     if not membership:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not an org member")
     return membership
+
+
+def require_org_admin(org_id: str, db: Session, user: User) -> OrgUser:
+    membership = require_org_member(org_id, db, user)
+    if membership.role not in ("admin", "owner"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only organisation admins can access this resource.",
+        )
+    return membership
