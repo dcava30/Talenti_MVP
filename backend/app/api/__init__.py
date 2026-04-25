@@ -17,6 +17,7 @@ from app.api import (
     scoring,
     shortlist,
     skills_assessment_inspection,
+    tds_shadow_comparison,
     speech,
     storage,
 )
@@ -40,6 +41,7 @@ __all__ = [
     "scoring",
     "shortlist",
     "skills_assessment_inspection",
+    "tds_shadow_comparison",
     "speech",
     "storage",
 ]

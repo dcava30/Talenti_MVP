@@ -26,6 +26,7 @@ from app.api import (
     scoring,
     shortlist,
     skills_assessment_inspection,
+    tds_shadow_comparison,
     speech,
     storage,
 )
@@ -117,6 +118,7 @@ app.include_router(applications.router)
 app.include_router(audit_log.router)
 app.include_router(decision_inspection.router)
 app.include_router(skills_assessment_inspection.router)
+app.include_router(tds_shadow_comparison.router)
 app.include_router(invitations.router)
 app.include_router(invitations.v1_router)
 app.include_router(interviews.router)
