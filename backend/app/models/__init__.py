@@ -1,3 +1,9 @@
+from app.models.decision_audit_trail import DecisionAuditTrail
+from app.models.decision_dimension_evaluation import DecisionDimensionEvaluation
+from app.models.decision_outcome import DecisionOutcome
+from app.models.decision_policy_version import DecisionPolicyVersion
+from app.models.decision_risk_flag import DecisionRiskFlag
+from app.models.decision_signal_evidence import DecisionSignalEvidence
 from app.models.audit_log import AuditLog
 from app.models.application import Application
 from app.models.post_hire_outcome import PostHireOutcome
@@ -14,6 +20,7 @@ from app.models.interview import Interview
 from app.models.interview_score import InterviewScore
 from app.models.invitation import Invitation
 from app.models.job_role import JobRole
+from app.models.human_review_action import HumanReviewAction
 from app.models.org_environment_input import OrgEnvironmentInput
 from app.models.org_user import OrgUser
 from app.models.organisation import Organisation
@@ -22,11 +29,18 @@ from app.models.parsed_profile_snapshot import ParsedProfileSnapshot
 from app.models.resume_ingestion_batch import ResumeIngestionBatch
 from app.models.resume_ingestion_item import ResumeIngestionItem
 from app.models.score_dimension import ScoreDimension
+from app.models.skills_assessment_summary import SkillsAssessmentSummary
 from app.models.transcript_segment import TranscriptSegment
 from app.models.user import User
 from app.models.user_role import UserRole
 
 __all__ = [
+    "DecisionAuditTrail",
+    "DecisionDimensionEvaluation",
+    "DecisionOutcome",
+    "DecisionPolicyVersion",
+    "DecisionRiskFlag",
+    "DecisionSignalEvidence",
     "AuditLog",
     "Application",
     "PostHireOutcome",
@@ -43,6 +57,7 @@ __all__ = [
     "InterviewScore",
     "Invitation",
     "JobRole",
+    "HumanReviewAction",
     "OrgEnvironmentInput",
     "OrgUser",
     "Organisation",
@@ -51,6 +66,7 @@ __all__ = [
     "ResumeIngestionBatch",
     "ResumeIngestionItem",
     "ScoreDimension",
+    "SkillsAssessmentSummary",
     "TranscriptSegment",
     "User",
     "UserRole",
