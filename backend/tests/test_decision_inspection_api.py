@@ -317,6 +317,7 @@ def _seed_inspection_fixture(session, models, security, decision_layer, decision
             candidate_id=candidate.id,
             role_id=role.id,
             organisation_id=organisation.id,
+            dimensions={"feedback": _dimension(score=-1, confidence="MEDIUM")},
         )
     )
     other_org_result = decision_layer.evaluate_behavioural_decision(

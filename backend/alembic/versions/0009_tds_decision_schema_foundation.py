@@ -3,7 +3,7 @@
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0009_tds_decision_schema_foundation"
+revision = "0009_tds_decision_schema_base"
 down_revision = "0008_dual_scorecard_columns"
 branch_labels = None
 depends_on = None

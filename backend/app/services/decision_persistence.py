@@ -148,7 +148,7 @@ def get_decision_audit_trail(db: Session, *, decision_id: str) -> list[DecisionA
         db.execute(
             select(DecisionAuditTrail)
             .where(DecisionAuditTrail.decision_id == decision_id)
-            .order_by(DecisionAuditTrail.event_at.asc(), DecisionAuditTrail.created_at.asc())
+            .order_by(DecisionAuditTrail.created_at.asc(), DecisionAuditTrail.id.asc())
         ).scalars()
     )
 

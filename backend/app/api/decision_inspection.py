@@ -33,6 +33,18 @@ router = APIRouter(
 )
 
 
+def _require_inspection_admin(db: Session, org_id: str, user: User) -> None:
+    try:
+        require_org_admin(org_id, db, user)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_403_FORBIDDEN:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only organisation admins can access this resource.",
+            ) from exc
+        raise
+
+
 def _ensure_inspection_api_enabled() -> None:
     if not settings.tds_decision_inspection_api_enabled:
         raise HTTPException(
@@ -185,7 +197,7 @@ def get_latest_interview_decision(
     interview = _get_interview_for_inspection(db, interview_id)
     application = _get_application_for_inspection(db, interview.application_id)
     role = _get_role_for_inspection(db, application.job_role_id)
-    require_org_admin(role.organisation_id, db, user)
+    _require_inspection_admin(db, role.organisation_id, user)
 
     decision = get_latest_decision_for_interview(db, interview_id=interview_id)
     if decision is None:
@@ -203,7 +215,7 @@ def list_role_decisions(
     user: User = Depends(get_current_user),
 ) -> list[DecisionInspectionSummaryResponse]:
     role = _get_role_for_inspection(db, role_id)
-    require_org_admin(role.organisation_id, db, user)
+    _require_inspection_admin(db, role.organisation_id, user)
 
     decisions = list(
         db.execute(
@@ -254,7 +266,7 @@ def get_decision_audit_trace(
     user: User = Depends(get_current_user),
 ) -> list[DecisionInspectionAuditEventResponse]:
     decision = _get_decision_or_404(db, decision_id)
-    require_org_admin(decision.organisation_id, db, user)
+    _require_inspection_admin(db, decision.organisation_id, user)
 
     return [
         DecisionInspectionAuditEventResponse(
@@ -281,5 +293,5 @@ def get_decision(
     user: User = Depends(get_current_user),
 ) -> DecisionInspectionDetailResponse:
     decision = _get_decision_or_404(db, decision_id)
-    require_org_admin(decision.organisation_id, db, user)
+    _require_inspection_admin(db, decision.organisation_id, user)
     return _build_decision_detail(decision, db)
