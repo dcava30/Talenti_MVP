@@ -19,6 +19,7 @@ _context_vars = {
 }
 
 _reserved_log_record_keys = set(logging.makeLogRecord({}).__dict__.keys()) | {"message", "asctime"}
+_MANAGED_HANDLER_ATTR = "_talenti_managed_handler"
 
 
 class JsonFormatter(logging.Formatter):
@@ -54,20 +55,27 @@ class JsonFormatter(logging.Formatter):
 def configure_logging(*, service_name: str, log_level: str = "INFO", disable_uvicorn_access: bool = False) -> None:
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonFormatter(service_name))
+    setattr(handler, _MANAGED_HANDLER_ATTR, True)
 
     root_logger = logging.getLogger()
-    root_logger.handlers.clear()
+    _remove_managed_handlers(root_logger)
     root_logger.addHandler(handler)
     root_logger.setLevel(log_level.upper())
 
     for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         logger = logging.getLogger(logger_name)
-        logger.handlers.clear()
+        _remove_managed_handlers(logger)
         logger.propagate = True
         logger.setLevel(log_level.upper())
 
     if disable_uvicorn_access:
         logging.getLogger("uvicorn.access").disabled = True
+
+
+def _remove_managed_handlers(logger: logging.Logger) -> None:
+    for existing_handler in list(logger.handlers):
+        if getattr(existing_handler, _MANAGED_HANDLER_ATTR, False):
+            logger.removeHandler(existing_handler)
 
 
 @contextmanager

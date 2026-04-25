@@ -16,6 +16,7 @@ from app.api import (
     roles,
     scoring,
     shortlist,
+    skills_assessment_inspection,
     speech,
     storage,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "roles",
     "scoring",
     "shortlist",
+    "skills_assessment_inspection",
     "speech",
     "storage",
 ]

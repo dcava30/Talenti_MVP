@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     tds_decision_shadow_write_enabled: bool = False
     tds_skills_summary_shadow_write_enabled: bool = False
     tds_decision_inspection_api_enabled: bool = False
+    tds_skills_summary_inspection_api_enabled: bool = False
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(

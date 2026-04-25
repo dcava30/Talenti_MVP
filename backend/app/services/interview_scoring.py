@@ -54,6 +54,8 @@ from app.talenti_canonical.dimensions import (
 )
 
 logger = logging.getLogger(__name__)
+logger.disabled = False
+logger.propagate = True
 
 CANONICAL_DIMENSIONS = ["ownership", "execution", "challenge", "ambiguity", "feedback"]
 DECISION_LAYER_SHADOW_CONTEXT_KEYS = {
