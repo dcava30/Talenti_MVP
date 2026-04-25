@@ -3,8 +3,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { isTdsRankingAndShortlistQuarantineEnabled } from "@/lib/tdsRankingQuarantine";
 import { X, Sparkles, MapPin, Clock, Briefcase, CheckCircle, Star } from "lucide-react";
-export function ShortlistView({ matches, onClose, onSelectCandidate }) {
+export function ShortlistView({ matches, onClose, onSelectCandidate, quarantineEnabled = isTdsRankingAndShortlistQuarantineEnabled() }) {
     const getScoreColor = (score) => {
         if (score >= 80)
             return "text-green-500";
@@ -19,6 +20,24 @@ export function ShortlistView({ matches, onClose, onSelectCandidate }) {
             return "secondary";
         return "outline";
     };
+    if (quarantineEnabled) {
+        return (<Card className="p-6 mb-6 border-border bg-muted/20">
+      <div className="flex items-center justify-between gap-4">
+        <div className="space-y-2">
+          <h3 className="text-lg font-semibold">Shortlist Generation Disabled</h3>
+          <p className="text-sm text-muted-foreground">
+            Shortlist generation is disabled under the TDS decisioning model.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Candidates are evaluated against role and environment requirements, not against each other.
+          </p>
+        </div>
+        <Button variant="ghost" size="icon" onClick={onClose}>
+          <X className="w-4 h-4"/>
+        </Button>
+      </div>
+    </Card>);
+    }
     return (<Card className="p-6 mb-6 border-primary/20 bg-gradient-to-br from-primary/5 to-background">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { shortlistApi } from "@/api/shortlist";
+import { isTdsRankingAndShortlistQuarantineEnabled } from "@/lib/tdsRankingQuarantine";
 import { toast } from "sonner";
 /**
  * Hook for generating AI-powered candidate shortlists for job roles.
@@ -33,6 +34,17 @@ export function useShortlist() {
     const generateShortlist = async (roleId) => {
         setIsGenerating(true);
         try {
+            if (isTdsRankingAndShortlistQuarantineEnabled()) {
+                const disabledResponse = {
+                    disabled: true,
+                    message: "Shortlist generation is disabled under the TDS decisioning model.",
+                    matches: [],
+                };
+                setShortlistData(disabledResponse);
+                toast(disabledResponse.message);
+                return disabledResponse;
+            }
+
             const data = await shortlistApi.generate({ roleId });
             if (data?.error) {
                 if (data.error.includes('Rate limit')) {

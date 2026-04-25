@@ -16,6 +16,7 @@ import { ShortlistView } from "@/components/ShortlistView";
 import { useShortlist } from "@/hooks/useShortlist";
 import { useQueryClient } from "@tanstack/react-query";
 import { downloadInterviewReport } from "@/lib/generateInterviewReport";
+import { isTdsRankingAndShortlistQuarantineEnabled, shouldShowAiMatchSorting, shouldShowApplicationMatchScore, sortRoleApplications } from "@/lib/tdsRankingQuarantine";
 import { toast } from "sonner";
 const RoleDetails = () => {
     const { roleId } = useParams();
@@ -31,6 +32,7 @@ const RoleDetails = () => {
     const [showComparison, setShowComparison] = useState(false);
     const [showShortlist, setShowShortlist] = useState(false);
     const { generateShortlist, isGenerating, shortlistData, clearShortlist } = useShortlist();
+    const rankingQuarantineEnabled = isTdsRankingAndShortlistQuarantineEnabled();
     const toggleCandidateSelection = (applicationId) => {
         setSelectedForComparison((prev) => prev.includes(applicationId)
             ? prev.filter((id) => id !== applicationId)
@@ -82,12 +84,7 @@ const RoleDetails = () => {
         const { label, variant } = variants[status] || { label: status, variant: "secondary" };
         return <Badge variant={variant}>{label}</Badge>;
     };
-    // Sort applications by match score if available
-    const sortedApplications = applications?.slice().sort((a, b) => {
-        const scoreA = a.match_score ?? 0;
-        const scoreB = b.match_score ?? 0;
-        return scoreB - scoreA;
-    });
+    const sortedApplications = sortRoleApplications(applications, rankingQuarantineEnabled);
     if (isLoading) {
         return (<div className="min-h-screen bg-background flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-primary"/>
@@ -147,10 +144,10 @@ const RoleDetails = () => {
           {role.description && (<p className="text-muted-foreground mb-4 max-w-2xl">{role.description}</p>)}
 
           <div className="flex flex-wrap gap-3">
-            <Button onClick={handleGenerateShortlist} disabled={isGenerating || !applications?.length} className="bg-gradient-to-r from-primary to-primary/80">
-              {isGenerating ? (<Loader2 className="w-4 h-4 mr-2 animate-spin"/>) : (<Sparkles className="w-4 h-4 mr-2"/>)}
-              {isGenerating ? "Generating..." : "AI Shortlist"}
-            </Button>
+            {!rankingQuarantineEnabled && (<Button onClick={handleGenerateShortlist} disabled={isGenerating || !applications?.length} className="bg-gradient-to-r from-primary to-primary/80">
+                {isGenerating ? (<Loader2 className="w-4 h-4 mr-2 animate-spin"/>) : (<Sparkles className="w-4 h-4 mr-2"/>)}
+                {isGenerating ? "Generating..." : "AI Shortlist"}
+              </Button>)}
             <Button variant="outline" onClick={() => setResumeUploadDialogOpen(true)}>
               <Upload className="w-4 h-4 mr-2"/>
               Upload Resumes
@@ -180,7 +177,7 @@ const RoleDetails = () => {
         </div>
 
         {/* AI Shortlist View */}
-        {showShortlist && shortlistData && (<ShortlistView matches={shortlistData.matches} onClose={() => {
+        {showShortlist && shortlistData && (<ShortlistView matches={shortlistData.matches} quarantineEnabled={rankingQuarantineEnabled} onClose={() => {
                 setShowShortlist(false);
                 clearShortlist();
             }} onSelectCandidate={(appId) => {
@@ -195,7 +192,7 @@ const RoleDetails = () => {
 
         {/* Comparison View */}
         {showComparison && selectedApplicationsForComparison.length >= 2 && (<div className="mb-6">
-            <CandidateComparison selectedApplications={selectedApplicationsForComparison} onRemoveCandidate={(id) => {
+            <CandidateComparison selectedApplications={selectedApplicationsForComparison} quarantineEnabled={rankingQuarantineEnabled} onRemoveCandidate={(id) => {
                 toggleCandidateSelection(id);
                 if (selectedForComparison.length <= 2) {
                     setShowComparison(false);
@@ -211,7 +208,7 @@ const RoleDetails = () => {
               {selectedForComparison.length > 0 && (<span className="text-sm text-muted-foreground">
                   {selectedForComparison.length} selected for comparison
                 </span>)}
-              {sortedApplications?.some(a => a.match_score !== null) && (<Badge variant="outline" className="gap-1">
+              {shouldShowAiMatchSorting(sortedApplications, rankingQuarantineEnabled) && (<Badge variant="outline" className="gap-1">
                   <Sparkles className="w-3 h-3"/>
                   Sorted by AI Match
                 </Badge>)}
@@ -237,7 +234,7 @@ const RoleDetails = () => {
                               Candidate #{application.id.slice(0, 8)}
                             </h3>
                             {getStatusBadge(application.status)}
-                            {matchScore !== null && matchScore !== undefined && (<Badge variant="outline" className="gap-1 text-primary border-primary/30">
+                            {shouldShowApplicationMatchScore(application, rankingQuarantineEnabled) && (<Badge variant="outline" className="gap-1 text-primary border-primary/30">
                                 <Sparkles className="w-3 h-3"/>
                                 {Math.round(matchScore)}% Match
                               </Badge>)}

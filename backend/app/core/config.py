@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     tds_decision_inspection_api_enabled: bool = False
     tds_skills_summary_inspection_api_enabled: bool = False
     tds_shadow_comparison_api_enabled: bool = False
+    tds_ranking_and_shortlist_quarantine_enabled: bool = False
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(

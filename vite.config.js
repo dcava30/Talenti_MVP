@@ -13,7 +13,7 @@ export default defineConfig(() => ({
   },
   test: {
     environment: "node",
-    include: ["src/api/__tests__/**/*.test.js"],
+    include: ["src/**/*.test.js"],
     exclude: [
       "**/node_modules/**",
       "**/dist/**",
