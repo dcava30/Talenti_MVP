@@ -33,6 +33,9 @@ export const interviewsApi = {
     getInterviewDecision(interviewId) {
         return http.get(`/api/v1/interviews/${interviewId}/decision`);
     },
+    getInterviewSkillsAssessmentSummary(interviewId) {
+        return http.get(`/api/v1/interviews/${interviewId}/skills-assessment-summary`);
+    },
     listDimensions(interviewId) {
         return http.get(`/api/v1/interviews/${interviewId}/dimensions`);
     },

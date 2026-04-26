@@ -15,9 +15,14 @@ import { ArrowLeft, FileText, TrendingUp, MessageSquare, AlertTriangle, CheckCir
 import { interviewsApi } from "@/api/interviews";
 import SkillsFitCard from "@/components/SkillsFitCard";
 import DecisionOutcomeCard from "@/components/DecisionOutcomeCard";
+import SkillsAssessmentSummaryCard from "@/components/SkillsAssessmentSummaryCard";
 import { toast } from "sonner";
 import { downloadInterviewReport } from "@/lib/generateInterviewReport";
 import { isTdsRecruiterDecisionUiEnabled, loadInterviewDecisionOutcome } from "@/lib/tdsRecruiterDecisionUi";
+import {
+    isTdsRecruiterSkillsSummaryUiEnabled,
+    loadInterviewSkillsAssessmentSummary,
+} from "@/lib/tdsRecruiterSkillsSummaryUi";
 const formatTime = (ms) => {
     const minutes = Math.floor(ms / 60000);
     const seconds = Math.floor((ms % 60000) / 1000);
@@ -36,6 +41,8 @@ const formatDimension = (dim) => {
 const InterviewReport = () => {
     const { interviewId } = useParams();
     const recruiterDecisionUiEnabled = isTdsRecruiterDecisionUiEnabled();
+    const recruiterSkillsSummaryUiEnabled = isTdsRecruiterSkillsSummaryUiEnabled();
+    const legacySkillsUiVisible = !recruiterSkillsSummaryUiEnabled;
     const [isLoading, setIsLoading] = useState(true);
     const [interview, setInterview] = useState(null);
     const [score, setScore] = useState(null);
@@ -43,6 +50,8 @@ const InterviewReport = () => {
     const [transcripts, setTranscripts] = useState([]);
     const [decisionOutcome, setDecisionOutcome] = useState(null);
     const [decisionStatus, setDecisionStatus] = useState(recruiterDecisionUiEnabled ? "loading" : "disabled");
+    const [skillsSummary, setSkillsSummary] = useState(null);
+    const [skillsSummaryStatus, setSkillsSummaryStatus] = useState(recruiterSkillsSummaryUiEnabled ? "loading" : "disabled");
     const [isEditing, setIsEditing] = useState(false);
     const [editedScore, setEditedScore] = useState(null);
     const [overrideReason, setOverrideReason] = useState("");
@@ -59,8 +68,15 @@ const InterviewReport = () => {
                 setDecisionOutcome(null);
                 setDecisionStatus("disabled");
             }
+            if (recruiterSkillsSummaryUiEnabled) {
+                loadSkillsSummaryData();
+            }
+            else {
+                setSkillsSummary(null);
+                setSkillsSummaryStatus("disabled");
+            }
         }
-    }, [interviewId, recruiterDecisionUiEnabled]);
+    }, [interviewId, recruiterDecisionUiEnabled, recruiterSkillsSummaryUiEnabled]);
     const loadInterviewData = async () => {
         if (!interviewId)
             return;
@@ -100,6 +116,17 @@ const InterviewReport = () => {
         });
         setDecisionOutcome(result.decision);
         setDecisionStatus(result.status);
+    };
+    const loadSkillsSummaryData = async () => {
+        if (!interviewId || !recruiterSkillsSummaryUiEnabled)
+            return;
+        setSkillsSummaryStatus("loading");
+        const result = await loadInterviewSkillsAssessmentSummary(interviewId, {
+            enabled: recruiterSkillsSummaryUiEnabled,
+            api: interviewsApi,
+        });
+        setSkillsSummary(result.summary);
+        setSkillsSummaryStatus(result.status);
     };
     const handleSaveOverride = async () => {
         if (!score || editedScore === null)
@@ -244,11 +271,12 @@ const InterviewReport = () => {
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
             {recruiterDecisionUiEnabled && (<DecisionOutcomeCard decision={decisionOutcome} status={decisionStatus}/>)}
+            {recruiterSkillsSummaryUiEnabled && (<SkillsAssessmentSummaryCard summary={skillsSummary} status={skillsSummaryStatus}/>)}
             <Tabs defaultValue="summary" className="w-full">
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className={`grid w-full ${legacySkillsUiVisible ? "grid-cols-4" : "grid-cols-3"}`}>
                 <TabsTrigger value="summary">Summary</TabsTrigger>
                 <TabsTrigger value="dimensions">{recruiterDecisionUiEnabled ? "Legacy Score Details" : "Score Details"}</TabsTrigger>
-                <TabsTrigger value="skills">{recruiterDecisionUiEnabled ? "Legacy Skills Fit" : "Skills Fit"}</TabsTrigger>
+                {legacySkillsUiVisible && (<TabsTrigger value="skills">{recruiterDecisionUiEnabled ? "Legacy Skills Fit" : "Skills Fit"}</TabsTrigger>)}
                 <TabsTrigger value="transcript">Transcript</TabsTrigger>
               </TabsList>
 
@@ -313,17 +341,17 @@ const InterviewReport = () => {
                 </Card>
               </TabsContent>
 
-              <TabsContent value="skills" className="mt-6">
-                {score?.service2_raw ? (
-                  <SkillsFitCard skillsData={score.service2_raw} />
-                ) : (
-                  <Card className="p-6">
-                    <p className="text-center text-muted-foreground py-8">
-                      No skills fit data available for this interview.
-                    </p>
-                  </Card>
-                )}
-              </TabsContent>
+              {legacySkillsUiVisible && (<TabsContent value="skills" className="mt-6">
+                  {score?.service2_raw ? (
+                    <SkillsFitCard skillsData={score.service2_raw} />
+                  ) : (
+                    <Card className="p-6">
+                      <p className="text-center text-muted-foreground py-8">
+                        No skills fit data available for this interview.
+                      </p>
+                    </Card>
+                  )}
+                </TabsContent>)}
 
               <TabsContent value="transcript" className="mt-6">
                 <Card className="p-6">
@@ -440,7 +468,7 @@ const InterviewReport = () => {
             </Card>
 
             {/* Skills Fit Summary */}
-            {score?.service2_raw && (
+            {legacySkillsUiVisible && score?.service2_raw && (
               <Card className="p-6">
                 <h3 className="font-semibold mb-4">{recruiterDecisionUiEnabled ? "Legacy Skills Fit" : "Skills Fit"}</h3>
                 <div className="text-center mb-3">

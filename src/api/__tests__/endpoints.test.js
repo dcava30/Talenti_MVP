@@ -43,6 +43,11 @@ describe("API endpoints", () => {
         expect(http.get).toHaveBeenCalledWith("/api/v1/interviews/int-1/decision");
     });
 
+    it("targets the recruiter skills assessment summary endpoint", () => {
+        interviewsApi.getInterviewSkillsAssessmentSummary("int-1");
+        expect(http.get).toHaveBeenCalledWith("/api/v1/interviews/int-1/skills-assessment-summary");
+    });
+
     it("targets applications context endpoint", () => {
         interviewsApi.getContext("app-1");
         expect(http.get).toHaveBeenCalledWith("/api/v1/applications/app-1/context");
