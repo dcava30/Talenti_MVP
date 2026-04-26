@@ -14,8 +14,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, } from 
 import { ArrowLeft, FileText, TrendingUp, MessageSquare, AlertTriangle, CheckCircle, Clock, Edit2, Save, X, Loader2, Download, Play, User, Bot, } from "lucide-react";
 import { interviewsApi } from "@/api/interviews";
 import SkillsFitCard from "@/components/SkillsFitCard";
+import DecisionOutcomeCard from "@/components/DecisionOutcomeCard";
 import { toast } from "sonner";
 import { downloadInterviewReport } from "@/lib/generateInterviewReport";
+import { isTdsRecruiterDecisionUiEnabled, loadInterviewDecisionOutcome } from "@/lib/tdsRecruiterDecisionUi";
 const formatTime = (ms) => {
     const minutes = Math.floor(ms / 60000);
     const seconds = Math.floor((ms % 60000) / 1000);
@@ -33,11 +35,14 @@ const formatDimension = (dim) => {
 };
 const InterviewReport = () => {
     const { interviewId } = useParams();
+    const recruiterDecisionUiEnabled = isTdsRecruiterDecisionUiEnabled();
     const [isLoading, setIsLoading] = useState(true);
     const [interview, setInterview] = useState(null);
     const [score, setScore] = useState(null);
     const [dimensions, setDimensions] = useState([]);
     const [transcripts, setTranscripts] = useState([]);
+    const [decisionOutcome, setDecisionOutcome] = useState(null);
+    const [decisionStatus, setDecisionStatus] = useState(recruiterDecisionUiEnabled ? "loading" : "disabled");
     const [isEditing, setIsEditing] = useState(false);
     const [editedScore, setEditedScore] = useState(null);
     const [overrideReason, setOverrideReason] = useState("");
@@ -47,8 +52,15 @@ const InterviewReport = () => {
     useEffect(() => {
         if (interviewId) {
             loadInterviewData();
+            if (recruiterDecisionUiEnabled) {
+                loadDecisionData();
+            }
+            else {
+                setDecisionOutcome(null);
+                setDecisionStatus("disabled");
+            }
         }
-    }, [interviewId]);
+    }, [interviewId, recruiterDecisionUiEnabled]);
     const loadInterviewData = async () => {
         if (!interviewId)
             return;
@@ -77,6 +89,17 @@ const InterviewReport = () => {
             toast.error("Failed to load interview data");
         }
         setIsLoading(false);
+    };
+    const loadDecisionData = async () => {
+        if (!interviewId || !recruiterDecisionUiEnabled)
+            return;
+        setDecisionStatus("loading");
+        const result = await loadInterviewDecisionOutcome(interviewId, {
+            enabled: recruiterDecisionUiEnabled,
+            api: interviewsApi,
+        });
+        setDecisionOutcome(result.decision);
+        setDecisionStatus(result.status);
     };
     const handleSaveOverride = async () => {
         if (!score || editedScore === null)
@@ -220,11 +243,12 @@ const InterviewReport = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
+            {recruiterDecisionUiEnabled && (<DecisionOutcomeCard decision={decisionOutcome} status={decisionStatus}/>)}
             <Tabs defaultValue="summary" className="w-full">
               <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="summary">Summary</TabsTrigger>
-                <TabsTrigger value="dimensions">Score Details</TabsTrigger>
-                <TabsTrigger value="skills">Skills Fit</TabsTrigger>
+                <TabsTrigger value="dimensions">{recruiterDecisionUiEnabled ? "Legacy Score Details" : "Score Details"}</TabsTrigger>
+                <TabsTrigger value="skills">{recruiterDecisionUiEnabled ? "Legacy Skills Fit" : "Skills Fit"}</TabsTrigger>
                 <TabsTrigger value="transcript">Transcript</TabsTrigger>
               </TabsList>
 
@@ -262,7 +286,7 @@ const InterviewReport = () => {
 
               <TabsContent value="dimensions" className="mt-6">
                 <Card className="p-6">
-                  <h3 className="font-semibold mb-6">Score Breakdown by Dimension</h3>
+                  <h3 className="font-semibold mb-6">{recruiterDecisionUiEnabled ? "Legacy Score Breakdown by Dimension" : "Score Breakdown by Dimension"}</h3>
                   <div className="space-y-6">
                     {dimensions.map((dim) => (<div key={dim.id} className="space-y-3">
                         <div className="flex items-center justify-between">
@@ -343,12 +367,18 @@ const InterviewReport = () => {
 
           {/* Sidebar */}
           <div className="space-y-6">
+            {recruiterDecisionUiEnabled && (<Card className="p-4 border-dashed bg-muted/20">
+                <h3 className="font-semibold">Legacy scoring information</h3>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Behavioural decision outcome is now the primary recruiter view. Legacy score panels remain available here for reference.
+                </p>
+              </Card>)}
             {/* Overall Score Card */}
             <Card className="p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold flex items-center gap-2">
                   <TrendingUp className="w-5 h-5"/>
-                  Overall Score
+                  {recruiterDecisionUiEnabled ? "Legacy Overall Score" : "Overall Score"}
                 </h3>
                 {score && !isEditing && (<Button variant="ghost" size="sm" onClick={() => setIsEditing(true)}>
                     <Edit2 className="w-4 h-4"/>
@@ -393,7 +423,7 @@ const InterviewReport = () => {
 
             {/* Quick Dimensions */}
             <Card className="p-6">
-              <h3 className="font-semibold mb-4">Dimension Scores</h3>
+              <h3 className="font-semibold mb-4">{recruiterDecisionUiEnabled ? "Legacy Dimension Scores" : "Dimension Scores"}</h3>
               <div className="space-y-3">
                 {dimensions.slice(0, 5).map((dim) => (<div key={dim.id} className="space-y-1">
                     <div className="flex items-center justify-between text-sm">
@@ -412,7 +442,7 @@ const InterviewReport = () => {
             {/* Skills Fit Summary */}
             {score?.service2_raw && (
               <Card className="p-6">
-                <h3 className="font-semibold mb-4">Skills Fit</h3>
+                <h3 className="font-semibold mb-4">{recruiterDecisionUiEnabled ? "Legacy Skills Fit" : "Skills Fit"}</h3>
                 <div className="text-center mb-3">
                   <span className="text-3xl font-bold text-primary">
                     {score.service2_raw.overall_score != null

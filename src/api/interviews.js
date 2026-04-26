@@ -30,6 +30,9 @@ export const interviewsApi = {
     getScore(interviewId) {
         return http.get(`/api/v1/interviews/${interviewId}/score`);
     },
+    getInterviewDecision(interviewId) {
+        return http.get(`/api/v1/interviews/${interviewId}/decision`);
+    },
     listDimensions(interviewId) {
         return http.get(`/api/v1/interviews/${interviewId}/dimensions`);
     },

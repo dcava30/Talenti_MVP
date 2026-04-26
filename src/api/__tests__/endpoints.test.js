@@ -38,6 +38,11 @@ describe("API endpoints", () => {
         });
     });
 
+    it("targets the recruiter decision endpoint", () => {
+        interviewsApi.getInterviewDecision("int-1");
+        expect(http.get).toHaveBeenCalledWith("/api/v1/interviews/int-1/decision");
+    });
+
     it("targets applications context endpoint", () => {
         interviewsApi.getContext("app-1");
         expect(http.get).toHaveBeenCalledWith("/api/v1/applications/app-1/context");
