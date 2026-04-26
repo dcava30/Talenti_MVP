@@ -61,6 +61,7 @@ Or use the one-command local bootstrap from the repo root:
 | `AUTO_SCORE_INTERVIEWS` | Auto-run scoring on interview completion | `false` |
 | `TDS_RECRUITER_DECISION_API_ENABLED` | Enable recruiter-facing behavioural decision reads | `false` |
 | `TDS_RECRUITER_SKILLS_SUMMARY_API_ENABLED` | Enable recruiter-facing Skills Assessment Summary reads | `false` |
+| `TDS_HUMAN_REVIEW_API_ENABLED` | Enable recruiter-facing decision human review create/list routes | `false` |
 | `AZURE_STORAGE_ACCOUNT` | Azure Blob Storage account name | `` |
 | `AZURE_ACS_CONNECTION_STRING` | Azure Communication Services connection | `` |
 | `AZURE_SPEECH_KEY` | Azure Speech Services key | `` |

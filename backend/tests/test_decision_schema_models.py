@@ -262,8 +262,8 @@ def test_decision_schema_records_persist_separately_from_skills_summaries() -> N
                 ),
                 models.HumanReviewAction(
                     decision_id=decision.id,
-                    action_type="REQUEST_FOLLOW_UP",
-                    review_outcome="FOLLOW_UP_REQUIRED",
+                    action_type="HUMAN_REVIEW",
+                    review_outcome="HOLD_FOR_FURTHER_REVIEW",
                     reason="Human reviewer wants more behavioural evidence on feedback.",
                     reviewed_by=seeded["reviewer"].id,
                     notes_json=json.dumps({"note": "Preserve original system outcome."}),

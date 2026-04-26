@@ -15,6 +15,7 @@ from app.models import (
     HumanReviewAction,
 )
 from app.schemas.decisioning import BehaviouralDecisionOutput, assert_behavioural_only_payload
+from app.schemas.human_review import HumanReviewActionType, HumanReviewOutcome
 from app.services.json_text import json_text_dumps, json_text_loads
 
 
@@ -153,6 +154,17 @@ def get_decision_audit_trail(db: Session, *, decision_id: str) -> list[DecisionA
     )
 
 
+def list_human_review_actions_for_decision(db: Session, *, decision_id: str) -> list[HumanReviewAction]:
+    # Return oldest-first for a stable, timeline-style review history.
+    return list(
+        db.execute(
+            select(HumanReviewAction)
+            .where(HumanReviewAction.decision_id == decision_id)
+            .order_by(HumanReviewAction.created_at.asc(), HumanReviewAction.id.asc())
+        ).scalars()
+    )
+
+
 def create_decision_audit_event(
     db: Session,
     *,
@@ -188,7 +200,7 @@ def create_human_review_action(
     reason: str,
     reviewed_by: str,
     review_outcome: str | None = None,
-    notes: dict[str, Any] | list[Any] | None = None,
+    notes: Any = None,
     display_delta: dict[str, Any] | list[Any] | None = None,
     create_audit_event: bool = True,
 ) -> HumanReviewAction:
@@ -196,6 +208,10 @@ def create_human_review_action(
         raise ValueError("Human review reason is required.")
     if not reviewed_by:
         raise ValueError("Human review reviewer user id is required.")
+    if action_type not in {item.value for item in HumanReviewActionType}:
+        raise ValueError(f"Unsupported human review action_type: {action_type}")
+    if review_outcome not in {item.value for item in HumanReviewOutcome}:
+        raise ValueError(f"Unsupported human review review_outcome: {review_outcome}")
 
     decision = get_decision_by_id(db, decision_id=decision_id)
     if decision is None:
@@ -218,7 +234,7 @@ def create_human_review_action(
             db,
             decision_id=decision.id,
             event_type="human_review_action_created",
-            actor_type="human_reviewer",
+            actor_type="user",
             actor_user_id=reviewed_by,
             rule_version=decision.rule_version,
             policy_version=decision.policy_version,
@@ -226,12 +242,19 @@ def create_human_review_action(
                 "action_type": action_type,
                 "review_outcome": review_outcome,
                 "reason": reason.strip(),
-                "original_system_decision_state": decision.decision_state,
+                "original_decision_state": decision.decision_state,
                 "human_review_action_id": review_action.id,
             },
         )
 
     return review_action
+
+
+def decode_human_review_action_payloads(action: HumanReviewAction) -> dict[str, Any]:
+    return {
+        "notes": json_text_loads(action.notes_json, default=None),
+        "display_delta": json_text_loads(action.display_delta_json, default=None),
+    }
 
 
 def decode_decision_outcome_payloads(decision: DecisionOutcome) -> dict[str, Any]:

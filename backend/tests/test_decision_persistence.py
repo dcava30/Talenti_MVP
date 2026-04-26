@@ -353,8 +353,8 @@ def test_human_review_action_preserves_original_system_decision_and_creates_audi
         review_action = decision_persistence.create_human_review_action(
             session,
             decision_id=decision.id,
-            action_type="REQUEST_FOLLOW_UP",
-            review_outcome="FOLLOW_UP_REQUIRED",
+            action_type="HUMAN_REVIEW",
+            review_outcome="HOLD_FOR_FURTHER_REVIEW",
             reason="Need stronger behavioural evidence on feedback receptivity.",
             reviewed_by=seeded["reviewer"].id,
             notes={"note": "Preserve the system outcome."},
@@ -378,7 +378,8 @@ def test_human_review_action_preserves_original_system_decision_and_creates_audi
         assert review_event is not None
         assert review_event.event_type == "human_review_action_created"
         payload = json_text.json_text_loads(review_event.event_payload_json, default={})
-        assert payload["original_system_decision_state"] == original_state
+        assert review_event.actor_type == "user"
+        assert payload["original_decision_state"] == original_state
         assert payload["human_review_action_id"] == review_action.id
 
 
@@ -404,8 +405,8 @@ def test_human_review_requires_reason() -> None:
             decision_persistence.create_human_review_action(
                 session,
                 decision_id=decision.id,
-                action_type="REQUEST_FOLLOW_UP",
-                review_outcome="FOLLOW_UP_REQUIRED",
+                action_type="HUMAN_REVIEW",
+                review_outcome="HOLD_FOR_FURTHER_REVIEW",
                 reason="   ",
                 reviewed_by=seeded["reviewer"].id,
             )
