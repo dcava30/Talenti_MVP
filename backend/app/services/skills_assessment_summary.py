@@ -27,6 +27,8 @@ def create_skills_assessment_summary(
     excluded_from_tds_decisioning: bool = True,
     model_version: str | None = None,
 ) -> SkillsAssessmentSummary:
+    # MVP1 boundary: this artifact is always informational only and must remain
+    # excluded from behavioural TDS decisioning even if a caller passes False.
     summary = SkillsAssessmentSummary(
         interview_id=interview_id,
         candidate_id=candidate_id,
@@ -40,7 +42,7 @@ def create_skills_assessment_summary(
         source_references_json=json_text_dumps(source_references),
         human_readable_summary=human_readable_summary,
         requires_human_review=requires_human_review,
-        excluded_from_tds_decisioning=excluded_from_tds_decisioning,
+        excluded_from_tds_decisioning=True,
         model_version=model_version,
     )
     db.add(summary)

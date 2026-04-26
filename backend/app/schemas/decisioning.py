@@ -7,11 +7,18 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.talenti_canonical.dimensions import CANONICAL_DIMENSIONS, DimensionName
 
-SKILLS_EXCLUSION_FIELDS = frozenset(
+NON_BEHAVIOURAL_EXCLUSION_FIELDS = frozenset(
     {
         "skills_score",
         "skills_outcome",
+        "skills_summary_id",
         "overall_score",
+        "match_score",
+        "ranking",
+        "rank",
+        "shortlist_position",
+        "best_candidate",
+        "best_candidate_id",
         "pass",
         "review",
         "fail",
@@ -25,6 +32,7 @@ SKILLS_EXCLUSION_FIELDS = frozenset(
         "skills_fit",
     }
 )
+SKILLS_EXCLUSION_FIELDS = NON_BEHAVIOURAL_EXCLUSION_FIELDS
 
 
 class DecisionState(str, Enum):
@@ -58,7 +66,7 @@ class DimensionEvaluationStatus(str, Enum):
     MISSING = "MISSING"
 
 
-def find_excluded_skills_fields(value: Any, path: str = "") -> list[str]:
+def find_excluded_non_behavioural_fields(value: Any, path: str = "") -> list[str]:
     matches: list[str] = []
 
     if isinstance(value, BaseModel):
@@ -68,26 +76,30 @@ def find_excluded_skills_fields(value: Any, path: str = "") -> list[str]:
         for key, nested in value.items():
             key_text = str(key)
             nested_path = f"{path}.{key_text}" if path else key_text
-            if key_text.lower() in SKILLS_EXCLUSION_FIELDS:
+            if key_text.lower() in NON_BEHAVIOURAL_EXCLUSION_FIELDS:
                 matches.append(nested_path)
-            matches.extend(find_excluded_skills_fields(nested, nested_path))
+            matches.extend(find_excluded_non_behavioural_fields(nested, nested_path))
         return matches
 
     if isinstance(value, list):
         for index, nested in enumerate(value):
             nested_path = f"{path}[{index}]" if path else f"[{index}]"
-            matches.extend(find_excluded_skills_fields(nested, nested_path))
+            matches.extend(find_excluded_non_behavioural_fields(nested, nested_path))
 
     return matches
 
 
+def find_excluded_skills_fields(value: Any, path: str = "") -> list[str]:
+    return find_excluded_non_behavioural_fields(value, path)
+
+
 def assert_behavioural_only_payload(value: Any) -> Any:
-    matches = sorted(set(find_excluded_skills_fields(value)))
+    matches = sorted(set(find_excluded_non_behavioural_fields(value)))
     if matches:
         formatted = ", ".join(matches)
         raise ValueError(
             "Decision Layer accepts behavioural evidence only. "
-            f"Remove skills-derived fields: {formatted}"
+            f"Remove skills-derived fields or ranking fields: {formatted}"
         )
     return value
 
@@ -223,8 +235,10 @@ __all__ = [
     "DimensionEvaluationStatus",
     "ExecutionFloorResult",
     "IntegrityState",
+    "NON_BEHAVIOURAL_EXCLUSION_FIELDS",
     "RiskSeverity",
     "SKILLS_EXCLUSION_FIELDS",
     "assert_behavioural_only_payload",
+    "find_excluded_non_behavioural_fields",
     "find_excluded_skills_fields",
 ]

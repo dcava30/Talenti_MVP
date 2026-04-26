@@ -59,9 +59,15 @@ Or use the one-command local bootstrap from the repo root:
 | `ACS_WORKER_URL` | Python ACS service URL | `` |
 | `ACS_WORKER_SHARED_SECRET` | Shared secret for ACS worker callbacks | `` |
 | `AUTO_SCORE_INTERVIEWS` | Auto-run scoring on interview completion | `false` |
+| `TDS_DECISION_SHADOW_WRITE_ENABLED` | Enable dark behavioural Decision Layer persistence behind the scoring flow | `false` |
+| `TDS_DECISION_INSPECTION_API_ENABLED` | Enable internal/admin behavioural decision inspection routes | `false` |
+| `TDS_SKILLS_SUMMARY_SHADOW_WRITE_ENABLED` | Enable dark Skills Assessment Summary persistence behind the scoring flow | `false` |
+| `TDS_SKILLS_SUMMARY_INSPECTION_API_ENABLED` | Enable internal/admin Skills Assessment Summary inspection routes | `false` |
+| `TDS_SHADOW_COMPARISON_API_ENABLED` | Enable internal/admin shadow comparison reads for legacy, TDS, and skills artifacts | `false` |
+| `TDS_RANKING_AND_SHORTLIST_QUARANTINE_ENABLED` | Disable shortlist ranking payloads under the MVP1 decision policy boundary | `false` |
 | `TDS_RECRUITER_DECISION_API_ENABLED` | Enable recruiter-facing behavioural decision reads | `false` |
 | `TDS_RECRUITER_SKILLS_SUMMARY_API_ENABLED` | Enable recruiter-facing Skills Assessment Summary reads | `false` |
-| `TDS_HUMAN_REVIEW_API_ENABLED` | Enable recruiter-facing decision human review create/list routes | `false` |
+| `TDS_HUMAN_REVIEW_API_ENABLED` | Enable flagged human review / exception handling create/list routes for authorised admins | `false` |
 | `AZURE_STORAGE_ACCOUNT` | Azure Blob Storage account name | `` |
 | `AZURE_ACS_CONNECTION_STRING` | Azure Communication Services connection | `` |
 | `AZURE_SPEECH_KEY` | Azure Speech Services key | `` |

@@ -11,6 +11,11 @@ from app.schemas.skills_assessment_inspection import (
     SkillsAssessmentSummaryInspectionDetailResponse,
     SkillsAssessmentSummaryInspectionSummaryResponse,
 )
+from app.services.skills_assessment_read_model import (
+    enforce_skills_decisioning_exclusion,
+    sanitize_skills_human_readable_summary,
+    sanitize_skills_source_references,
+)
 from app.services.skills_assessment_summary import (
     decode_skills_assessment_summary_payloads,
     get_latest_skills_assessment_summary_for_interview,
@@ -89,9 +94,9 @@ def _build_skills_summary_summary(
         organisation_id=summary.organisation_id,
         evidence_strength=summary.evidence_strength,
         confidence=summary.confidence,
-        human_readable_summary=summary.human_readable_summary,
+        human_readable_summary=sanitize_skills_human_readable_summary(summary.human_readable_summary),
         requires_human_review=summary.requires_human_review,
-        excluded_from_tds_decisioning=summary.excluded_from_tds_decisioning,
+        excluded_from_tds_decisioning=enforce_skills_decisioning_exclusion(summary.excluded_from_tds_decisioning),
         model_version=summary.model_version,
         created_at=summary.created_at,
     )
@@ -106,7 +111,7 @@ def _build_skills_summary_detail(
         observed_competencies=decoded["observed_competencies"],
         competency_coverage=decoded["competency_coverage"],
         skill_gaps=decoded["skill_gaps"],
-        source_references=decoded["source_references"],
+        source_references=sanitize_skills_source_references(decoded["source_references"]),
     )
 
 

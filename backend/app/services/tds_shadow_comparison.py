@@ -336,7 +336,7 @@ def _build_skills_summary_status(summary: SkillsAssessmentSummary | None) -> Ski
         status="present",
         requires_human_review=summary.requires_human_review,
         evidence_strength=summary.evidence_strength,
-        excluded_from_tds_decisioning=summary.excluded_from_tds_decisioning,
+        excluded_from_tds_decisioning=True,
         created_at=summary.created_at,
     )
 

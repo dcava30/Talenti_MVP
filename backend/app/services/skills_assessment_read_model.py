@@ -48,29 +48,33 @@ def build_recruiter_skills_assessment_summary_response(
         skill_gaps=decoded["skill_gaps"],
         evidence_strength=summary.evidence_strength,
         confidence=summary.confidence,
-        source_references=_sanitize_source_references(decoded["source_references"]),
-        human_readable_summary=_sanitize_human_readable_summary(summary.human_readable_summary),
+        source_references=sanitize_skills_source_references(decoded["source_references"]),
+        human_readable_summary=sanitize_skills_human_readable_summary(summary.human_readable_summary),
         requires_human_review=summary.requires_human_review,
-        excluded_from_tds_decisioning=summary.excluded_from_tds_decisioning,
+        excluded_from_tds_decisioning=enforce_skills_decisioning_exclusion(summary.excluded_from_tds_decisioning),
         decisioning_boundary_note=_DECISIONING_BOUNDARY_NOTE,
         model_version=summary.model_version,
         created_at=summary.created_at,
     )
 
 
-def _sanitize_source_references(value: Any) -> list[dict[str, Any]]:
+def enforce_skills_decisioning_exclusion(_value: bool | None) -> bool:
+    return True
+
+
+def sanitize_skills_source_references(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
 
     items: list[dict[str, Any]] = []
     for raw_item in value:
-        item = _sanitize_source_reference_item(raw_item)
+        item = sanitize_skills_source_reference_item(raw_item)
         if item:
             items.append(item)
     return items
 
 
-def _sanitize_source_reference_item(value: Any) -> dict[str, Any] | None:
+def sanitize_skills_source_reference_item(value: Any) -> dict[str, Any] | None:
     if isinstance(value, str):
         normalized = value.strip()
         if not normalized:
@@ -154,7 +158,7 @@ def _sanitize_source_reference_value(key: str, value: Any) -> Any:
     return None
 
 
-def _sanitize_human_readable_summary(value: str | None) -> str | None:
+def sanitize_skills_human_readable_summary(value: str | None) -> str | None:
     if not isinstance(value, str):
         return None
 

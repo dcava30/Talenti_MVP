@@ -554,7 +554,7 @@ def test_latest_skills_summary_by_interview_returns_latest_created_summary() -> 
     assert payload["observed_competencies"][0]["competency"] == "discovery"
     assert payload["competency_coverage"]["coverage_band"] == "partial"
     assert payload["skill_gaps"] == ["forecasting"]
-    assert payload["source_references"][0]["raw_hiring_label"] == "PASS"
+    assert payload["source_references"] == [{"source": "legacy-ms2"}]
     _assert_non_decisional_response(payload)
 
 
@@ -577,8 +577,7 @@ def test_skills_summary_by_id_returns_expected_detail_without_joining_decision_o
     assert response.status_code == 200
     payload = response.json()
     assert payload["skills_summary_id"] == seeded["first_summary_id"]
-    assert payload["source_references"][0]["raw_review_marker"] == "REVIEW"
-    assert payload["source_references"][0]["raw_fail_marker"] == "FAIL"
+    assert payload["source_references"] == [{"source": "legacy-ms2"}]
     assert payload["requires_human_review"] is True
     assert "decision_id" not in payload
     assert "decision_state" not in payload
@@ -709,9 +708,13 @@ def test_skills_summary_inspection_does_not_surface_behavioural_or_ranking_field
     assert "ranking" not in payload
     assert "match_score" not in payload
     assert "shortlist_position" not in payload
+    assert "ranking" not in payload["source_references"][0]
+    assert "skills_outcome" not in payload["source_references"][0]
+    assert "raw_hiring_label" not in payload["source_references"][0]
+    assert "raw_review_marker" not in payload["source_references"][0]
+    assert "raw_fail_marker" not in payload["source_references"][0]
     assert payload["excluded_from_tds_decisioning"] is True
-    assert payload["source_references"][0]["ranking"] == 2
-    assert payload["source_references"][0]["skills_outcome"] == "REVIEW"
+    assert payload["source_references"] == [{"source": "legacy-ms2"}]
     _assert_non_decisional_response(payload)
 
 
